@@ -17,7 +17,7 @@
 | `winia package` | Package installers/archives/APK/AAB | Planned |
 | `winia sign` | Code signing | Planned |
 | `winia release` | Version, tag, publish | Planned |
-| `winia doctor` | Environment diagnostics | Basic version implemented |
+| `winia doctor` | Environment diagnostics | Implemented (Rust/MSRV, platform toolchains, Android SDK/NDK, `--fix`) |
 | `winia add` / `remove` / `update` | Dependency management | Planned |
 | `winia assets` | Icon and asset generation | Planned |
 | `winia ci` | Generate CI configuration | Planned |
@@ -416,7 +416,9 @@ winia doctor --fix
 ```
 
 `doctor` exits non-zero when a required check is missing. Without `--target`, Android
-prerequisites are reported as warnings; `--strict` turns warnings into failures.
+prerequisites are reported as warnings; `--strict` turns warnings into failures. `--fix`
+applies safe automatic fixes (installing missing Rust targets) and prints the exact commands
+for everything that must be done manually.
 
 ### 7.2 Toolchain management
 
@@ -515,7 +517,7 @@ winia upgrade
 | --- | --- |
 | clap command surface | Implemented; covers every command in this document |
 | Minimal `winia new` template | Implemented |
-| `winia doctor` environment checks | Basic version implemented |
+| `winia doctor` environment checks | Implemented; covers MSRV, host platform toolchains, Android SDK/NDK/licenses, `winia.toml` validation, `--strict` and `--fix` |
 | `winia info` / `targets` | Implemented |
 | `winia config show/get` | Implemented |
 | Shell completions | Implemented |

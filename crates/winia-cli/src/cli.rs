@@ -232,7 +232,7 @@ pub struct DoctorArgs {
     /// Focus the report on one target (windows, macos, linux, android).
     #[arg(long)]
     pub target: Option<String>,
-    /// Apply safe automatic fixes (planned).
+    /// Apply safe automatic fixes and print the commands for manual steps.
     #[arg(long)]
     pub fix: bool,
     /// Emit machine-readable output.

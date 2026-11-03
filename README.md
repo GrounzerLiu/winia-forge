@@ -53,7 +53,7 @@ winia-forge/
 Implemented:
 
 - `winia new`: generate a minimal Winia application (Cargo package, `winia.toml`, README)
-- `winia doctor`: check the Rust toolchain, the Android SDK/NDK environment variables, and `winia.toml`
+- `winia doctor`: diagnose the Rust toolchain and MSRV, platform toolchains, the Android SDK/NDK, and `winia.toml` validation
 - `winia info` / `winia targets`: environment and target platform information
 - `winia config show/get`: read `winia.toml`
 - `winia completions`: generate shell completions
