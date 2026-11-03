@@ -238,6 +238,9 @@ pub struct DoctorArgs {
     /// Emit machine-readable output.
     #[arg(long)]
     pub json: bool,
+    /// Treat optional warnings as failures (useful in CI).
+    #[arg(long)]
+    pub strict: bool,
 }
 
 #[derive(Debug, Args)]

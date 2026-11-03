@@ -411,8 +411,12 @@ Checks:
 winia doctor
 winia doctor --target android
 winia doctor --target android --json
+winia doctor --strict
 winia doctor --fix
 ```
+
+`doctor` exits non-zero when a required check is missing. Without `--target`, Android
+prerequisites are reported as warnings; `--strict` turns warnings into failures.
 
 ### 7.2 Toolchain management
 
