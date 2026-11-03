@@ -1,0 +1,15 @@
+/target
+# Winia build artifacts
+/dist
+*.pdb
+*.exe
+*.dll
+*.dylib
+*.so
+*.apk
+*.aab
+# Local Android configuration (contains machine-specific paths)
+/android/local.properties
+# IDE
+/.idea
+/.vscode

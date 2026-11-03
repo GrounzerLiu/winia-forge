@@ -1,0 +1,8 @@
+[package]
+name = "winia-pack"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Cross-platform packaging primitives for Winia applications"
