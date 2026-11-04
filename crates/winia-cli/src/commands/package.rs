@@ -12,9 +12,14 @@ use crate::config::WiniaConfig;
 use crate::platform::android::Abi;
 use crate::platform::tools::{apksigner_command, build_tools_dir, executable};
 use anyhow::{Context, Result, bail};
+use flate2::Compression;
+use flate2::write::GzEncoder;
+use std::fs::File;
+use std::io::copy;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
+use zip::write::SimpleFileOptions;
 
 pub fn run(args: PackageArgs) -> Result<()> {
     let started = Instant::now();
@@ -29,10 +34,15 @@ pub fn run(args: PackageArgs) -> Result<()> {
     config.validate()?;
 
     let targets = resolve_targets(&root, &args)?;
-    if targets.iter().any(|target| target != "android") {
-        bail!("only Android packaging is implemented");
+    if targets.len() != 1 {
+        bail!("package one target at a time");
     }
-    package_android(&root, &config, &args, started)
+    let target = &targets[0];
+    if target == "android" {
+        package_android(&root, &config, &args, started)
+    } else {
+        package_desktop(&root, &config, &args, target, started)
+    }
 }
 
 fn resolve_targets(root: &Path, args: &PackageArgs) -> Result<Vec<String>> {
@@ -40,19 +50,387 @@ fn resolve_targets(root: &Path, args: &PackageArgs) -> Result<Vec<String>> {
         if root.join("android").is_dir() {
             return Ok(vec!["android".to_owned()]);
         }
-        bail!("no packageable platform found; pass --target android");
+        return Ok(vec![build::host_target().to_owned()]);
     }
     let mut targets = Vec::new();
     for target in &args.target {
         match target.as_str() {
-            "android" => targets.push("android".to_owned()),
-            "windows" | "macos" | "linux" => bail!(
-                "packaging for {target} is not implemented yet; only --target android is supported"
-            ),
-            other => bail!("unknown target '{other}'; expected android"),
+            "android" | "windows" | "macos" | "linux" => {
+                if !targets.contains(target) {
+                    targets.push(target.clone());
+                }
+            }
+            other => bail!("unknown target '{other}'; expected windows, macos, linux, or android"),
         }
     }
     Ok(targets)
+}
+
+fn package_desktop(
+    root: &Path,
+    config: &WiniaConfig,
+    args: &PackageArgs,
+    target: &str,
+    started: Instant,
+) -> Result<()> {
+    if target != build::host_target() {
+        bail!(
+            "packaging {target} on {} is not supported; run this on {target}",
+            build::host_target()
+        );
+    }
+    let out_dir = output_dir(root, args);
+    let stem = artifact_stem(config);
+    let version = config.app.version.clone();
+    let arch = std::env::consts::ARCH;
+    let formats = desktop_formats(target, config, args)?;
+    let planned = planned_desktop_artifacts(&stem, &version, target, arch, &formats, &out_dir);
+
+    if args.dry_run {
+        return report(
+            root,
+            &planned,
+            true,
+            args.json,
+            started.elapsed(),
+            ReportMeta {
+                target,
+                formats: &formats,
+                split: None,
+                version: &version,
+            },
+        );
+    }
+
+    std::fs::create_dir_all(&out_dir).with_context(|| format!("creating {}", out_dir.display()))?;
+    if args.clean {
+        clean_desktop_output(&out_dir, &stem, &version, target)?;
+    }
+
+    let built = build::build_all(
+        root,
+        config,
+        &BuildArgs {
+            target: vec![target.to_owned()],
+            release: args.release,
+            abi: Vec::new(),
+            features: Vec::new(),
+            json: args.json,
+            out_dir: None,
+        },
+    )?;
+    let executable = built
+        .iter()
+        .flat_map(|(_, artifacts)| artifacts)
+        .find(|artifact| extension(&artifact.path) != Some("apk") && artifact.path.is_file())
+        .ok_or_else(|| anyhow::anyhow!("the build produced no executable"))?;
+
+    let stage = root
+        .join("target")
+        .join("winia-package")
+        .join(format!("{stem}-{version}-{target}-{arch}"));
+    if stage.exists() {
+        std::fs::remove_dir_all(&stage).with_context(|| format!("removing {}", stage.display()))?;
+    }
+    std::fs::create_dir_all(&stage).with_context(|| format!("creating {}", stage.display()))?;
+    let executable_name = executable
+        .path
+        .file_name()
+        .ok_or_else(|| anyhow::anyhow!("executable has no file name"))?;
+    std::fs::copy(&executable.path, stage.join(executable_name))
+        .with_context(|| format!("copying {}", executable.path.display()))?;
+    let assets = root.join("assets");
+    if assets.is_dir() {
+        copy_dir_all(&assets, &stage.join("assets"))?;
+    }
+
+    let mut produced = Vec::new();
+    for format in &formats {
+        let destination = desktop_artifact_path(&stem, &version, target, arch, format, &out_dir);
+        match format.as_str() {
+            "zip" => zip_directory(&stage, &destination)?,
+            "tar.gz" => tar_gz_directory(&stage, &destination)?,
+            "app" => build_macos_app(&stage, &destination, config)?,
+            other => bail!("unsupported desktop format '{other}'"),
+        }
+        produced.push(destination);
+    }
+
+    report(
+        root,
+        &produced,
+        false,
+        args.json,
+        started.elapsed(),
+        ReportMeta {
+            target,
+            formats: &formats,
+            split: None,
+            version: &version,
+        },
+    )
+}
+
+fn output_dir(root: &Path, args: &PackageArgs) -> PathBuf {
+    match &args.out_dir {
+        Some(path) if path.is_absolute() => path.clone(),
+        Some(path) => root.join(path),
+        None => root.join("dist"),
+    }
+}
+
+fn desktop_formats(target: &str, config: &WiniaConfig, args: &PackageArgs) -> Result<Vec<String>> {
+    let configured = match target {
+        "windows" => &config.package.windows.formats,
+        "macos" => &config.package.macos.formats,
+        "linux" => &config.package.linux.formats,
+        other => bail!("unknown desktop target '{other}'"),
+    };
+    let supported: &[&str] = match target {
+        "windows" => &["zip"],
+        "macos" => &["app", "zip"],
+        "linux" => &["tar.gz"],
+        _ => &[],
+    };
+    let requested = if args.format.is_empty() {
+        configured
+    } else {
+        &args.format
+    };
+    let mut formats = Vec::new();
+    let mut skipped = Vec::new();
+    for format in requested {
+        let format = format.to_lowercase();
+        if supported.contains(&format.as_str()) {
+            if !formats.contains(&format) {
+                formats.push(format);
+            }
+        } else if args.format.is_empty() {
+            skipped.push(format);
+        } else {
+            bail!(
+                "format '{format}' is not supported for {target} yet; portable formats: {}",
+                supported.join(", ")
+            );
+        }
+    }
+    if formats.is_empty() {
+        formats.push(supported[0].to_owned());
+    }
+    if !skipped.is_empty() && !args.json {
+        eprintln!(
+            "note: installers are not implemented yet; skipped: {}",
+            skipped.join(", ")
+        );
+    }
+    Ok(formats)
+}
+
+fn planned_desktop_artifacts(
+    stem: &str,
+    version: &str,
+    target: &str,
+    arch: &str,
+    formats: &[String],
+    out_dir: &Path,
+) -> Vec<PathBuf> {
+    formats
+        .iter()
+        .map(|format| desktop_artifact_path(stem, version, target, arch, format, out_dir))
+        .collect()
+}
+
+fn desktop_artifact_path(
+    stem: &str,
+    version: &str,
+    target: &str,
+    arch: &str,
+    format: &str,
+    out_dir: &Path,
+) -> PathBuf {
+    out_dir.join(format!("{stem}-{version}-{target}-{arch}.{format}"))
+}
+
+fn clean_desktop_output(out_dir: &Path, stem: &str, version: &str, target: &str) -> Result<()> {
+    if !out_dir.is_dir() {
+        return Ok(());
+    }
+    let prefix = format!("{stem}-{version}-{target}-");
+    for entry in
+        std::fs::read_dir(out_dir).with_context(|| format!("reading {}", out_dir.display()))?
+    {
+        let path = entry?.path();
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if !name.starts_with(&prefix) {
+            continue;
+        }
+        if path.is_dir() {
+            std::fs::remove_dir_all(&path)
+                .with_context(|| format!("removing {}", path.display()))?;
+        } else {
+            std::fs::remove_file(&path).with_context(|| format!("removing {}", path.display()))?;
+        }
+    }
+    Ok(())
+}
+
+fn copy_dir_all(source: &Path, destination: &Path) -> Result<()> {
+    std::fs::create_dir_all(destination)
+        .with_context(|| format!("creating {}", destination.display()))?;
+    for entry in
+        std::fs::read_dir(source).with_context(|| format!("reading {}", source.display()))?
+    {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        if file_type.is_symlink() {
+            continue;
+        }
+        let target = destination.join(entry.file_name());
+        if file_type.is_dir() {
+            copy_dir_all(&entry.path(), &target)?;
+        } else if file_type.is_file() {
+            std::fs::copy(entry.path(), &target).with_context(|| {
+                format!("copying {} to {}", entry.path().display(), target.display())
+            })?;
+        }
+    }
+    Ok(())
+}
+
+fn collect_files(root: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
+    for entry in std::fs::read_dir(root).with_context(|| format!("reading {}", root.display()))? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        if file_type.is_symlink() {
+            continue;
+        }
+        if file_type.is_dir() {
+            collect_files(&entry.path(), files)?;
+        } else if file_type.is_file() {
+            files.push(entry.path());
+        }
+    }
+    Ok(())
+}
+
+fn zip_directory(stage: &Path, archive: &Path) -> Result<()> {
+    let file = File::create(archive).with_context(|| format!("creating {}", archive.display()))?;
+    let mut zip = zip::ZipWriter::new(file);
+    let root_name = stage
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "app".to_owned());
+    let mut files = Vec::new();
+    collect_files(stage, &mut files)?;
+    for path in files {
+        let relative = path.strip_prefix(stage).unwrap_or(&path);
+        let name = format!(
+            "{root_name}/{}",
+            relative.to_string_lossy().replace('\\', "/")
+        );
+        let executable = {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::metadata(&path)?.permissions().mode() & 0o111 != 0
+            }
+            #[cfg(not(unix))]
+            {
+                false
+            }
+        };
+        let options = SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated)
+            .unix_permissions(if executable { 0o755 } else { 0o644 });
+        zip.start_file(name, options)
+            .with_context(|| format!("adding {} to zip", path.display()))?;
+        let mut source =
+            File::open(&path).with_context(|| format!("opening {}", path.display()))?;
+        copy(&mut source, &mut zip)
+            .with_context(|| format!("writing {} to zip", path.display()))?;
+    }
+    zip.finish().context("finishing zip archive")?;
+    Ok(())
+}
+
+fn tar_gz_directory(stage: &Path, archive: &Path) -> Result<()> {
+    let file = File::create(archive).with_context(|| format!("creating {}", archive.display()))?;
+    let encoder = GzEncoder::new(file, Compression::default());
+    let mut builder = tar::Builder::new(encoder);
+    let root_name = stage
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "app".to_owned());
+    builder
+        .append_dir_all(root_name, stage)
+        .context("adding project directory to tar")?;
+    let encoder = builder.into_inner().context("finishing tar")?;
+    encoder.finish().context("finishing gzip")?;
+    Ok(())
+}
+
+fn build_macos_app(stage: &Path, bundle: &Path, config: &WiniaConfig) -> Result<()> {
+    if bundle.exists() {
+        std::fs::remove_dir_all(bundle)
+            .with_context(|| format!("removing {}", bundle.display()))?;
+    }
+    let contents = bundle.join("Contents");
+    let macos = contents.join("MacOS");
+    let resources = contents.join("Resources");
+    std::fs::create_dir_all(&macos).with_context(|| format!("creating {}", macos.display()))?;
+    std::fs::create_dir_all(&resources)
+        .with_context(|| format!("creating {}", resources.display()))?;
+
+    let mut executable = None;
+    for entry in std::fs::read_dir(stage)? {
+        let entry = entry?;
+        if entry.file_type()?.is_file() {
+            executable = Some(entry.path());
+            break;
+        }
+    }
+    let executable = executable.ok_or_else(|| anyhow::anyhow!("no executable to bundle"))?;
+    let executable_name = executable
+        .file_name()
+        .ok_or_else(|| anyhow::anyhow!("executable has no file name"))?
+        .to_owned();
+    std::fs::copy(&executable, macos.join(&executable_name))?;
+    let assets = stage.join("assets");
+    if assets.is_dir() {
+        copy_dir_all(&assets, &resources.join("assets"))?;
+    }
+
+    let plist = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n\
+<plist version=\"1.0\"><dict>\n\
+  <key>CFBundleName</key><string>{}</string>\n\
+  <key>CFBundleIdentifier</key><string>{}</string>\n\
+  <key>CFBundleExecutable</key><string>{}</string>\n\
+  <key>CFBundlePackageType</key><string>APPL</string>\n\
+  <key>CFBundleShortVersionString</key><string>{}</string>\n\
+  <key>CFBundleVersion</key><string>{}</string>\n\
+  <key>LSMinimumSystemVersion</key><string>11.0</string>\n\
+</dict></plist>\n",
+        xml_escape(&config.app.name),
+        xml_escape(&config.app.id),
+        xml_escape(&executable_name.to_string_lossy()),
+        xml_escape(&config.app.version),
+        xml_escape(&config.app.version),
+    );
+    std::fs::write(contents.join("Info.plist"), plist)?;
+    Ok(())
+}
+
+fn xml_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
 }
 
 fn package_android(
@@ -117,8 +495,9 @@ fn package_android(
             args.json,
             started.elapsed(),
             ReportMeta {
+                target: "android",
                 formats: &formats,
-                split,
+                split: Some(split),
                 version: &version,
             },
         );
@@ -228,8 +607,9 @@ fn package_android(
         args.json,
         started.elapsed(),
         ReportMeta {
+            target: "android",
             formats: &formats,
-            split,
+            split: Some(split),
             version: &version,
         },
     )
@@ -534,8 +914,9 @@ fn badging_version(text: &str) -> Option<(Option<u32>, Option<String>)> {
 }
 
 struct ReportMeta<'a> {
+    target: &'a str,
     formats: &'a [String],
-    split: SplitMode,
+    split: Option<SplitMode>,
     version: &'a str,
 }
 
@@ -564,19 +945,21 @@ fn report(
                 })
             })
             .collect();
-        let split = match meta.split {
+        let split = meta.split.map(|split| match split {
             SplitMode::Universal => "universal",
             SplitMode::PerAbi => "per-abi",
-        };
-        let value = serde_json::json!({
-            "target": "android",
+        });
+        let mut value = serde_json::json!({
+            "target": meta.target,
             "version": meta.version,
             "formats": meta.formats,
-            "split": split,
             "dry_run": dry_run,
             "artifacts": values,
             "duration_ms": elapsed.as_millis(),
         });
+        if let Some(split) = split {
+            value["split"] = serde_json::json!(split);
+        }
         println!("{}", serde_json::to_string_pretty(&value)?);
         return Ok(());
     }
@@ -621,6 +1004,23 @@ mod tests {
         let mut config = WiniaConfig::default();
         config.app.name = "My App!".to_owned();
         assert_eq!(artifact_stem(&config), "my-app");
+    }
+
+    #[test]
+    fn desktop_artifact_names_include_target_and_arch() {
+        let out = Path::new("dist");
+        assert_eq!(
+            desktop_artifact_path("demo", "1.0.0", "windows", "x86_64", "zip", out),
+            PathBuf::from("dist/demo-1.0.0-windows-x86_64.zip")
+        );
+        assert_eq!(
+            desktop_artifact_path("demo", "1.0.0", "linux", "aarch64", "tar.gz", out),
+            PathBuf::from("dist/demo-1.0.0-linux-aarch64.tar.gz")
+        );
+        assert_eq!(
+            desktop_artifact_path("demo", "1.0.0", "macos", "aarch64", "app", out),
+            PathBuf::from("dist/demo-1.0.0-macos-aarch64.app")
+        );
     }
 
     #[test]

@@ -15,7 +15,7 @@
 | `winia dev` | Development mode: file watching + restart | Implemented (desktop restart, Android reinstall/restart, automatic debug-server) |
 | `winia inspect` | Debug-server client | Implemented: info, tree, click, drag, key, scroll, screenshot, registry/port discovery |
 | `winia test` | Unit, UI, and device smoke tests | Implemented: host cargo tests, Android install/launch/logcat/screenshot smoke |
-| `winia package` | Package installers/archives/APK/AAB | Implemented for Android APK/AAB |
+| `winia package` | Package installers/archives/APK/AAB | Implemented: desktop portable zip/tar.gz/app + Android APK/AAB; installers pending |
 | `winia sign` | Code signing | Implemented for Android APKs |
 | `winia release` | Version, tag, publish | Implemented for Android (local artifacts + GitHub upload) |
 | `winia doctor` | Environment diagnostics | Implemented (Rust/MSRV, platform toolchains, Android SDK/NDK, `--fix`) |
@@ -367,9 +367,13 @@ winia inspect discover
 
 ```bash
 winia package
-winia package --release --format zip
-winia package --target windows --format msi,nsis
+winia package --target windows --release --format zip
+winia package --target linux --format tar.gz
+winia package --target macos --format app,zip
 winia package --target android --format apk,aab --split per-abi
+
+Implemented portable formats: Windows `zip`; Linux `tar.gz`; macOS `app`, `zip`; Android `apk`, `aab`.
+Installer formats (NSIS, MSI, DMG, PKG, deb, rpm, AppImage) are not implemented yet.
 ```
 
 ### 5.2 General requirements
@@ -377,11 +381,13 @@ winia package --target android --format apk,aab --split per-abi
 - The version comes from `app.version` in `winia.toml`; Android's `versionCode` is maintained separately.
 - Artifact naming template: `{app}-{version}-{os}-{arch}.{ext}`.
 - The output directory defaults to `dist/`; `--out-dir` overrides it.
-- Generates SHA256 checksums and a JSON manifest.
-- Optionally generates a third-party license list.
+- Portable desktop artifacts include the executable and the project `assets/` directory when present.
 - The build report includes each artifact's size, so accidental bloat is easy to spot.
+- SHA256 checksums and a JSON manifest are not generated yet.
 
 ### 5.3 Windows packaging
+
+Implemented: `zip` portable archive containing the executable and `assets/`. Installers are pending.
 
 - Icons: multi-size `.ico` (16–256).
 - Version resources: product name, company name, copyright, file version.
@@ -392,6 +398,8 @@ winia package --target android --format apk,aab --split per-abi
 
 ### 5.4 macOS packaging
 
+Implemented: basic `.app` bundle (`Contents/MacOS`, `Contents/Resources`, `Info.plist`) and `zip`. Signing, notarisation, DMG, and PKG are pending.
+
 - `.app`: `Info.plist`, bundle id, minimum system version, LSUIElement (tray applications).
 - Icons: `.icns`.
 - Universal binary: `--arch universal` builds x86_64 + arm64.
@@ -400,6 +408,8 @@ winia package --target android --format apk,aab --split per-abi
 - Notarisation: `notarytool` submission, `stapler` stapling, `spctl` verification.
 
 ### 5.5 Linux packaging
+
+Implemented: `tar.gz` portable directory. Installers are pending.
 
 - `tar.gz`: portable directory.
 - `deb`: control file, dependencies, maintainer scripts, desktop file, icons.
@@ -628,7 +638,7 @@ winia upgrade
 | `winia platform add android` | Placeholder directory |
 | `winia build` | Implemented: host executable and Android APK |
 | `winia run` | Implemented: host and Android |
-| `winia package` | Implemented: Android APK (universal or per-ABI) and AAB, with alignment/ABI/signature checks |
+| `winia package` | Implemented: desktop portable zip/tar.gz/app; Android APK/AAB with alignment/ABI/signature checks; installers pending |
 | `winia sign` | Implemented: Android APK signing with apksigner |
 | `winia release` | Implemented: Android bump/package/sign/tag/latest.json and optional GitHub upload |
 | Template system, hooks, plugins | Planned |

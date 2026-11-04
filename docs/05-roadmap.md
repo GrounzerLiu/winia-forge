@@ -40,7 +40,7 @@ Remaining:
 - [x] `winia dev`: file watching, process restart, and automatic debug-server.
 - [x] `winia test`: host cargo tests + Android install/launch/logcat/screenshot smoke.
 - [x] `winia clean`.
-- [ ] Portable artifacts for the three desktop platforms: Windows zip, macOS .app/zip, Linux tar.gz.
+- [x] Portable artifacts: Windows zip, macOS .app/zip, Linux tar.gz (installers pending).
 
 Acceptance:
 

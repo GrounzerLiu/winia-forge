@@ -67,7 +67,7 @@ Implemented:
 - `winia test`: run host cargo tests and an Android install/launch/logcat/screenshot smoke test
 - `winia clean`: remove `target/`, `dist/`, and Android build outputs, with `--dry-run`/`--all`
 - `winia inspect`: query the debug server for app identity, layout trees, input events, screenshots, and port discovery
-- `winia package`: assemble Android APKs (universal or per-ABI) and AABs into `dist/`, checking 16 KB alignment, native ABIs, and debug signatures
+- `winia package`: assemble portable desktop archives (Windows zip, Linux tar.gz, macOS app/zip) and Android APKs/AABs into `dist/`, checking Android alignment, ABIs, and debug signatures
 - `winia sign`: sign Android APKs with `apksigner`, writing `*-signed.apk` copies and verifying the certificate
 - `winia release`: bump the version, package, sign, tag, write `dist/latest.json`, and optionally publish a GitHub release
 - `winia doctor`: diagnose the Rust toolchain and MSRV, platform toolchains, the Android SDK/NDK, and `winia.toml` validation
