@@ -11,6 +11,7 @@ use crate::cli::BuildArgs;
 use crate::config::WiniaConfig;
 use crate::platform::android::Abi;
 use anyhow::{Context, Result, bail};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -40,13 +41,14 @@ pub fn run(args: BuildArgs) -> Result<()> {
     let config = WiniaConfig::load(&config_path)?;
     config.validate()?;
     let metadata = cargo_metadata(&root)?;
+    let features = effective_features(&config, &args);
 
     let targets = resolve_targets(&args.target)?;
     let mut built = Vec::new();
     for target in &targets {
         let artifacts = match target.as_str() {
-            "android" => build_android(&root, &config, &args, &metadata)?,
-            host => build_desktop(&root, &args, &metadata, host)?,
+            "android" => build_android(&root, &config, &args, &metadata, &features)?,
+            host => build_desktop(&root, &args, &metadata, host, &features)?,
         };
         built.push((target.clone(), artifacts));
     }
@@ -112,6 +114,7 @@ fn build_desktop(
     args: &BuildArgs,
     metadata: &ProjectMetadata,
     target: &str,
+    features: &[String],
 ) -> Result<Vec<Artifact>> {
     if target != host_target() {
         bail!(
@@ -125,8 +128,8 @@ fn build_desktop(
     if args.release {
         command.arg("--release");
     }
-    if !args.features.is_empty() {
-        command.arg("--features").arg(args.features.join(","));
+    if !features.is_empty() {
+        command.arg("--features").arg(features.join(","));
     }
     run_command(&mut command, "cargo build", args.json)?;
 
@@ -144,6 +147,7 @@ fn build_android(
     config: &WiniaConfig,
     args: &BuildArgs,
     metadata: &ProjectMetadata,
+    features: &[String],
 ) -> Result<Vec<Artifact>> {
     let android_dir = root.join("android");
     if !android_dir.is_dir() {
@@ -152,13 +156,16 @@ fn build_android(
         );
     }
 
+    ensure_android_project(&android_dir)?;
     let toolchain = AndroidToolchain::discover(config)?;
     let abis = selected_abis(config, args)?;
     ensure_rust_targets(&abis)?;
+    toolchain.validate(&abis)?;
+    clean_jni_libs(root, &abis)?;
 
     let mut artifacts = Vec::new();
     for abi in &abis {
-        build_android_library(root, args, metadata, &toolchain, *abi)?;
+        build_android_library(root, args, metadata, &toolchain, *abi, features)?;
     }
 
     let apk = run_gradle(&android_dir, args.release, args.json)?;
@@ -191,6 +198,7 @@ fn build_android_library(
     metadata: &ProjectMetadata,
     toolchain: &AndroidToolchain,
     abi: Abi,
+    features: &[String],
 ) -> Result<()> {
     let mut command = Command::new("cargo");
     command
@@ -199,8 +207,8 @@ fn build_android_library(
     if args.release {
         command.arg("--release");
     }
-    if !args.features.is_empty() {
-        command.arg("--features").arg(args.features.join(","));
+    if !features.is_empty() {
+        command.arg("--features").arg(features.join(","));
     }
     command.envs(toolchain.environment(abi));
     run_command(
@@ -228,10 +236,96 @@ fn build_android_library(
     std::fs::create_dir_all(&destination_dir)
         .with_context(|| format!("creating {}", destination_dir.display()))?;
     let destination = destination_dir.join(format!("lib{}.so", metadata.library_name));
-    std::fs::copy(&library, &destination)
-        .with_context(|| format!("copying {} to {}", library.display(), destination.display()))?;
+    copy_if_changed(&library, &destination)?;
     verify_alignment(toolchain, &destination)?;
     Ok(())
+}
+
+fn effective_features(config: &WiniaConfig, args: &BuildArgs) -> Vec<String> {
+    let mut features = config.build.features.clone();
+    for feature in &args.features {
+        if !features.iter().any(|existing| existing == feature) {
+            features.push(feature.clone());
+        }
+    }
+    features
+}
+
+fn ensure_android_project(android_dir: &Path) -> Result<()> {
+    let gradlew = android_dir.join(if cfg!(windows) {
+        "gradlew.bat"
+    } else {
+        "gradlew"
+    });
+    if !gradlew.is_file() {
+        bail!(
+            "{} does not look like a complete Android project (missing {}); run 'winia android sync' or recreate it with --platforms android",
+            android_dir.display(),
+            gradlew
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("gradlew")
+        );
+    }
+    let manifest = android_dir.join("app/src/main/AndroidManifest.xml");
+    if !manifest.is_file() {
+        bail!(
+            "{} is missing app/src/main/AndroidManifest.xml; run 'winia android sync'",
+            android_dir.display()
+        );
+    }
+    Ok(())
+}
+
+/// Remove native libraries for ABIs that are no longer selected, so a narrowed
+/// build cannot package a stale library left by an earlier build.
+fn clean_jni_libs(root: &Path, selected: &[Abi]) -> Result<()> {
+    let jni = root.join("android/app/src/main/jniLibs");
+    if !jni.is_dir() {
+        return Ok(());
+    }
+    for abi in Abi::ALL {
+        if selected.contains(&abi) {
+            continue;
+        }
+        let path = jni.join(abi.jni_libs_dir());
+        if path.is_dir() {
+            std::fs::remove_dir_all(&path)
+                .with_context(|| format!("removing stale {}", path.display()))?;
+        }
+    }
+    Ok(())
+}
+
+/// Copy only when the contents differ, so an unchanged library does not make
+/// Gradle repackage the APK on every build.
+fn copy_if_changed(source: &Path, destination: &Path) -> Result<()> {
+    if destination.is_file() && same_contents(source, destination)? {
+        return Ok(());
+    }
+    std::fs::copy(source, destination)
+        .with_context(|| format!("copying {} to {}", source.display(), destination.display()))?;
+    Ok(())
+}
+
+fn same_contents(left: &Path, right: &Path) -> Result<bool> {
+    if std::fs::metadata(left)?.len() != std::fs::metadata(right)?.len() {
+        return Ok(false);
+    }
+    let mut left_file = std::io::BufReader::new(std::fs::File::open(left)?);
+    let mut right_file = std::io::BufReader::new(std::fs::File::open(right)?);
+    let mut left_buffer = [0u8; 64 * 1024];
+    let mut right_buffer = [0u8; 64 * 1024];
+    loop {
+        let left_read = left_file.read(&mut left_buffer)?;
+        let right_read = right_file.read(&mut right_buffer)?;
+        if left_read != right_read || left_buffer[..left_read] != right_buffer[..right_read] {
+            return Ok(false);
+        }
+        if left_read == 0 {
+            return Ok(true);
+        }
+    }
 }
 
 fn run_gradle(android_dir: &Path, release: bool, json: bool) -> Result<PathBuf> {
@@ -256,6 +350,19 @@ fn run_gradle(android_dir: &Path, release: bool, json: bool) -> Result<PathBuf> 
         android_dir
             .join("app/build/outputs/apk")
             .join(if release { "release" } else { "debug" });
+
+    let preferred: &[&str] = if release {
+        &["app-release-unsigned.apk", "app-release.apk"]
+    } else {
+        &["app-debug.apk"]
+    };
+    for name in preferred {
+        let candidate = output_dir.join(name);
+        if candidate.is_file() {
+            return Ok(candidate);
+        }
+    }
+
     let mut apks = Vec::new();
     if let Ok(entries) = std::fs::read_dir(&output_dir) {
         for entry in entries.flatten() {
@@ -265,8 +372,12 @@ fn run_gradle(android_dir: &Path, release: bool, json: bool) -> Result<PathBuf> 
             }
         }
     }
-    apks.sort();
-    apks.into_iter().next().ok_or_else(|| {
+    apks.sort_by_key(|path| {
+        std::fs::metadata(path)
+            .and_then(|metadata| metadata.modified())
+            .ok()
+    });
+    apks.pop().ok_or_else(|| {
         anyhow::anyhow!(
             "Gradle finished but no APK was found in {}",
             output_dir.display()
@@ -318,6 +429,55 @@ impl AndroidToolchain {
             bin,
             min_sdk: config.android.min_sdk,
         })
+    }
+
+    /// Check that every selected ABI has an NDK clang wrapper for `min_sdk`.
+    fn validate(&self, abis: &[Abi]) -> Result<()> {
+        for abi in abis {
+            let clang = self.clang(*abi, false);
+            if clang.is_file() {
+                continue;
+            }
+            let available = self.available_api_levels(*abi);
+            let available = if available.is_empty() {
+                "none".to_owned()
+            } else {
+                available.join(", ")
+            };
+            bail!(
+                "the NDK at {} has no clang wrapper for {} API {} (available API levels: {})",
+                self.ndk.display(),
+                abi.rust_triple(),
+                self.min_sdk,
+                available
+            );
+        }
+        Ok(())
+    }
+
+    fn available_api_levels(&self, abi: Abi) -> Vec<String> {
+        let prefix = abi.rust_triple();
+        let mut levels = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(&self.bin) {
+            for entry in entries.flatten() {
+                let name = entry.file_name();
+                let Some(name) = name.to_str() else {
+                    continue;
+                };
+                let Some(rest) = name.strip_prefix(prefix) else {
+                    continue;
+                };
+                let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+                if digits.is_empty() || !rest[digits.len()..].starts_with("-clang") {
+                    continue;
+                }
+                if !levels.contains(&digits) {
+                    levels.push(digits);
+                }
+            }
+        }
+        levels.sort_by_key(|level| level.parse::<u32>().unwrap_or(0));
+        levels
     }
 
     fn clang(&self, abi: Abi, cxx: bool) -> PathBuf {
@@ -641,6 +801,9 @@ fn copy_artifacts(artifacts: &[&Artifact], out_dir: &Path) -> Result<()> {
             .file_name()
             .context("artifact has no file name")?;
         let destination = out_dir.join(name);
+        if artifact.path == destination {
+            continue;
+        }
         std::fs::copy(&artifact.path, &destination).with_context(|| {
             format!(
                 "copying {} to {}",
@@ -660,23 +823,41 @@ fn report(
     json: bool,
 ) -> Result<()> {
     if json {
-        let targets: Vec<_> = built
-            .iter()
-            .map(|(target, artifacts)| {
-                serde_json::json!({
-                    "target": target,
-                    "profile": profile,
-                    "artifacts": artifacts.iter().map(|artifact| serde_json::json!({
-                        "path": display_relative(root, &artifact.path),
+        let artifact_values = |artifacts: &[Artifact]| -> Vec<serde_json::Value> {
+            artifacts
+                .iter()
+                .map(|artifact| {
+                    serde_json::json!({
+                        "path": display_relative(root, &artifact.path).replace('\\', "/"),
                         "bytes": artifact.bytes,
-                    })).collect::<Vec<_>>(),
+                    })
                 })
+                .collect()
+        };
+        let value = if built.len() == 1 {
+            let (target, artifacts) = &built[0];
+            serde_json::json!({
+                "target": target,
+                "profile": profile,
+                "artifacts": artifact_values(artifacts),
+                "duration_ms": elapsed.as_millis(),
             })
-            .collect();
-        let value = serde_json::json!({
-            "targets": targets,
-            "duration_ms": elapsed.as_millis(),
-        });
+        } else {
+            let targets: Vec<_> = built
+                .iter()
+                .map(|(target, artifacts)| {
+                    serde_json::json!({
+                        "target": target,
+                        "profile": profile,
+                        "artifacts": artifact_values(artifacts),
+                    })
+                })
+                .collect();
+            serde_json::json!({
+                "targets": targets,
+                "duration_ms": elapsed.as_millis(),
+            })
+        };
         println!("{}", serde_json::to_string_pretty(&value)?);
         return Ok(());
     }
@@ -703,4 +884,36 @@ fn display_relative(root: &Path, path: &Path) -> String {
     path.strip_prefix(root)
         .map(|relative| relative.display().to_string())
         .unwrap_or_else(|_| path.display().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(target: &[&str], features: &[&str]) -> BuildArgs {
+        BuildArgs {
+            target: target.iter().map(|value| (*value).to_owned()).collect(),
+            release: false,
+            abi: Vec::new(),
+            features: features.iter().map(|value| (*value).to_owned()).collect(),
+            json: false,
+            out_dir: None,
+        }
+    }
+
+    #[test]
+    fn merges_config_and_cli_features_without_duplicates() {
+        let mut config = WiniaConfig::default();
+        config.build.features = vec!["a".to_owned(), "b".to_owned()];
+        let args = args(&[], &["b", "c"]);
+        assert_eq!(effective_features(&config, &args), vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn all_expands_to_host_and_android() {
+        let targets = resolve_targets(&["all".to_owned()]).unwrap();
+        assert_eq!(targets.len(), 2);
+        assert!(targets.contains(&host_target().to_owned()));
+        assert!(targets.contains(&"android".to_owned()));
+    }
 }

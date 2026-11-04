@@ -47,8 +47,8 @@ winia new my-app --template counter --no-git
 Requirements:
 
 - The default directory is `./<name>`; `--path` overrides it.
-- When developing Winia itself, point at a local crate with `--winia-path D:\Projects\winia\winia` or the
-  `WINIA_PATH` environment variable; without it, `winia = "0.2"` is generated.
+- The `winia` crate is not published on crates.io yet, so `--winia-path` (or `WINIA_PATH`) is
+  required; the generated `Cargo.toml` uses a path dependency to that checkout.
 - Interactive wizard: template, target platforms, Rust edition, render backend, whether to initialise git.
 - Non-interactive mode: every option can be passed as a flag, suitable for scripts and CI.
 - A non-empty target directory is refused by default; with `--force`, the files that would be overwritten
@@ -221,7 +221,7 @@ winia clean --all
 | Linux → Windows | `cargo-xwin` |
 | Windows → Linux | WSL / `cargo-zigbuild` |
 | macOS | Can only be built on macOS (the tool detects this and says so) |
-| Android | `cargo-ndk` + Gradle (see 03-android-support.md) |
+| Android | Built-in NDK driver + Gradle (no cargo-ndk; see 03-android-support.md) |
 
 `winia build --target all` builds the target matrix one by one; when a toolchain is missing on the host it
 reports a clear error instead of silently skipping.
@@ -238,6 +238,9 @@ reports a clear error instead of silently skipping.
   "duration_ms": 34567
 }
 ```
+
+A single target uses the shape above. `--target all` emits
+`{ "targets": [ { "target", "profile", "artifacts" }, ... ], "duration_ms": ... }`.
 
 ## 4. Running, development, and testing
 
@@ -452,7 +455,7 @@ The generated GitHub Actions workflow includes:
 
 - A three-platform matrix: `windows-latest`, `macos-latest`, `ubuntu-latest`.
 - Rust caching, sccache.
-- Android: SDK/NDK installation, Gradle caching, `cargo-ndk`.
+- Android: SDK/NDK installation, Gradle caching, the built-in NDK driver.
 - build + test + package.
 - Artifact upload.
 - Signing/notarisation/Play upload on release (using Secrets).

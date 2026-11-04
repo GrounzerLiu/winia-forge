@@ -10,16 +10,20 @@ The official project toolchain for Winia: create, build, run, and package Winia 
 
 ```bash
 cargo run -p winia-cli -- --help
-cargo run -p winia-cli -- new my-app
+cargo run -p winia-cli -- new my-app --winia-path D:\Projects\winia\winia
 cd my-app
 cargo run -p winia-cli -- doctor
 ```
+
+`winia` is not published on crates.io yet, so `--winia-path` (or the `WINIA_PATH` environment
+variable) is required when creating a project. It points at the `winia` crate, for example
+`D:\Projects\winia\winia`.
 
 After installation the binary is named `winia`:
 
 ```bash
 cargo install --path crates/winia-cli
-winia new my-app
+winia new my-app --winia-path D:\Projects\winia\winia
 ```
 
 ## Workspace

@@ -137,8 +137,8 @@ pub fn run(args: NewArgs) -> Result<()> {
     let winia_android = winia_dependency(
         args.winia_path.clone(),
         &["android-game-activity", "vulkan"],
-    );
-    let winia_desktop = winia_dependency(args.winia_path.clone(), &["gl"]);
+    )?;
+    let winia_desktop = winia_dependency(args.winia_path.clone(), &["gl"])?;
 
     let vars: Vec<(&str, &str)> = vec![
         ("__APP_NAME__", args.name.as_str()),
@@ -170,6 +170,8 @@ pub fn run(args: NewArgs) -> Result<()> {
             write_rendered(&root, file, &vars)?;
         }
         write_bytes(&root, "android/gradlew", ANDROID_GRADLEW)?;
+        #[cfg(unix)]
+        make_executable(&root.join("android/gradlew"))?;
         write_bytes(&root, "android/gradlew.bat", ANDROID_GRADLEW_BAT)?;
         write_bytes(
             &root,
@@ -220,9 +222,9 @@ fn package_name(name: &str) -> Result<String> {
     Ok(package)
 }
 
-/// Render the Cargo dependency value for winia. A local checkout passed through
-/// `--winia-path` or `WINIA_PATH` wins; otherwise the crates.io release is used.
-fn winia_dependency(explicit: Option<PathBuf>, features: &[&str]) -> String {
+/// Render the Cargo dependency value for winia. The crate is not published yet, so
+/// a local checkout passed through `--winia-path` or `WINIA_PATH` is required.
+fn winia_dependency(explicit: Option<PathBuf>, features: &[&str]) -> Result<String> {
     let path = explicit.or_else(|| std::env::var_os("WINIA_PATH").map(PathBuf::from));
     let features = features
         .iter()
@@ -230,14 +232,13 @@ fn winia_dependency(explicit: Option<PathBuf>, features: &[&str]) -> String {
         .collect::<Vec<_>>()
         .join(", ");
     match path {
-        Some(path) => format!(
+        Some(path) => Ok(format!(
             "{{ path = \"{}\", default-features = false, features = [{}] }}",
             path.display().to_string().replace('\\', "/"),
             features
-        ),
-        None => format!(
-            "{{ version = \"0.2\", default-features = false, features = [{}] }}",
-            features
+        )),
+        None => bail!(
+            "winia is not published on crates.io yet; pass --winia-path <path-to-winia-crate> or set WINIA_PATH"
         ),
     }
 }
@@ -259,6 +260,17 @@ fn write_rendered(root: &Path, file: &TemplateFile, vars: &[(&str, &str)]) -> Re
     }
     std::fs::write(&path, render(file.template, vars))
         .with_context(|| format!("writing {}", path.display()))
+}
+
+#[cfg(unix)]
+fn make_executable(path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut permissions = std::fs::metadata(path)
+        .with_context(|| format!("reading {}", path.display()))?
+        .permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(path, permissions)
+        .with_context(|| format!("marking {} executable", path.display()))
 }
 
 fn write_bytes(root: &Path, destination: &str, bytes: &[u8]) -> Result<()> {
@@ -301,7 +313,7 @@ mod tests {
     #[test]
     fn a_local_winia_path_is_written_with_forward_slashes() {
         let dependency =
-            winia_dependency(Some(PathBuf::from("D:\\Projects\\winia\\winia")), &["gl"]);
+            winia_dependency(Some(PathBuf::from("D:\\Projects\\winia\\winia")), &["gl"]).unwrap();
         assert!(dependency.contains("path = \"D:/Projects/winia/winia\""));
         assert!(dependency.contains("features = [\"gl\"]"));
         assert!(dependency.contains("default-features = false"));

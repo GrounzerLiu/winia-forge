@@ -14,6 +14,9 @@ pub enum Abi {
 }
 
 impl Abi {
+    /// Every ABI the toolchain knows about, in a stable order.
+    pub const ALL: [Abi; 4] = [Abi::Arm64V8a, Abi::ArmeabiV7a, Abi::X86_64, Abi::X86];
+
     pub fn parse(raw: &str) -> Result<Self> {
         Ok(match raw {
             "arm64-v8a" => Self::Arm64V8a,
