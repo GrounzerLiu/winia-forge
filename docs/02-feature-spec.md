@@ -581,7 +581,9 @@ winia assets icon assets/icon.png
   the canvas edge.
 - Windows executables embed the generated icon through the template `build.rs` and `winres` (requires
   the Windows SDK `rc.exe`; a missing tool emits a build warning instead of failing).
-- Not implemented yet: macOS signing and wiring the Android manifest to the generated launcher icon.
+- The Android manifest references `@mipmap/ic_launcher` and `@mipmap/ic_launcher_round`; when
+  `app.icon` is absent, a built-in default icon is generated.
+- Not implemented yet: macOS signing.
 
 ## 9. CI/CD
 

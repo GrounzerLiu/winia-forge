@@ -22,6 +22,11 @@ pub struct IconSet {
 }
 
 const GENERATOR_VERSION: u32 = 2;
+const DEFAULT_ICON_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" rx="224" fill="#1E78DC"/>
+  <circle cx="512" cy="512" r="260" fill="#FFFFFF"/>
+  <circle cx="512" cy="512" r="130" fill="#1E78DC"/>
+</svg>"##;
 
 #[derive(Serialize, Deserialize)]
 struct Marker {
@@ -31,11 +36,17 @@ struct Marker {
 }
 
 pub fn ensure(root: &Path, config: &WiniaConfig) -> Result<Option<IconSet>> {
-    let Some(source) = source_path(root, config)? else {
-        return Ok(None);
+    let (bytes, source) = match source_path(root, config)? {
+        Some(source) => {
+            let bytes = std::fs::read(&source)
+                .with_context(|| format!("reading icon source {}", source.display()))?;
+            (bytes, source)
+        }
+        None => (
+            DEFAULT_ICON_SVG.as_bytes().to_vec(),
+            PathBuf::from("default-icon.svg"),
+        ),
     };
-    let bytes = std::fs::read(&source)
-        .with_context(|| format!("reading icon source {}", source.display()))?;
     let digest = format!("{:x}", Sha256::digest(&bytes));
     let icons = icon_root(root);
     if marker_matches(&icons, &digest) {

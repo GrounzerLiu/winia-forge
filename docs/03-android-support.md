@@ -317,7 +317,8 @@ This is the most critical blocker for Android support:
 - `winia build` stages `assets/**` under `android/app/src/main/assets/winia-assets/` with an
   `assets.manifest.json`; Gradle packages them into the APK/AAB.
 - Launcher icons generated from `app.icon` live in `target/winia/icons/android/res`; the template adds
-  that directory to the Gradle `res` source set.
+  that directory to the Gradle `res` source set and the manifest references `@mipmap/ic_launcher` /
+  `@mipmap/ic_launcher_round`.
 - `Image::asset("assets/...")` loads images through `AndroidApp::asset_manager()` and the staged
   manifest; fonts and other asset kinds still need separate APIs.
 - Fonts embedded with `include_bytes!` (such as Material Symbols) are unaffected.
