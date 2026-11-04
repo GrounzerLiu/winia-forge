@@ -230,6 +230,12 @@ pub struct SignArgs {
     /// Overwrite the input APK instead of writing a *-signed.apk copy.
     #[arg(long)]
     pub in_place: bool,
+    /// Print what would be signed without invoking apksigner.
+    #[arg(long)]
+    pub dry_run: bool,
+    /// Only sign APKs that are not debuggable.
+    #[arg(long)]
+    pub release: bool,
     /// Emit machine-readable output.
     #[arg(long)]
     pub json: bool,

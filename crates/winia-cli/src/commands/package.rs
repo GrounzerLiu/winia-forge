@@ -10,7 +10,7 @@ use crate::cli::{BuildArgs, PackageArgs, SplitMode};
 use crate::commands::build;
 use crate::config::WiniaConfig;
 use crate::platform::android::Abi;
-use crate::platform::tools::{build_tools_dir, executable};
+use crate::platform::tools::{apksigner_command, build_tools_dir, executable};
 use anyhow::{Context, Result, bail};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -421,26 +421,15 @@ fn verify_apk(
         eprintln!("warning: aapt2 not found; skipped ABI and version checks");
     }
 
-    let apksigner = build_tools.join(if cfg!(windows) {
+    let launcher = build_tools.join(if cfg!(windows) {
         "apksigner.bat"
     } else {
         "apksigner"
     });
-    if apksigner.is_file() {
-        let output = if cfg!(windows) {
-            Command::new("cmd")
-                .arg("/c")
-                .arg(&apksigner)
-                .args(["verify", "--print-certs"])
-                .arg(apk)
-                .output()
-        } else {
-            Command::new(&apksigner)
-                .args(["verify", "--print-certs"])
-                .arg(apk)
-                .output()
-        }
-        .with_context(|| format!("running {}", apksigner.display()))?;
+    if launcher.is_file() || build_tools.join("lib").join("apksigner.jar").is_file() {
+        let mut command = apksigner_command(&build_tools)?;
+        command.args(["verify", "--print-certs"]).arg(apk);
+        let output = command.output().context("running apksigner")?;
         if !output.status.success() {
             if release {
                 if !json {

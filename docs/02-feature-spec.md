@@ -392,9 +392,14 @@ See [03-android-support.md](03-android-support.md). Implemented behaviour:
   - `WINIA_ANDROID_KEY_PASSWORD`
 - Google Play App Signing: the upload key and the Play signing key are kept separate.
 - `winia sign --target android` signs every APK in `dist/` (or the `--apk` path) with
-  `apksigner`, writing `*-signed.apk` copies unless `--in-place` is given.
+  `apksigner`, writing `*-signed.apk` copies unless `--in-place` is given. Relative `--apk` and
+  `--keystore` paths resolve against the current directory.
 - Passwords are read through `--ks-pass env:...`, so they never appear in the process list. The
   alias comes from `--alias` or `WINIA_ANDROID_KEY_ALIAS`.
+- `--dry-run` lists the input/output pairs without touching the keystore; `--release` skips APKs
+  that `aapt2` reports as debuggable.
+- `apksigner` runs from `lib/apksigner.jar` through `java` when available, falling back to the
+  batch launcher. This keeps SDK paths containing spaces intact.
 - The command verifies the result with `apksigner verify --print-certs` and reports the certificate
   DN. AAB signing is not implemented yet.
 

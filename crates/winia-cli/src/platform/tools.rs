@@ -1,6 +1,8 @@
 //! Android SDK tool discovery shared by packaging and signing.
 
+use anyhow::{Result, bail};
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 
 /// The newest installed build-tools directory, ordered by numeric version parts.
 pub(crate) fn build_tools_dir() -> Option<PathBuf> {
@@ -21,6 +23,57 @@ pub(crate) fn build_tools_dir() -> Option<PathBuf> {
                 return Some(latest);
             }
         }
+    }
+    None
+}
+
+/// Build a command that runs `apksigner`. The jar is preferred (it avoids
+/// `cmd.exe` re-parsing paths with spaces); the batch launcher is the fallback.
+pub(crate) fn apksigner_command(build_tools: &Path) -> Result<Command> {
+    let jar = build_tools.join("lib").join("apksigner.jar");
+    if jar.is_file() {
+        if let Some(java) = java_program() {
+            let mut command = Command::new(java);
+            command.arg("-jar").arg(jar);
+            return Ok(command);
+        }
+    }
+    let launcher = build_tools.join(if cfg!(windows) {
+        "apksigner.bat"
+    } else {
+        "apksigner"
+    });
+    if !launcher.is_file() {
+        bail!("apksigner not found under {}", build_tools.display());
+    }
+    if cfg!(windows) {
+        let mut command = Command::new("cmd");
+        command.arg("/c").arg(launcher);
+        Ok(command)
+    } else {
+        Ok(Command::new(launcher))
+    }
+}
+
+fn java_program() -> Option<PathBuf> {
+    if let Some(home) = std::env::var_os("JAVA_HOME").filter(|value| !value.is_empty()) {
+        let candidate =
+            PathBuf::from(home)
+                .join("bin")
+                .join(if cfg!(windows) { "java.exe" } else { "java" });
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    if Command::new("java")
+        .arg("-version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+    {
+        return Some(PathBuf::from("java"));
     }
     None
 }
