@@ -19,6 +19,7 @@ const LIB_RS: &str = include_str!("../../templates/blank/src/lib.rs.tmpl");
 const UI_RS: &str = include_str!("../../templates/blank/src/ui.rs.tmpl");
 const README: &str = include_str!("../../templates/blank/README.md.tmpl");
 const GITIGNORE: &str = include_str!("../../templates/blank/.gitignore");
+const BUILD_RS: &str = include_str!("../../templates/blank/build.rs.tmpl");
 
 const ANDROID_SETTINGS: &str =
     include_str!("../../templates/blank/android/settings.gradle.kts.tmpl");
@@ -73,6 +74,10 @@ const COMMON_FILES: &[TemplateFile] = &[
     TemplateFile {
         template: GITIGNORE,
         destination: ".gitignore",
+    },
+    TemplateFile {
+        template: BUILD_RS,
+        destination: "build.rs",
     },
 ];
 

@@ -1,0 +1,18 @@
+fn main() {
+    println!("cargo:rerun-if-changed=target/winia/icons/windows/app.ico");
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
+        return;
+    }
+    let Ok(manifest) = std::env::var("CARGO_MANIFEST_DIR") else {
+        return;
+    };
+    let icon = std::path::Path::new(&manifest).join("target/winia/icons/windows/app.ico");
+    if !icon.is_file() {
+        return;
+    }
+    let mut resource = winres::WindowsResource::new();
+    resource.set_icon(&icon.to_string_lossy());
+    if let Err(error) = resource.compile() {
+        println!("cargo:warning=Windows icon embedding skipped: {error}");
+    }
+}

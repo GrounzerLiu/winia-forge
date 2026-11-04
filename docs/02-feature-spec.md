@@ -387,7 +387,8 @@ Installer formats (NSIS, MSI, DMG, PKG, deb, rpm, AppImage) are not implemented 
 
 ### 5.3 Windows packaging
 
-Implemented: `zip` portable archive containing the executable and `assets/`. Installers are pending.
+Implemented: `zip` portable archive containing the executable and `assets/`; the executable embeds
+the generated `.ico` through `build.rs`/`winres`. Installers are pending.
 
 - Icons: multi-size `.ico` (16–256).
 - Version resources: product name, company name, copyright, file version.
@@ -575,8 +576,9 @@ winia assets icon assets/icon.png
 - Generated files live under `target/winia/icons/`; Android uses a Gradle res source directory.
 - Icon validation warns about sources below 512 px, fully transparent artwork, and artwork touching
   the canvas edge.
-- Not implemented yet: Windows exe resource embedding, macOS signing, and wiring the Android manifest
-  to the generated launcher icon.
+- Windows executables embed the generated icon through the template `build.rs` and `winres` (requires
+  the Windows SDK `rc.exe`; a missing tool emits a build warning instead of failing).
+- Not implemented yet: macOS signing and wiring the Android manifest to the generated launcher icon.
 
 ## 9. CI/CD
 
