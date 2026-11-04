@@ -200,6 +200,9 @@ pub struct InspectArgs {
     /// Emit machine-readable output.
     #[arg(long, global = true)]
     pub json: bool,
+    /// Discovery timeout in milliseconds.
+    #[arg(long, global = true, default_value_t = 500)]
+    pub timeout: u64,
     #[command(subcommand)]
     pub command: Option<InspectCommand>,
 }
@@ -238,6 +241,9 @@ pub enum InspectCommand {
         /// Last port to scan (inclusive). Defaults to start + 100.
         #[arg(long)]
         end: Option<u16>,
+        /// Scan the port range instead of reading the dev registry.
+        #[arg(long)]
+        scan: bool,
     },
 }
 

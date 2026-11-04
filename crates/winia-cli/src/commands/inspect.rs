@@ -7,6 +7,7 @@
 use crate::cli::{InspectArgs, InspectCommand};
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
+use std::collections::BTreeMap;
 use std::io::BufWriter;
 use std::net::{SocketAddr, TcpStream};
 use std::path::PathBuf;
@@ -35,21 +36,31 @@ pub fn run(args: InspectArgs) -> Result<()> {
             command(args.port, args.json, text)
         }
         InspectCommand::Screenshot { out } => screenshot(args.port, args.json, out),
-        InspectCommand::Discover { end } => {
+        InspectCommand::Discover { end, scan } => {
             let start = args.port;
-            discover(start, end.unwrap_or(start.saturating_add(100)), args.json)
+            discover(
+                start,
+                end.unwrap_or(start.saturating_add(100)),
+                args.json,
+                args.timeout,
+                scan,
+            )
         }
     }
 }
 
 fn connect(port: u16) -> Result<Socket> {
+    connect_with_timeout(port, Duration::from_secs(10))
+}
+
+fn connect_with_timeout(port: u16, timeout: Duration) -> Result<Socket> {
     let address = SocketAddr::from(([127, 0, 0, 1], port));
-    let stream =
-        TcpStream::connect_timeout(&address, Duration::from_millis(500)).with_context(|| {
+    let stream = TcpStream::connect_timeout(&address, timeout.min(Duration::from_secs(2)))
+        .with_context(|| {
             format!("connecting to debug server at 127.0.0.1:{port} (is 'winia dev' running?)")
         })?;
-    stream.set_read_timeout(Some(Duration::from_secs(10)))?;
-    stream.set_write_timeout(Some(Duration::from_secs(10)))?;
+    stream.set_read_timeout(Some(timeout))?;
+    stream.set_write_timeout(Some(timeout))?;
     let (socket, _) = client(format!("ws://127.0.0.1:{port}"), stream)
         .map_err(|error| anyhow::anyhow!("WebSocket handshake failed: {error}"))?;
     Ok(socket)
@@ -92,10 +103,14 @@ fn show(port: u16, json: bool, command: &str) -> Result<()> {
 fn command(port: u16, json: bool, command: String) -> Result<()> {
     let mut socket = connect(port)?;
     let response = text_response(send(&mut socket, &command)?)?;
+    let ok = response.starts_with("ok");
     if json {
-        println!("{}", serde_json::json!({"ok": true, "response": response}));
+        println!("{}", serde_json::json!({"ok": ok, "response": response}));
     } else {
         println!("{response}");
+    }
+    if !ok {
+        bail!("debug server rejected '{command}': {response}");
     }
     Ok(())
 }
@@ -112,6 +127,14 @@ fn screenshot(port: u16, json: bool, out: Option<PathBuf>) -> Result<()> {
         other => bail!("expected a binary frame, got {other:?}"),
     };
     let (width, height, pixels, expected) = frame_parts(&bytes)?;
+    if let Some((reported_width, reported_height)) = parse_screenshot_size(&response) {
+        if reported_width != width || reported_height != height {
+            bail!(
+                "screenshot response says {reported_width}x{reported_height}, frame is {width}x{height}"
+            );
+        }
+    }
+    let rgba = unpremultiply(&pixels[..expected]);
 
     let path = out.unwrap_or_else(|| PathBuf::from(format!("inspect-{port}.png")));
     let file =
@@ -121,7 +144,7 @@ fn screenshot(port: u16, json: bool, out: Option<PathBuf>) -> Result<()> {
     encoder.set_depth(png::BitDepth::Eight);
     let mut writer = encoder.write_header().context("writing PNG header")?;
     writer
-        .write_image_data(&pixels[..expected])
+        .write_image_data(&rgba)
         .context("writing PNG pixels")?;
     drop(writer);
 
@@ -138,6 +161,25 @@ fn screenshot(port: u16, json: bool, out: Option<PathBuf>) -> Result<()> {
         println!("Saved {} ({width}x{height})", path.display());
     }
     Ok(())
+}
+
+fn parse_screenshot_size(response: &str) -> Option<(u32, u32)> {
+    let rest = response.strip_prefix("screenshot ")?;
+    let (width, height) = rest.split_once('x')?;
+    Some((width.parse().ok()?, height.parse().ok()?))
+}
+
+fn unpremultiply(pixels: &[u8]) -> Vec<u8> {
+    let mut output = pixels.to_vec();
+    for pixel in output.chunks_exact_mut(4) {
+        let alpha = pixel[3] as u32;
+        if alpha > 0 && alpha < 255 {
+            for channel in &mut pixel[..3] {
+                *channel = ((*channel as u32 * 255) / alpha).min(255) as u8;
+            }
+        }
+    }
+    output
 }
 
 fn frame_parts(bytes: &[u8]) -> Result<(u32, u32, &[u8], usize)> {
@@ -160,26 +202,26 @@ fn frame_parts(bytes: &[u8]) -> Result<(u32, u32, &[u8], usize)> {
     Ok((width, height, pixels, expected))
 }
 
-fn discover(start: u16, end: u16, json: bool) -> Result<()> {
+fn discover(start: u16, end: u16, json: bool, timeout_ms: u64, scan: bool) -> Result<()> {
     if start == 0 || end < start {
         bail!("invalid discovery range {start}..={end}");
     }
-    let mut found = Vec::new();
-    for port in start..=end {
-        let Ok(mut socket) = connect(port) else {
-            continue;
-        };
-        let Ok(message) = send(&mut socket, "info") else {
-            continue;
-        };
-        let Ok(text) = text_response(message) else {
-            continue;
-        };
-        if let Ok(value) = serde_json::from_str::<Value>(&text) {
-            found.push((port, value));
+    let timeout = Duration::from_millis(timeout_ms.max(50));
+    let mut entries: BTreeMap<u16, Value> = BTreeMap::new();
+
+    if scan {
+        for port in start..=end {
+            if let Some(value) = probe(port, timeout) {
+                entries.insert(port, value);
+            }
+        }
+    } else {
+        for (port, value) in registry_entries(timeout)? {
+            entries.insert(port, value);
         }
     }
 
+    let found: Vec<_> = entries.into_iter().collect();
     if json {
         let values: Vec<_> = found
             .iter()
@@ -190,6 +232,9 @@ fn discover(start: u16, end: u16, json: bool) -> Result<()> {
                     "version": value.get("version"),
                     "id": value.get("id"),
                     "target": value.get("target"),
+                    "platform": value.get("platform"),
+                    "arch": value.get("arch"),
+                    "pid": value.get("pid"),
                 })
             })
             .collect();
@@ -198,12 +243,18 @@ fn discover(start: u16, end: u16, json: bool) -> Result<()> {
     }
 
     if found.is_empty() {
-        println!("No debug servers found in {start}..={end}.");
+        if scan {
+            println!("No debug servers found in {start}..={end}.");
+        } else {
+            println!(
+                "No registered debug servers in target/winia-dev; run 'winia dev' in this project, or pass --scan to search {start}..={end}."
+            );
+        }
         return Ok(());
     }
     println!(
-        "{:<6} {:<24} {:<10} {:<28} TARGET",
-        "PORT", "APP", "VERSION", "ID"
+        "{:<6} {:<24} {:<10} {:<28} {:<10} PID",
+        "PORT", "APP", "VERSION", "ID", "TARGET"
     );
     for (port, value) in found {
         let field = |name: &str| {
@@ -212,16 +263,62 @@ fn discover(start: u16, end: u16, json: bool) -> Result<()> {
                 .and_then(|value| value.as_str())
                 .unwrap_or("-")
         };
+        let pid = value.get("pid").and_then(|value| value.as_u64());
         println!(
-            "{:<6} {:<24} {:<10} {:<28} {}",
+            "{:<6} {:<24} {:<10} {:<28} {:<10} {}",
             port,
             field("app"),
             field("version"),
             field("id"),
-            field("target")
+            field("target"),
+            pid.map(|value| value.to_string())
+                .unwrap_or_else(|| "-".to_owned())
         );
     }
     Ok(())
+}
+
+fn registry_entries(timeout: Duration) -> Result<Vec<(u16, Value)>> {
+    let directory = PathBuf::from("target/winia-dev");
+    let mut ports = Vec::new();
+    let Ok(entries) = std::fs::read_dir(&directory) else {
+        return Ok(Vec::new());
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if !name.starts_with("inspect-port-") || !name.ends_with(".json") {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(value) = serde_json::from_str::<Value>(&text) else {
+            continue;
+        };
+        let Some(port) = value.get("port").and_then(|value| value.as_u64()) else {
+            continue;
+        };
+        if let Ok(port) = u16::try_from(port) {
+            ports.push((port, value));
+        }
+    }
+    let mut found = Vec::new();
+    for (port, _) in ports {
+        if let Some(value) = probe(port, timeout) {
+            found.push((port, value));
+        }
+    }
+    Ok(found)
+}
+
+fn probe(port: u16, timeout: Duration) -> Option<Value> {
+    let mut socket = connect_with_timeout(port, timeout).ok()?;
+    let message = send(&mut socket, "info").ok()?;
+    let text = text_response(message).ok()?;
+    serde_json::from_str::<Value>(&text).ok()
 }
 
 #[cfg(test)]
@@ -238,6 +335,22 @@ mod tests {
         assert_eq!((width, height), (2, 1));
         assert_eq!(expected, 8);
         assert_eq!(pixels.len(), 8);
+    }
+
+    #[test]
+    fn unpremultiplies_alpha_for_png() {
+        assert_eq!(unpremultiply(&[128, 0, 0, 128]), vec![255, 0, 0, 128]);
+        assert_eq!(unpremultiply(&[0, 0, 0, 0]), vec![0, 0, 0, 0]);
+        assert_eq!(unpremultiply(&[20, 30, 40, 255]), vec![20, 30, 40, 255]);
+    }
+
+    #[test]
+    fn parses_screenshot_dimensions() {
+        assert_eq!(
+            parse_screenshot_size("screenshot 1500x1050"),
+            Some((1500, 1050))
+        );
+        assert_eq!(parse_screenshot_size("no frame"), None);
     }
 
     #[test]

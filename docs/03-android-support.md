@@ -210,7 +210,9 @@ winia screenshot --target android --output shot.png
   `files/winia-debug-info.json`; send `info` over the WebSocket to read it.
 - This is a process-level hot restart, not code hot-swapping.
 - Inspect the running app from the host with `winia inspect --port <host-port> info|tree|screenshot|...`;
-  `winia dev --once` keeps the forward so the port stays reachable.
+  `winia dev --once` keeps the forward so the port stays reachable. Dev writes
+  `target/winia-dev/inspect-port-<pid>.json` for `winia inspect discover`; use `--scan` to search the
+  port range instead.
 
 ### 5.3 Logs and symbols
 

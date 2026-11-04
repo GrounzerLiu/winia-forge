@@ -142,6 +142,9 @@ impl Dev {
     fn rebuild(&mut self) -> Result<()> {
         self.config = WiniaConfig::load(&self.config_path)?;
         self.config.validate()?;
+        if self.debug_enabled {
+            let _ = std::fs::remove_file(inspect_registry_file(&self.root));
+        }
 
         let abis = match &self.session {
             Session::Android { abi, .. } => vec![abi.as_str().to_owned()],
@@ -256,6 +259,7 @@ impl Dev {
             }
         }
         if self.debug_enabled {
+            self.write_inspect_registry();
             self.wait_for_debug_server();
         }
         Ok(())
@@ -417,6 +421,26 @@ impl Dev {
         }
     }
 
+    fn write_inspect_registry(&self) {
+        if !self.debug_enabled {
+            return;
+        }
+        let path = inspect_registry_file(&self.root);
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let value = serde_json::json!({
+            "port": self.debug_actual_port,
+            "app": self.config.app.name,
+            "version": self.config.app.version,
+            "id": self.config.app.id,
+            "target": self.target,
+        });
+        if let Ok(text) = serde_json::to_string_pretty(&value) {
+            let _ = std::fs::write(path, text);
+        }
+    }
+
     fn stop_debug_forward(&self) {
         if self.debug_enabled {
             if let Session::Android { device, .. } = &self.session {
@@ -518,6 +542,12 @@ fn choose_debug_port(requested: Option<u16>) -> Result<u16> {
         start,
         start.saturating_add(100)
     )
+}
+
+fn inspect_registry_file(root: &Path) -> PathBuf {
+    root.join("target")
+        .join("winia-dev")
+        .join(format!("inspect-port-{}.json", std::process::id()))
 }
 
 fn debug_port_file(root: &Path) -> PathBuf {
