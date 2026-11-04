@@ -1,0 +1,212 @@
+//! 'winia run' — build and launch the application.
+//!
+//! Desktop targets build the host executable and wait for it to exit. Android
+//! targets pick the connected device, read its primary ABI, build only that ABI,
+//! install the APK, and start the activity. Arguments after `--` are forwarded
+//! to the desktop application.
+
+use crate::cli::{BuildArgs, RunArgs};
+use crate::commands::build;
+use crate::config::WiniaConfig;
+use crate::platform::android::Abi;
+use anyhow::{Context, Result, bail};
+use std::path::Path;
+use std::process::Command;
+
+pub fn run(args: RunArgs) -> Result<()> {
+    let cwd = std::env::current_dir().context("reading the current directory")?;
+    let config_path = crate::config::find_config(&cwd)
+        .ok_or_else(|| anyhow::anyhow!("winia.toml not found; run this inside a Winia project"))?;
+    let root = config_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .to_path_buf();
+    let config = WiniaConfig::load(&config_path)?;
+    config.validate()?;
+
+    let target = args
+        .target
+        .clone()
+        .unwrap_or_else(|| build::host_target().to_owned());
+    if target == "android" {
+        run_android(&root, &config, &args)
+    } else if target == build::host_target() {
+        run_desktop(&root, &config, &args, &target)
+    } else {
+        bail!(
+            "running the {target} target on {} is not supported yet",
+            build::host_target()
+        )
+    }
+}
+
+fn build_args(target: &str, args: &RunArgs, abis: Vec<String>) -> BuildArgs {
+    BuildArgs {
+        target: vec![target.to_owned()],
+        release: args.release,
+        abi: abis,
+        features: args.features.clone(),
+        json: false,
+        out_dir: None,
+    }
+}
+
+fn run_desktop(root: &Path, config: &WiniaConfig, args: &RunArgs, target: &str) -> Result<()> {
+    let built = build::build_all(root, config, &build_args(target, args, Vec::new()))?;
+    let executable = artifacts(&built)
+        .into_iter()
+        .find(|artifact| extension(&artifact.path) != Some("apk"))
+        .ok_or_else(|| anyhow::anyhow!("the build produced no executable"))?;
+    println!("Running {}", executable.path.display());
+    let status = Command::new(&executable.path)
+        .args(&args.args)
+        .status()
+        .with_context(|| format!("running {}", executable.path.display()))?;
+    if !status.success() {
+        bail!("application exited with {status}");
+    }
+    Ok(())
+}
+
+fn run_android(root: &Path, config: &WiniaConfig, args: &RunArgs) -> Result<()> {
+    let device = select_device(args.device.as_deref())?;
+    let abi = device_abi(&device)?;
+    println!("Device {device} uses {}", abi.as_str());
+
+    let built = build::build_all(
+        root,
+        config,
+        &build_args("android", args, vec![abi.as_str().to_owned()]),
+    )?;
+    let apk = artifacts(&built)
+        .into_iter()
+        .find(|artifact| extension(&artifact.path) == Some("apk"))
+        .ok_or_else(|| anyhow::anyhow!("the build produced no APK"))?;
+    install(&device, &apk.path)?;
+
+    let package = if config.android.package.is_empty() {
+        config.app.id.clone()
+    } else {
+        config.android.package.clone()
+    };
+    launch(&device, &package)?;
+    Ok(())
+}
+
+fn artifacts(built: &[(String, Vec<build::Artifact>)]) -> Vec<&build::Artifact> {
+    built
+        .iter()
+        .flat_map(|(_, artifacts)| artifacts.iter())
+        .collect()
+}
+
+fn extension(path: &Path) -> Option<&str> {
+    path.extension().and_then(|extension| extension.to_str())
+}
+
+fn adb(args: &[&str]) -> Result<String> {
+    let output = Command::new("adb")
+        .args(args)
+        .output()
+        .context("running adb (is it on PATH?)")?;
+    if !output.status.success() {
+        bail!(
+            "adb {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+fn select_device(requested: Option<&str>) -> Result<String> {
+    if let Some(device) = requested.filter(|device| !device.is_empty()) {
+        return Ok(device.to_owned());
+    }
+    let output = adb(&["devices"])?;
+    let devices = parse_devices(&output);
+    match devices.len() {
+        0 => bail!("no Android device or emulator connected; start one or pass --device <serial>"),
+        1 => Ok(devices.into_iter().next().expect("length checked")),
+        _ => bail!(
+            "multiple devices connected: {}; pass --device <serial>",
+            devices.join(", ")
+        ),
+    }
+}
+
+fn parse_devices(output: &str) -> Vec<String> {
+    output
+        .lines()
+        .skip(1)
+        .filter_map(|line| {
+            let mut fields = line.split_whitespace();
+            let serial = fields.next()?;
+            let state = fields.next()?;
+            (state == "device").then(|| serial.to_owned())
+        })
+        .collect()
+}
+
+fn device_abi(device: &str) -> Result<Abi> {
+    let output = adb(&["-s", device, "shell", "getprop", "ro.product.cpu.abi"])?;
+    let raw = output.lines().next().unwrap_or_default().trim();
+    Abi::parse(raw).with_context(|| format!("device {device} reports unsupported ABI '{raw}'"))
+}
+
+fn install(device: &str, apk: &Path) -> Result<()> {
+    println!("Installing {}", apk.display());
+    let output = Command::new("adb")
+        .args(["-s", device, "install", "-r"])
+        .arg(apk)
+        .output()
+        .with_context(|| format!("installing {}", apk.display()))?;
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    if !output.status.success() || !text.contains("Success") {
+        bail!("adb install failed for {}:\n{}", apk.display(), text.trim());
+    }
+    Ok(())
+}
+
+fn launch(device: &str, package: &str) -> Result<()> {
+    let _ = Command::new("adb")
+        .args(["-s", device, "shell", "am", "force-stop", package])
+        .output();
+    let component = format!("{package}/.MainActivity");
+    let output = Command::new("adb")
+        .args(["-s", device, "shell", "am", "start", "-W", "-n", &component])
+        .output()
+        .context("starting the Android activity")?;
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    if !output.status.success() || text.contains("Error") {
+        bail!("could not start {component}:\n{}", text.trim());
+    }
+    println!("Launched {component} on {device}");
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_only_ready_devices() {
+        let output = "List of devices attached\n\
+            emulator-5554\tdevice\n\
+            192.0.0.172:5555\tdevice\n\
+            10.0.0.2:5555\toffline\n\
+            10.0.0.3:5555\tunauthorized\n";
+        assert_eq!(
+            parse_devices(output),
+            vec!["emulator-5554", "192.0.0.172:5555"]
+        );
+    }
+}

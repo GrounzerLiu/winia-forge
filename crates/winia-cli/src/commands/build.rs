@@ -17,9 +17,9 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 #[derive(Debug)]
-struct Artifact {
-    path: PathBuf,
-    bytes: u64,
+pub(crate) struct Artifact {
+    pub(crate) path: PathBuf,
+    pub(crate) bytes: u64,
 }
 
 #[derive(Debug)]
@@ -40,18 +40,7 @@ pub fn run(args: BuildArgs) -> Result<()> {
         .to_path_buf();
     let config = WiniaConfig::load(&config_path)?;
     config.validate()?;
-    let metadata = cargo_metadata(&root)?;
-    let features = effective_features(&config, &args);
-
-    let targets = resolve_targets(&args.target)?;
-    let mut built = Vec::new();
-    for target in &targets {
-        let artifacts = match target.as_str() {
-            "android" => build_android(&root, &config, &args, &metadata, &features)?,
-            host => build_desktop(&root, &args, &metadata, host, &features)?,
-        };
-        built.push((target.clone(), artifacts));
-    }
+    let built = build_all(&root, &config, &args)?;
 
     let mut all = Vec::new();
     for (_, artifacts) in &built {
@@ -64,6 +53,27 @@ pub fn run(args: BuildArgs) -> Result<()> {
         copy_artifacts(&all, out_dir)?;
     }
     report(&root, &built, profile, started.elapsed(), args.json)
+}
+
+/// Build the requested targets without printing a report. Shared by
+/// `winia build` and `winia run`.
+pub(crate) fn build_all(
+    root: &Path,
+    config: &WiniaConfig,
+    args: &BuildArgs,
+) -> Result<Vec<(String, Vec<Artifact>)>> {
+    let metadata = cargo_metadata(root)?;
+    let features = effective_features(config, args);
+    let targets = resolve_targets(&args.target)?;
+    let mut built = Vec::new();
+    for target in &targets {
+        let artifacts = match target.as_str() {
+            "android" => build_android(root, config, args, &metadata, &features)?,
+            host => build_desktop(root, args, &metadata, host, &features)?,
+        };
+        built.push((target.clone(), artifacts));
+    }
+    Ok(built)
 }
 
 fn resolve_targets(requested: &[String]) -> Result<Vec<String>> {
@@ -99,7 +109,7 @@ fn resolve_targets(requested: &[String]) -> Result<Vec<String>> {
     Ok(targets)
 }
 
-fn host_target() -> &'static str {
+pub(crate) fn host_target() -> &'static str {
     if cfg!(windows) {
         "windows"
     } else if cfg!(target_os = "macos") {

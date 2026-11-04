@@ -7,6 +7,7 @@
 pub mod build;
 pub mod doctor;
 pub mod new;
+pub mod run;
 
 use crate::cli::{
     AssetsArgs, CiArgs, Cli, Command, CompletionShell, ConfigArgs, ConfigCommand, EmulatorsArgs,
@@ -21,6 +22,7 @@ pub fn dispatch(cli: Cli) -> Result<()> {
     match cli.command {
         Command::New(args) => new::run(args),
         Command::Build(args) => build::run(args),
+        Command::Run(args) => run::run(args),
         Command::Doctor(args) => doctor::run(args),
         Command::Info(args) => info(args),
         Command::Targets(args) => targets(args),

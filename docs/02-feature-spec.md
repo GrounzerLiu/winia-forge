@@ -11,7 +11,7 @@
 | `winia new` | Create a new project from a template | Implemented (blank template, desktop + Android) |
 | `winia init` | Add Winia to an existing Rust project | Planned |
 | `winia build` | Build the application | Implemented: host executable and Android APK (NDK driver + Gradle) |
-| `winia run` | Build and run | Planned |
+| `winia run` | Build and run | Implemented: host launch, Android install/start |
 | `winia dev` | Development mode: file watching + debug server | Planned |
 | `winia test` | Unit, UI, and device smoke tests | Planned |
 | `winia package` | Package installers/archives/APK/AAB | Planned |
@@ -526,5 +526,6 @@ winia upgrade
 | Shell completions | Implemented |
 | `winia platform add android` | Placeholder directory |
 | `winia build` | Implemented: host executable and Android APK |
-| `winia run`, `package`, `sign`, `release` | Planned |
+| `winia run` | Implemented: host and Android |
+| `package`, `sign`, `release` | Planned |
 | Template system, hooks, plugins | Planned |

@@ -62,6 +62,7 @@ Implemented:
 
 - `winia new`: generate a blank Winia application from the embedded template (desktop binary, shared UI, `winia.toml`, and a GameActivity Gradle project when Android is selected)
 - `winia build`: build a host executable, or an Android APK through the built-in NDK driver and the project's Gradle wrapper (16 KB alignment is verified)
+- `winia run`: launch the host executable, or install and start the APK on the connected Android device
 - `winia doctor`: diagnose the Rust toolchain and MSRV, platform toolchains, the Android SDK/NDK, and `winia.toml` validation
 - `winia info` / `winia targets`: environment and target platform information
 - `winia config show/get`: read `winia.toml`

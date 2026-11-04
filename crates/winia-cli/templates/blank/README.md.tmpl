@@ -15,8 +15,8 @@ cargo run
 its Rust target installed (`rustup target add aarch64-linux-android x86_64-linux-android`).
 
 ```bash
-winia build --target android
-adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+winia build --target android   # assemble the APK
+winia run --target android     # build incrementally, install, and launch
 ```
 
 `winia build --abi arm64-v8a` narrows the build to a single ABI when a smaller APK is wanted.
