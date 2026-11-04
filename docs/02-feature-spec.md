@@ -287,6 +287,10 @@ winia test --filter scrollbar
   (`android/app/src/debug/AndroidManifest.xml`) needs `android.permission.INTERNET`; the blank
   template includes it and existing projects must add it. With `--once`, the forward is kept so the
   debug server remains reachable after the command returns; the command prints the removal command.
+- Send `info` over the debug WebSocket to identify a port: it returns `app`, `version`, `id`,
+  `target`, `platform`, `arch`, `pid`, and `port`. Desktop dev injects the metadata through
+  environment variables; Android dev writes it to `files/winia-debug-info.json` in the app's private
+  data directory, with the process package name as fallback.
 - Note: Rust has no code hot-swapping; a "hot restart" is a process-level restart, not Flutter-style hot
   reload.
 

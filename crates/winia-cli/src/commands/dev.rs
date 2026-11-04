@@ -194,7 +194,11 @@ impl Dev {
                 if self.debug_enabled {
                     command
                         .env("WINIA_DEBUG_PORT", self.debug_port.to_string())
-                        .env("WINIA_DEBUG_PORT_FILE", &port_file);
+                        .env("WINIA_DEBUG_PORT_FILE", &port_file)
+                        .env("WINIA_DEBUG_APP_NAME", &self.config.app.name)
+                        .env("WINIA_DEBUG_APP_VERSION", &self.config.app.version)
+                        .env("WINIA_DEBUG_APP_ID", &self.config.app.id)
+                        .env("WINIA_DEBUG_TARGET", &self.target);
                 }
                 let spawned = command
                     .spawn()
@@ -216,14 +220,24 @@ impl Dev {
                     .find(|artifact| run::extension(&artifact.path) == Some("apk"))
                     .ok_or_else(|| anyhow::anyhow!("the build produced no APK"))?;
                 run::install(device, &apk.path)?;
-                if self.debug_enabled {
-                    run::clear_logcat(device);
-                }
                 let package = if self.config.android.package.is_empty() {
                     self.config.app.id.clone()
                 } else {
                     self.config.android.package.clone()
                 };
+                if self.debug_enabled {
+                    let info = serde_json::json!({
+                        "app": self.config.app.name,
+                        "version": self.config.app.version,
+                        "id": self.config.app.id,
+                        "target": "android",
+                    })
+                    .to_string();
+                    if let Err(error) = run::push_android_debug_info(device, &package, &info) {
+                        eprintln!("warning: cannot write Android debug metadata: {error:#}");
+                    }
+                    run::clear_logcat(device);
+                }
                 let component = run::activity_component(&self.root, &package);
                 run::launch(device, &package, &component, &self.args.args)?;
                 if self.debug_enabled {

@@ -206,7 +206,8 @@ winia screenshot --target android --output shot.png
   `ws://127.0.0.1:<host>` reaches the app. The debug manifest
   (`android/app/src/debug/AndroidManifest.xml`) needs `android.permission.INTERNET`; the blank
   template includes it and existing projects must add it. `--once` keeps the forward after exit and
-  prints how to remove it.
+  prints how to remove it. Dev also writes app metadata to
+  `files/winia-debug-info.json`; send `info` over the WebSocket to read it.
 - This is a process-level hot restart, not code hot-swapping.
 
 ### 5.3 Logs and symbols

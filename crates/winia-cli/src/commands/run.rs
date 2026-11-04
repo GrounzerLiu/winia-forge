@@ -287,6 +287,28 @@ pub(crate) fn adb_remove_forward(device: &str, host_port: u16) -> Result<()> {
     Ok(())
 }
 
+pub(crate) fn push_android_debug_info(device: &str, package: &str, json: &str) -> Result<()> {
+    let local = std::env::temp_dir().join(format!("winia-debug-info-{}.json", std::process::id()));
+    std::fs::write(&local, json).with_context(|| format!("writing {}", local.display()))?;
+    let shell =
+        format!("run-as {package} sh -c 'mkdir -p files; cat > files/winia-debug-info.json'");
+    let stdin =
+        std::fs::File::open(&local).with_context(|| format!("opening {}", local.display()))?;
+    let output = Command::new(adb_program())
+        .args(["-s", device, "shell", &shell])
+        .stdin(stdin)
+        .output()
+        .context("running adb shell run-as")?;
+    let _ = std::fs::remove_file(&local);
+    if !output.status.success() {
+        bail!(
+            "adb run-as metadata write failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(())
+}
+
 pub(crate) fn clear_logcat(device: &str) {
     let _ = Command::new(adb_program())
         .args(["-s", device, "logcat", "-c"])
