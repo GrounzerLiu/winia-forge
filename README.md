@@ -63,7 +63,7 @@ Implemented:
 - `winia new`: generate a blank Winia application from the embedded template (desktop binary, shared UI, `winia.toml`, and a GameActivity Gradle project when Android is selected)
 - `winia build`: build a host executable, or an Android APK through the built-in NDK driver and the project's Gradle wrapper (16 KB alignment is verified)
 - `winia run`: launch the host executable, or install and start the APK on the connected Android device
-- `winia dev`: watch sources and assets, then rebuild and restart the host app or reinstall/restart the Android activity
+- `winia dev`: watch sources and assets, rebuild and restart the host app or reinstall/restart the Android activity, and auto-start the debug server
 - `winia package`: assemble Android APKs (universal or per-ABI) and AABs into `dist/`, checking 16 KB alignment, native ABIs, and debug signatures
 - `winia sign`: sign Android APKs with `apksigner`, writing `*-signed.apk` copies and verifying the certificate
 - `winia release`: bump the version, package, sign, tag, write `dist/latest.json`, and optionally publish a GitHub release

@@ -232,6 +232,39 @@ pub(crate) fn install(device: &str, apk: &Path) -> Result<()> {
     Ok(())
 }
 
+pub(crate) fn adb_forward(device: &str, port: u16) -> Result<()> {
+    let mapping = format!("tcp:{port}");
+    let _ = Command::new(adb_program())
+        .args(["-s", device, "forward", "--remove", &mapping])
+        .output();
+    let output = Command::new(adb_program())
+        .args(["-s", device, "forward", &mapping, &mapping])
+        .output()
+        .context("running adb forward")?;
+    if !output.status.success() {
+        bail!(
+            "adb forward failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(())
+}
+
+pub(crate) fn adb_remove_forward(device: &str, port: u16) -> Result<()> {
+    let mapping = format!("tcp:{port}");
+    let output = Command::new(adb_program())
+        .args(["-s", device, "forward", "--remove", &mapping])
+        .output()
+        .context("running adb forward --remove")?;
+    if !output.status.success() {
+        let text = String::from_utf8_lossy(&output.stderr);
+        if !text.contains("not found") && !text.contains("cannot remove") {
+            bail!("adb forward --remove failed: {}", text.trim());
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn launch(device: &str, package: &str, component: &str, args: &[String]) -> Result<()> {
     let mut stop = Command::new(adb_program());
     stop.args(["-s", device, "shell", "am", "force-stop", package]);

@@ -33,6 +33,8 @@ const ANDROID_APP_BUILD: &str =
     include_str!("../../templates/blank/android/app/build.gradle.kts.tmpl");
 const ANDROID_MANIFEST: &str =
     include_str!("../../templates/blank/android/app/src/main/AndroidManifest.xml.tmpl");
+const ANDROID_DEBUG_MANIFEST: &str =
+    include_str!("../../templates/blank/android/app/src/debug/AndroidManifest.xml.tmpl");
 const ANDROID_ACTIVITY: &str = include_str!(
     "../../templates/blank/android/app/src/main/java/__PACKAGE_PATH__/MainActivity.java.tmpl"
 );
@@ -102,6 +104,10 @@ const ANDROID_FILES: &[TemplateFile] = &[
     TemplateFile {
         template: ANDROID_MANIFEST,
         destination: "android/app/src/main/AndroidManifest.xml",
+    },
+    TemplateFile {
+        template: ANDROID_DEBUG_MANIFEST,
+        destination: "android/app/src/debug/AndroidManifest.xml",
     },
     TemplateFile {
         template: ANDROID_ACTIVITY,

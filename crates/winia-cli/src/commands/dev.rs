@@ -11,12 +11,14 @@ use crate::config::WiniaConfig;
 use crate::platform::android::Abi;
 use anyhow::{Context, Result, bail};
 use notify::{Event, EventKind, RecursiveMode, Watcher};
+use std::io::{Read, Write};
+use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::RecvTimeoutError;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub fn run(args: DevArgs) -> Result<()> {
     let cwd = std::env::current_dir().context("reading the current directory")?;
@@ -37,6 +39,36 @@ pub fn run(args: DevArgs) -> Result<()> {
         bail!(
             "dev for the {target} target is not supported on {}",
             build::host_target()
+        );
+    }
+
+    if args.no_debug_server && args.debug_port.is_some() {
+        eprintln!("warning: --debug-port is ignored with --no-debug-server");
+    }
+    if args.release && !args.no_debug_server {
+        eprintln!("note: debug server auto-start is disabled for release builds");
+    }
+    let debug_enabled = !args.no_debug_server && !args.release;
+    let debug_port = if debug_enabled {
+        if target == "android" {
+            if let Some(port) = args.debug_port {
+                if port != 9998 {
+                    bail!(
+                        "the Android debug server port is fixed at 9998; the app cannot receive WINIA_DEBUG_PORT"
+                    );
+                }
+            }
+            9998
+        } else {
+            choose_debug_port(args.debug_port)?
+        }
+    } else {
+        0
+    };
+
+    if target == "android" && debug_enabled && !android_has_internet_permission(&root) {
+        eprintln!(
+            "warning: AndroidManifest.xml lacks android.permission.INTERNET; the debug server cannot bind"
         );
     }
 
@@ -61,6 +93,8 @@ pub fn run(args: DevArgs) -> Result<()> {
         config,
         args,
         target,
+        debug_enabled,
+        debug_port,
         session,
     };
 
@@ -89,6 +123,8 @@ struct Dev {
     config: WiniaConfig,
     args: DevArgs,
     target: String,
+    debug_enabled: bool,
+    debug_port: u16,
     session: Session,
 }
 
@@ -101,11 +137,19 @@ impl Dev {
             Session::Android { abi, .. } => vec![abi.as_str().to_owned()],
             Session::Desktop { .. } => Vec::new(),
         };
+        let mut features = self.args.features.clone();
+        if self.debug_enabled
+            && !features
+                .iter()
+                .any(|feature| feature == "winia/debug-server")
+        {
+            features.push("winia/debug-server".to_owned());
+        }
         let build_args = BuildArgs {
             target: vec![self.target.clone()],
             release: self.args.release,
             abi: abis,
-            features: self.args.features.clone(),
+            features,
             json: false,
             out_dir: None,
         };
@@ -126,9 +170,12 @@ impl Dev {
                     let _ = std::fs::remove_file(previous);
                 }
                 println!("Running {}", prepared.display());
-                let spawned = Command::new(&prepared)
-                    .args(&self.args.args)
-                    .current_dir(&self.root)
+                let mut command = Command::new(&prepared);
+                command.args(&self.args.args).current_dir(&self.root);
+                if self.debug_enabled {
+                    command.env("WINIA_DEBUG_PORT", self.debug_port.to_string());
+                }
+                let spawned = command
                     .spawn()
                     .with_context(|| format!("running {}", prepared.display()))?;
                 println!("Application started (pid {})", spawned.id());
@@ -143,6 +190,9 @@ impl Dev {
                     .find(|artifact| run::extension(&artifact.path) == Some("apk"))
                     .ok_or_else(|| anyhow::anyhow!("the build produced no APK"))?;
                 run::install(device, &apk.path)?;
+                if self.debug_enabled {
+                    run::adb_forward(device, self.debug_port)?;
+                }
                 let package = if self.config.android.package.is_empty() {
                     self.config.app.id.clone()
                 } else {
@@ -152,7 +202,25 @@ impl Dev {
                 run::launch(device, &package, &component, &self.args.args)?;
             }
         }
+        if self.debug_enabled {
+            self.wait_for_debug_server();
+        }
         Ok(())
+    }
+
+    fn wait_for_debug_server(&self) {
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while Instant::now() < deadline {
+            if websocket_handshake_ok(self.debug_port) {
+                println!("Debug server ready at ws://127.0.0.1:{}", self.debug_port);
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(200));
+        }
+        eprintln!(
+            "warning: debug server did not become ready on port {}",
+            self.debug_port
+        );
     }
 
     fn wait_once(mut self) -> Result<()> {
@@ -163,6 +231,7 @@ impl Dev {
             },
             _ => None,
         };
+        self.stop_debug_forward();
         self.stop_desktop();
         if let Some(status) = status {
             if !status.success() {
@@ -250,6 +319,7 @@ impl Dev {
             }
         }
 
+        self.stop_debug_forward();
         self.stop_desktop();
         println!("Stopped.");
         Ok(())
@@ -279,6 +349,14 @@ impl Dev {
         }
     }
 
+    fn stop_debug_forward(&self) {
+        if self.debug_enabled {
+            if let Session::Android { device, .. } = &self.session {
+                let _ = run::adb_remove_forward(device, self.debug_port);
+            }
+        }
+    }
+
     fn stop_desktop(&mut self) {
         if let Session::Desktop { child, executable } = &mut self.session {
             if let Some(mut current) = child.take() {
@@ -289,6 +367,64 @@ impl Dev {
             }
         }
     }
+}
+
+fn android_has_internet_permission(root: &Path) -> bool {
+    [
+        "android/app/src/main/AndroidManifest.xml",
+        "android/app/src/debug/AndroidManifest.xml",
+    ]
+    .iter()
+    .any(|path| {
+        std::fs::read_to_string(root.join(path))
+            .map(|manifest| manifest.contains("android.permission.INTERNET"))
+            .unwrap_or(false)
+    })
+}
+
+fn websocket_handshake_ok(port: u16) -> bool {
+    let address = SocketAddr::from(([127, 0, 0, 1], port));
+    let Ok(mut stream) = TcpStream::connect_timeout(&address, Duration::from_millis(500)) else {
+        return false;
+    };
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(800)));
+    let request = concat!(
+        "GET / HTTP/1.1\r\n",
+        "Host: 127.0.0.1\r\n",
+        "Upgrade: websocket\r\n",
+        "Connection: Upgrade\r\n",
+        "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n",
+        "Sec-WebSocket-Version: 13\r\n\r\n"
+    );
+    if stream.write_all(request.as_bytes()).is_err() {
+        return false;
+    }
+    let mut buffer = [0u8; 256];
+    match stream.read(&mut buffer) {
+        Ok(bytes) if bytes > 0 => {
+            let response = String::from_utf8_lossy(&buffer[..bytes]);
+            response.starts_with("HTTP/1.1 101") || response.starts_with("HTTP/1.0 101")
+        }
+        _ => false,
+    }
+}
+
+fn choose_debug_port(requested: Option<u16>) -> Result<u16> {
+    if let Some(port) = requested {
+        if port == 0 {
+            bail!("--debug-port must be between 1 and 65535");
+        }
+        return match TcpListener::bind(("127.0.0.1", port)) {
+            Ok(_) => Ok(port),
+            Err(error) => bail!("debug port {port} is not available: {error}"),
+        };
+    }
+    for port in 9998..=10098 {
+        if TcpListener::bind(("127.0.0.1", port)).is_ok() {
+            return Ok(port);
+        }
+    }
+    bail!("no free debug port between 9998 and 10098")
 }
 
 fn prepare_executable(root: &Path, artifact: &Path) -> Result<PathBuf> {
@@ -411,6 +547,32 @@ mod tests {
             &root.join("android/app/build/outputs/apk/app.apk"),
             root
         ));
+    }
+
+    #[test]
+    fn rejects_zero_debug_port() {
+        assert!(choose_debug_port(Some(0)).is_err());
+    }
+
+    #[test]
+    fn finds_internet_permission_in_the_debug_manifest() {
+        let root =
+            std::env::temp_dir().join(format!("winia-dev-permission-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("android/app/src/main")).unwrap();
+        std::fs::create_dir_all(root.join("android/app/src/debug")).unwrap();
+        std::fs::write(
+            root.join("android/app/src/main/AndroidManifest.xml"),
+            "<manifest />",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("android/app/src/debug/AndroidManifest.xml"),
+            "<manifest><uses-permission android:name=\"android.permission.INTERNET\" /></manifest>",
+        )
+        .unwrap();
+        assert!(android_has_internet_permission(&root));
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]

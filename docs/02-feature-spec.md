@@ -12,7 +12,7 @@
 | `winia init` | Add Winia to an existing Rust project | Planned |
 | `winia build` | Build the application | Implemented: host executable and Android APK (NDK driver + Gradle) |
 | `winia run` | Build and run | Implemented: host launch, Android install/start |
-| `winia dev` | Development mode: file watching + restart | Implemented (desktop restart, Android reinstall/restart; debug-server pending) |
+| `winia dev` | Development mode: file watching + restart | Implemented (desktop restart, Android reinstall/restart, automatic debug-server) |
 | `winia test` | Unit, UI, and device smoke tests | Planned |
 | `winia package` | Package installers/archives/APK/AAB | Implemented for Android APK/AAB |
 | `winia sign` | Code signing | Implemented for Android APKs |
@@ -277,8 +277,14 @@ winia test --filter scrollbar
 - Build failures keep the watcher alive; the next edit retries.
 - `--debounce <ms>` sets event coalescing (default 300); `--once` builds and runs once, waiting for a
   desktop app to close.
+- Debug builds automatically enable the `winia/debug-server` feature, pick a free port starting at 9998
+  (or use `--debug-port`), set `WINIA_DEBUG_PORT`, wait for the WebSocket handshake, and print
+  `ws://127.0.0.1:<port>`. `--no-debug-server` opts out; release builds disable it automatically.
+- Android uses port 9998 and forwards it with `adb forward tcp:9998 tcp:9998`. The debug manifest
+  (`android/app/src/debug/AndroidManifest.xml`) needs `android.permission.INTERNET`; the blank
+  template includes it and existing projects must add it.
 - Note: Rust has no code hot-swapping; a "hot restart" is a process-level restart, not Flutter-style hot
-  reload. Debug-server startup and `adb reverse` are not implemented yet.
+  reload.
 
 ### 4.3 `winia test`
 
