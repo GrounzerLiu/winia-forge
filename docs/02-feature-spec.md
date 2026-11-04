@@ -346,13 +346,21 @@ winia package --target android --format apk,aab --split per-abi
 
 ### 5.6 Android packaging
 
-See [03-android-support.md](03-android-support.md). Key points:
+See [03-android-support.md](03-android-support.md). Implemented behaviour:
 
-- APK and AAB.
-- ABI split / universal.
-- `zipalign -P 16` to satisfy the 16 KB page requirement on Android 15+.
-- `apksigner` signing and verification.
-- `bundletool` AAB validation.
+- `winia package --target android` builds a universal APK by default; `--split per-abi` builds one
+  APK per configured ABI. AABs are produced with the Gradle bundle task.
+- Artifacts land in `dist/` (or `--out-dir`) as
+  `{app}-{version}-android-universal.apk`, `{app}-{version}-android-{abi}.apk`, and
+  `{app}-{version}-android.aab`.
+- `versionCode` / `versionName` from `winia.toml` are passed to Gradle as
+  `winiaVersionCode` / `winiaVersionName` properties, so the APK metadata matches the artifact name.
+- Every APK is checked for `zipalign -P 16` alignment, native ABIs (through `aapt2 dump badging`),
+  version metadata, and (for debug builds) a valid signature. Release APKs stay unsigned until
+  `winia sign`.
+- `--json` and `--dry-run` describe the artifacts without building; `--clean` removes existing files
+  in the output directory first.
+- `bundletool` validation runs when the tool is available; otherwise the command warns and continues.
 
 ## 6. Signing and publishing
 

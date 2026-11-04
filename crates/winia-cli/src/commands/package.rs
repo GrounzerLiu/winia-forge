@@ -4,7 +4,7 @@
 //! `dist/` with a versioned name. `--split per-abi` builds one APK per ABI;
 //! the default is a universal APK. `aab` runs the Gradle bundle task.
 //! Every APK is checked for 16 KB ZIP alignment, the configured native ABIs,
-//! and (for debug builds) a valid signature.
+//! version metadata, and (for debug builds) a valid signature.
 
 use crate::cli::{BuildArgs, PackageArgs, SplitMode};
 use crate::commands::build;
@@ -12,9 +12,11 @@ use crate::config::WiniaConfig;
 use crate::platform::android::Abi;
 use anyhow::{Context, Result, bail};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 pub fn run(args: PackageArgs) -> Result<()> {
+    let started = Instant::now();
     let cwd = std::env::current_dir().context("reading the current directory")?;
     let config_path = crate::config::find_config(&cwd)
         .ok_or_else(|| anyhow::anyhow!("winia.toml not found; run this inside a Winia project"))?;
@@ -25,20 +27,39 @@ pub fn run(args: PackageArgs) -> Result<()> {
     let config = WiniaConfig::load(&config_path)?;
     config.validate()?;
 
-    let targets = if args.target.is_empty() {
-        vec![build::host_target().to_owned()]
-    } else {
-        args.target.clone()
-    };
-    if let Some(unsupported) = targets.iter().find(|target| target.as_str() != "android") {
-        bail!(
-            "packaging for {unsupported} is not implemented yet; only --target android is supported"
-        );
+    let targets = resolve_targets(&root, &args)?;
+    if targets.iter().any(|target| target != "android") {
+        bail!("only Android packaging is implemented");
     }
-    package_android(&root, &config, &args)
+    package_android(&root, &config, &args, started)
 }
 
-fn package_android(root: &Path, config: &WiniaConfig, args: &PackageArgs) -> Result<()> {
+fn resolve_targets(root: &Path, args: &PackageArgs) -> Result<Vec<String>> {
+    if args.target.is_empty() {
+        if root.join("android").is_dir() {
+            return Ok(vec!["android".to_owned()]);
+        }
+        bail!("no packageable platform found; pass --target android");
+    }
+    let mut targets = Vec::new();
+    for target in &args.target {
+        match target.as_str() {
+            "android" => targets.push("android".to_owned()),
+            "windows" | "macos" | "linux" => bail!(
+                "packaging for {target} is not implemented yet; only --target android is supported"
+            ),
+            other => bail!("unknown target '{other}'; expected android"),
+        }
+    }
+    Ok(targets)
+}
+
+fn package_android(
+    root: &Path,
+    config: &WiniaConfig,
+    args: &PackageArgs,
+    started: Instant,
+) -> Result<()> {
     let android_dir = root.join("android");
     let gradlew = android_dir.join(if cfg!(windows) {
         "gradlew.bat"
@@ -83,21 +104,43 @@ fn package_android(root: &Path, config: &WiniaConfig, args: &PackageArgs) -> Res
     }
 
     let out_dir = args.out_dir.clone().unwrap_or_else(|| root.join("dist"));
-    std::fs::create_dir_all(&out_dir).with_context(|| format!("creating {}", out_dir.display()))?;
     let stem = artifact_stem(config);
     let version = config.app.version.clone();
     let profile = if args.release { "release" } else { "debug" };
+    let split = args.split.unwrap_or(SplitMode::Universal);
+    let planned = planned_artifacts(&stem, &version, &formats, split, &abis, &out_dir);
+
+    if args.dry_run {
+        return report(root, &planned, true, args.json, started.elapsed());
+    }
+
+    std::fs::create_dir_all(&out_dir).with_context(|| format!("creating {}", out_dir.display()))?;
+    if args.clean {
+        clean_output_dir(&out_dir)?;
+    } else if has_files(&out_dir) && !args.json {
+        println!(
+            "note: {} already contains files; pass --clean to remove stale artifacts",
+            out_dir.display()
+        );
+    }
+
     let mut produced = Vec::new();
 
     if formats.iter().any(|format| format == "apk") {
-        let split = args.split.unwrap_or(SplitMode::Universal);
         match split {
             SplitMode::Universal => {
                 let built = build::build_all(root, config, &build_args(args, Vec::new()))?;
                 let apk = find_apk(&built)?;
                 let destination = out_dir.join(format!("{stem}-{version}-android-universal.apk"));
                 copy_artifact(&apk, &destination)?;
-                verify_apk(&destination, &abis, args.release)?;
+                verify_apk(
+                    &destination,
+                    &abis,
+                    args.release,
+                    config.android.version_code,
+                    &version,
+                    args.json,
+                )?;
                 produced.push(destination);
             }
             SplitMode::PerAbi => {
@@ -111,7 +154,14 @@ fn package_android(root: &Path, config: &WiniaConfig, args: &PackageArgs) -> Res
                     let destination =
                         out_dir.join(format!("{stem}-{version}-android-{}.apk", abi.as_str()));
                     copy_artifact(&apk, &destination)?;
-                    verify_apk(&destination, &[*abi], args.release)?;
+                    verify_apk(
+                        &destination,
+                        &[*abi],
+                        args.release,
+                        config.android.version_code,
+                        &version,
+                        args.json,
+                    )?;
                     produced.push(destination);
                 }
             }
@@ -125,7 +175,12 @@ fn package_android(root: &Path, config: &WiniaConfig, args: &PackageArgs) -> Res
         } else {
             "bundleDebug"
         };
-        build::run_gradle_task(&android_dir, task, false)?;
+        build::run_gradle_task(
+            &android_dir,
+            task,
+            &build::version_properties(config),
+            args.json,
+        )?;
         let bundle = android_dir
             .join("app/build/outputs/bundle")
             .join(profile)
@@ -138,20 +193,40 @@ fn package_android(root: &Path, config: &WiniaConfig, args: &PackageArgs) -> Res
         }
         let destination = out_dir.join(format!("{stem}-{version}-android.aab"));
         copy_artifact(&bundle, &destination)?;
+        validate_aab(&destination, args.json)?;
         produced.push(destination);
     }
 
-    for artifact in &produced {
-        let bytes = std::fs::metadata(artifact)
-            .map(|metadata| metadata.len())
-            .unwrap_or(0);
-        println!(
-            "{} ({:.1} MB)",
-            display_relative(root, artifact),
-            bytes as f64 / (1024.0 * 1024.0)
-        );
+    report(root, &produced, false, args.json, started.elapsed())
+}
+
+fn planned_artifacts(
+    stem: &str,
+    version: &str,
+    formats: &[String],
+    split: SplitMode,
+    abis: &[Abi],
+    out_dir: &Path,
+) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    if formats.iter().any(|format| format == "apk") {
+        match split {
+            SplitMode::Universal => {
+                paths.push(out_dir.join(format!("{stem}-{version}-android-universal.apk")))
+            }
+            SplitMode::PerAbi => {
+                for abi in abis {
+                    paths.push(
+                        out_dir.join(format!("{stem}-{version}-android-{}.apk", abi.as_str())),
+                    );
+                }
+            }
+        }
     }
-    Ok(())
+    if formats.iter().any(|format| format == "aab") {
+        paths.push(out_dir.join(format!("{stem}-{version}-android.aab")));
+    }
+    paths
 }
 
 fn build_args(args: &PackageArgs, abis: Vec<String>) -> BuildArgs {
@@ -160,7 +235,7 @@ fn build_args(args: &PackageArgs, abis: Vec<String>) -> BuildArgs {
         release: args.release,
         abi: abis,
         features: Vec::new(),
-        json: false,
+        json: args.json,
         out_dir: None,
     }
 }
@@ -183,9 +258,41 @@ fn copy_artifact(source: &Path, destination: &Path) -> Result<()> {
     Ok(())
 }
 
-fn verify_apk(apk: &Path, abis: &[Abi], release: bool) -> Result<()> {
+fn clean_output_dir(out_dir: &Path) -> Result<()> {
+    if !out_dir.is_dir() {
+        return Ok(());
+    }
+    for entry in
+        std::fs::read_dir(out_dir).with_context(|| format!("reading {}", out_dir.display()))?
+    {
+        let path = entry?.path();
+        if path.is_file() {
+            std::fs::remove_file(&path).with_context(|| format!("removing {}", path.display()))?;
+        }
+    }
+    Ok(())
+}
+
+fn has_files(directory: &Path) -> bool {
+    std::fs::read_dir(directory)
+        .map(|mut entries| {
+            entries.any(|entry| entry.map(|entry| entry.path().is_file()).unwrap_or(false))
+        })
+        .unwrap_or(false)
+}
+
+fn verify_apk(
+    apk: &Path,
+    abis: &[Abi],
+    release: bool,
+    version_code: u32,
+    version_name: &str,
+    json: bool,
+) -> Result<()> {
     let Some(build_tools) = build_tools_dir() else {
-        println!("warning: Android build-tools not found; skipped APK verification");
+        if !json {
+            eprintln!("warning: Android build-tools not found; skipped APK verification");
+        }
         return Ok(());
     };
 
@@ -203,6 +310,8 @@ fn verify_apk(apk: &Path, abis: &[Abi], release: bool) -> Result<()> {
                 String::from_utf8_lossy(&output.stderr).trim()
             );
         }
+    } else if !json {
+        eprintln!("warning: zipalign not found; skipped alignment check");
     }
 
     let aapt2 = build_tools.join(executable("aapt2"));
@@ -227,6 +336,36 @@ fn verify_apk(apk: &Path, abis: &[Abi], release: bool) -> Result<()> {
                 );
             }
         }
+        match badging_version(&text) {
+            Some((actual_code, actual_name)) => {
+                if actual_code != Some(version_code) {
+                    bail!(
+                        "{} reports versionCode {:?}, expected {}",
+                        apk.display(),
+                        actual_code,
+                        version_code
+                    );
+                }
+                if actual_name.as_deref() != Some(version_name) {
+                    bail!(
+                        "{} reports versionName {:?}, expected {}",
+                        apk.display(),
+                        actual_name,
+                        version_name
+                    );
+                }
+            }
+            None => {
+                if !json {
+                    eprintln!(
+                        "warning: could not read version metadata from {}",
+                        apk.display()
+                    );
+                }
+            }
+        }
+    } else if !json {
+        eprintln!("warning: aapt2 not found; skipped ABI and version checks");
     }
 
     let apksigner = build_tools.join(if cfg!(windows) {
@@ -250,22 +389,69 @@ fn verify_apk(apk: &Path, abis: &[Abi], release: bool) -> Result<()> {
         }
         .with_context(|| format!("running {}", apksigner.display()))?;
         if !output.status.success() {
-            let detail = String::from_utf8_lossy(&output.stdout);
             if release {
-                println!(
-                    "warning: {} is unsigned or its signature could not be verified",
-                    apk.display()
-                );
+                if !json {
+                    eprintln!(
+                        "warning: {} is unsigned; run 'winia sign --target android' before distributing",
+                        apk.display()
+                    );
+                }
             } else {
                 bail!(
                     "signature verification failed for {}: {}",
                     apk.display(),
-                    detail.trim()
+                    String::from_utf8_lossy(&output.stdout).trim()
                 );
             }
         }
+    } else if !json {
+        eprintln!("warning: apksigner not found; skipped signature check");
     }
     Ok(())
+}
+
+fn validate_aab(aab: &Path, json: bool) -> Result<()> {
+    let Some(mut command) = bundletool_command() else {
+        if !json {
+            eprintln!("warning: bundletool not found; skipped AAB validation");
+        }
+        return Ok(());
+    };
+    let output = command
+        .args(["validate", "--bundle"])
+        .arg(aab)
+        .output()
+        .context("running bundletool")?;
+    if !output.status.success() {
+        bail!(
+            "bundletool rejected {}: {}",
+            aab.display(),
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(())
+}
+
+fn bundletool_command() -> Option<Command> {
+    if let Some(value) = std::env::var_os("BUNDLETOOL_JAR").filter(|value| !value.is_empty()) {
+        let jar = PathBuf::from(value);
+        if jar.is_file() {
+            let mut command = Command::new("java");
+            command.arg("-jar").arg(jar);
+            return Some(command);
+        }
+    }
+    if Command::new("bundletool")
+        .arg("version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+    {
+        return Some(Command::new("bundletool"));
+    }
+    None
 }
 
 fn build_tools_dir() -> Option<PathBuf> {
@@ -281,13 +467,24 @@ fn build_tools_dir() -> Option<PathBuf> {
                         .collect()
                 })
                 .unwrap_or_default();
-            versions.sort();
+            versions.sort_by_key(|path| version_key(path));
             if let Some(latest) = versions.pop() {
                 return Some(latest);
             }
         }
     }
     None
+}
+
+fn version_key(path: &Path) -> Vec<u32> {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| {
+            name.split('.')
+                .map(|part| part.parse::<u32>().unwrap_or(0))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn executable(name: &str) -> String {
@@ -320,6 +517,79 @@ fn extension(path: &Path) -> Option<&str> {
     path.extension().and_then(|extension| extension.to_str())
 }
 
+fn attribute(line: &str, key: &str) -> Option<String> {
+    let marker = format!("{key}='");
+    let start = line.find(&marker)? + marker.len();
+    let rest = &line[start..];
+    let end = rest.find('\'')?;
+    Some(rest[..end].to_owned())
+}
+
+fn badging_version(text: &str) -> Option<(Option<u32>, Option<String>)> {
+    let line = text.lines().find(|line| line.starts_with("package: "))?;
+    let code = attribute(line, "versionCode").and_then(|value| value.parse().ok());
+    let name = attribute(line, "versionName");
+    Some((code, name))
+}
+
+fn report(
+    root: &Path,
+    artifacts: &[PathBuf],
+    dry_run: bool,
+    json: bool,
+    elapsed: Duration,
+) -> Result<()> {
+    if json {
+        let values: Vec<_> = artifacts
+            .iter()
+            .map(|path| {
+                let bytes = if dry_run {
+                    0
+                } else {
+                    std::fs::metadata(path)
+                        .map(|metadata| metadata.len())
+                        .unwrap_or(0)
+                };
+                serde_json::json!({
+                    "path": display_relative(root, path),
+                    "bytes": bytes,
+                })
+            })
+            .collect();
+        let value = serde_json::json!({
+            "target": "android",
+            "dry_run": dry_run,
+            "artifacts": values,
+            "duration_ms": elapsed.as_millis(),
+        });
+        println!("{}", serde_json::to_string_pretty(&value)?);
+        return Ok(());
+    }
+    println!(
+        "{}",
+        if dry_run {
+            "Would create:"
+        } else {
+            "Packaged:"
+        }
+    );
+    for artifact in artifacts {
+        if dry_run {
+            println!("  {}", display_relative(root, artifact));
+        } else {
+            let bytes = std::fs::metadata(artifact)
+                .map(|metadata| metadata.len())
+                .unwrap_or(0);
+            println!(
+                "  {} ({:.1} MB)",
+                display_relative(root, artifact),
+                bytes as f64 / (1024.0 * 1024.0)
+            );
+        }
+    }
+    Ok(())
+}
+
 fn display_relative(root: &Path, path: &Path) -> String {
     path.strip_prefix(root)
         .map(|relative| relative.display().to_string())
@@ -336,5 +606,67 @@ mod tests {
         let mut config = WiniaConfig::default();
         config.app.name = "My App!".to_owned();
         assert_eq!(artifact_stem(&config), "my-app");
+    }
+
+    #[test]
+    fn planned_names_follow_the_format_and_split() {
+        let abis = [Abi::Arm64V8a, Abi::X86_64];
+        let out = Path::new("dist");
+        let universal = planned_artifacts(
+            "demo",
+            "0.1.0",
+            &["apk".to_owned()],
+            SplitMode::Universal,
+            &abis,
+            out,
+        );
+        assert_eq!(
+            universal,
+            vec![PathBuf::from("dist/demo-0.1.0-android-universal.apk")]
+        );
+
+        let split = planned_artifacts(
+            "demo",
+            "0.1.0",
+            &["apk".to_owned(), "aab".to_owned()],
+            SplitMode::PerAbi,
+            &abis,
+            out,
+        );
+        assert_eq!(
+            split,
+            vec![
+                PathBuf::from("dist/demo-0.1.0-android-arm64-v8a.apk"),
+                PathBuf::from("dist/demo-0.1.0-android-x86_64.apk"),
+                PathBuf::from("dist/demo-0.1.0-android.aab"),
+            ]
+        );
+    }
+
+    #[test]
+    fn reads_version_metadata_from_aapt_badging() {
+        let line = "package: name='com.example.demo' versionCode='7' versionName='0.2.0' platformBuildVersionName='16'";
+        assert_eq!(
+            badging_version(line),
+            Some((Some(7), Some("0.2.0".to_owned())))
+        );
+    }
+
+    #[test]
+    fn build_tools_versions_sort_numerically() {
+        let mut versions = vec![
+            PathBuf::from("10.0.0"),
+            PathBuf::from("9.0.0"),
+            PathBuf::from("36.1.0"),
+        ];
+        versions.sort_by_key(|path| version_key(path));
+        assert_eq!(
+            versions,
+            vec![
+                PathBuf::from("9.0.0"),
+                PathBuf::from("10.0.0"),
+                PathBuf::from("36.1.0"),
+            ]
+        );
     }
 }

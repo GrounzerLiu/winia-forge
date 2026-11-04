@@ -18,8 +18,8 @@ android {
         applicationId = "__APP_ID__"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "__VERSION__"
+        versionCode = (project.findProperty("winiaVersionCode") as String?)?.toIntOrNull() ?: 1
+        versionName = (project.findProperty("winiaVersionName") as String?) ?: "__VERSION__"
     }
 
     compileOptions {

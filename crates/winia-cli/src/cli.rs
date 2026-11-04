@@ -196,6 +196,15 @@ pub struct PackageArgs {
     /// Android split mode.
     #[arg(long, value_enum)]
     pub split: Option<SplitMode>,
+    /// Emit machine-readable output.
+    #[arg(long)]
+    pub json: bool,
+    /// Print what would be produced without building.
+    #[arg(long)]
+    pub dry_run: bool,
+    /// Remove existing files in the output directory before packaging.
+    #[arg(long)]
+    pub clean: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]

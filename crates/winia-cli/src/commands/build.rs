@@ -178,7 +178,7 @@ fn build_android(
         build_android_library(root, args, metadata, &toolchain, *abi, features)?;
     }
 
-    let apk = run_gradle(&android_dir, args.release, args.json)?;
+    let apk = run_gradle(&android_dir, config, args.release, args.json)?;
     artifacts.push(artifact(apk)?);
     Ok(artifacts)
 }
@@ -338,7 +338,12 @@ fn same_contents(left: &Path, right: &Path) -> Result<bool> {
     }
 }
 
-pub(crate) fn run_gradle_task(android_dir: &Path, task: &str, json: bool) -> Result<()> {
+pub(crate) fn run_gradle_task(
+    android_dir: &Path,
+    task: &str,
+    properties: &[(&str, String)],
+    json: bool,
+) -> Result<()> {
     let mut command = if cfg!(windows) {
         let mut command = Command::new("cmd");
         command.args(["/c", "gradlew.bat", task]);
@@ -348,17 +353,34 @@ pub(crate) fn run_gradle_task(android_dir: &Path, task: &str, json: bool) -> Res
         command.arg(task);
         command
     };
+    for (key, value) in properties {
+        command.arg(format!("-P{key}={value}"));
+    }
     command.current_dir(android_dir);
     run_command(&mut command, &format!("gradlew {task}"), json)
 }
 
-fn run_gradle(android_dir: &Path, release: bool, json: bool) -> Result<PathBuf> {
+/// Gradle properties that keep the APK version metadata in sync with
+/// `winia.toml` instead of the values baked into the generated build file.
+pub(crate) fn version_properties(config: &WiniaConfig) -> Vec<(&'static str, String)> {
+    vec![
+        ("winiaVersionCode", config.android.version_code.to_string()),
+        ("winiaVersionName", config.app.version.clone()),
+    ]
+}
+
+fn run_gradle(
+    android_dir: &Path,
+    config: &WiniaConfig,
+    release: bool,
+    json: bool,
+) -> Result<PathBuf> {
     let task = if release {
         "assembleRelease"
     } else {
         "assembleDebug"
     };
-    run_gradle_task(android_dir, task, json)?;
+    run_gradle_task(android_dir, task, &version_properties(config), json)?;
 
     let output_dir =
         android_dir
