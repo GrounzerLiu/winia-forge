@@ -358,8 +358,14 @@ See [03-android-support.md](03-android-support.md). Implemented behaviour:
 - Every APK is checked for `zipalign -P 16` alignment, native ABIs (through `aapt2 dump badging`),
   version metadata, and (for debug builds) a valid signature. Release APKs stay unsigned until
   `winia sign`.
-- `--json` and `--dry-run` describe the artifacts without building; `--clean` removes existing files
-  in the output directory first.
+- `--json` and `--dry-run` describe the artifacts without building. `--json` emits
+  `{ "target", "version", "formats", "split", "dry_run", "artifacts": [{ "path", "bytes" }],
+  "duration_ms" }`.
+- `--clean` removes only files matching `{app}-{version}-android-*.apk|aab` in the output
+  directory; unrelated files are left alone.
+- `--split` only affects the `apk` format; requesting it with `aab` alone prints a warning.
+- AAB packaging builds the native libraries without assembling an intermediate APK, then runs the
+  Gradle bundle task.
 - `bundletool` validation runs when the tool is available; otherwise the command warns and continues.
 
 ## 6. Signing and publishing

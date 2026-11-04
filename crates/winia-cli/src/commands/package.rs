@@ -61,17 +61,6 @@ fn package_android(
     started: Instant,
 ) -> Result<()> {
     let android_dir = root.join("android");
-    let gradlew = android_dir.join(if cfg!(windows) {
-        "gradlew.bat"
-    } else {
-        "gradlew"
-    });
-    if !gradlew.is_file() {
-        bail!(
-            "{} does not look like a complete Android project; run 'winia android sync' or recreate it with --platforms android",
-            android_dir.display()
-        );
-    }
 
     let formats: Vec<String> = if args.format.is_empty() {
         config.package.android.formats.clone()
@@ -103,21 +92,41 @@ fn package_android(
         bail!("no Android ABIs configured; set [android].abis");
     }
 
-    let out_dir = args.out_dir.clone().unwrap_or_else(|| root.join("dist"));
+    let out_dir = match &args.out_dir {
+        Some(path) if path.is_absolute() => path.clone(),
+        Some(path) => root.join(path),
+        None => root.join("dist"),
+    };
     let stem = artifact_stem(config);
     let version = config.app.version.clone();
     let profile = if args.release { "release" } else { "debug" };
     let split = args.split.unwrap_or(SplitMode::Universal);
+    if args.split.is_some() && !formats.iter().any(|format| format == "apk") && !args.json {
+        eprintln!(
+            "warning: --split only affects the apk format; ignoring it for the requested formats"
+        );
+    }
     let planned = planned_artifacts(&stem, &version, &formats, split, &abis, &out_dir);
 
     if args.dry_run {
-        return report(root, &planned, true, args.json, started.elapsed());
+        return report(
+            root,
+            &planned,
+            true,
+            args.json,
+            started.elapsed(),
+            ReportMeta {
+                formats: &formats,
+                split,
+                version: &version,
+            },
+        );
     }
 
     std::fs::create_dir_all(&out_dir).with_context(|| format!("creating {}", out_dir.display()))?;
     if args.clean {
-        clean_output_dir(&out_dir)?;
-    } else if has_files(&out_dir) && !args.json {
+        clean_output_dir(&out_dir, &stem, &version)?;
+    } else if has_package_artifacts(&out_dir, &stem, &version) && !args.json {
         println!(
             "note: {} already contains files; pass --clean to remove stale artifacts",
             out_dir.display()
@@ -169,7 +178,7 @@ fn package_android(
     }
 
     if formats.iter().any(|format| format == "aab") {
-        build::build_all(root, config, &build_args(args, Vec::new()))?;
+        build::build_android_libraries(root, config, &build_args(args, Vec::new()))?;
         let task = if args.release {
             "bundleRelease"
         } else {
@@ -181,15 +190,29 @@ fn package_android(
             &build::version_properties(config),
             args.json,
         )?;
-        let bundle = android_dir
-            .join("app/build/outputs/bundle")
-            .join(profile)
-            .join(format!("app-{profile}.aab"));
+        let bundle_dir = android_dir.join("app/build/outputs/bundle").join(profile);
+        let mut bundle = bundle_dir.join(format!("app-{profile}.aab"));
         if !bundle.is_file() {
-            bail!(
-                "Gradle finished but no AAB was found at {}",
-                bundle.display()
-            );
+            let mut candidates: Vec<PathBuf> = std::fs::read_dir(&bundle_dir)
+                .map(|entries| {
+                    entries
+                        .flatten()
+                        .map(|entry| entry.path())
+                        .filter(|path| extension(path) == Some("aab"))
+                        .collect()
+                })
+                .unwrap_or_default();
+            candidates.sort_by_key(|path| {
+                std::fs::metadata(path)
+                    .and_then(|metadata| metadata.modified())
+                    .ok()
+            });
+            bundle = candidates.pop().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Gradle finished but no AAB was found in {}",
+                    bundle_dir.display()
+                )
+            })?;
         }
         let destination = out_dir.join(format!("{stem}-{version}-android.aab"));
         copy_artifact(&bundle, &destination)?;
@@ -197,7 +220,18 @@ fn package_android(
         produced.push(destination);
     }
 
-    report(root, &produced, false, args.json, started.elapsed())
+    report(
+        root,
+        &produced,
+        false,
+        args.json,
+        started.elapsed(),
+        ReportMeta {
+            formats: &formats,
+            split,
+            version: &version,
+        },
+    )
 }
 
 fn planned_artifacts(
@@ -258,7 +292,7 @@ fn copy_artifact(source: &Path, destination: &Path) -> Result<()> {
     Ok(())
 }
 
-fn clean_output_dir(out_dir: &Path) -> Result<()> {
+fn clean_output_dir(out_dir: &Path, stem: &str, version: &str) -> Result<()> {
     if !out_dir.is_dir() {
         return Ok(());
     }
@@ -266,17 +300,28 @@ fn clean_output_dir(out_dir: &Path) -> Result<()> {
         std::fs::read_dir(out_dir).with_context(|| format!("reading {}", out_dir.display()))?
     {
         let path = entry?.path();
-        if path.is_file() {
+        if path.is_file() && is_package_artifact(&path, stem, version) {
             std::fs::remove_file(&path).with_context(|| format!("removing {}", path.display()))?;
         }
     }
     Ok(())
 }
 
-fn has_files(directory: &Path) -> bool {
+fn is_package_artifact(path: &Path, stem: &str, version: &str) -> bool {
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+    let base = format!("{stem}-{version}-android");
+    (name.starts_with(&format!("{base}-")) || name.starts_with(&format!("{base}.")))
+        && (name.ends_with(".apk") || name.ends_with(".aab"))
+}
+
+fn has_package_artifacts(directory: &Path, stem: &str, version: &str) -> bool {
     std::fs::read_dir(directory)
-        .map(|mut entries| {
-            entries.any(|entry| entry.map(|entry| entry.path().is_file()).unwrap_or(false))
+        .map(|entries| {
+            entries
+                .flatten()
+                .any(|entry| is_package_artifact(&entry.path(), stem, version))
         })
         .unwrap_or(false)
 }
@@ -321,6 +366,13 @@ fn verify_apk(
             .arg(apk)
             .output()
             .with_context(|| format!("running {}", aapt2.display()))?;
+        if !output.status.success() {
+            bail!(
+                "aapt2 failed on {}: {}",
+                apk.display(),
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
         let text = String::from_utf8_lossy(&output.stdout);
         let native = text
             .lines()
@@ -532,12 +584,19 @@ fn badging_version(text: &str) -> Option<(Option<u32>, Option<String>)> {
     Some((code, name))
 }
 
+struct ReportMeta<'a> {
+    formats: &'a [String],
+    split: SplitMode,
+    version: &'a str,
+}
+
 fn report(
     root: &Path,
     artifacts: &[PathBuf],
     dry_run: bool,
     json: bool,
     elapsed: Duration,
+    meta: ReportMeta<'_>,
 ) -> Result<()> {
     if json {
         let values: Vec<_> = artifacts
@@ -556,8 +615,15 @@ fn report(
                 })
             })
             .collect();
+        let split = match meta.split {
+            SplitMode::Universal => "universal",
+            SplitMode::PerAbi => "per-abi",
+        };
         let value = serde_json::json!({
             "target": "android",
+            "version": meta.version,
+            "formats": meta.formats,
+            "split": split,
             "dry_run": dry_run,
             "artifacts": values,
             "duration_ms": elapsed.as_millis(),
@@ -650,6 +716,33 @@ mod tests {
             badging_version(line),
             Some((Some(7), Some("0.2.0".to_owned())))
         );
+    }
+
+    #[test]
+    fn only_matching_artifacts_are_cleaned() {
+        let stem = "demo";
+        let version = "0.1.0";
+        assert!(is_package_artifact(
+            Path::new("demo-0.1.0-android-universal.apk"),
+            stem,
+            version
+        ));
+        assert!(is_package_artifact(
+            Path::new("demo-0.1.0-android-arm64-v8a.apk"),
+            stem,
+            version
+        ));
+        assert!(is_package_artifact(
+            Path::new("demo-0.1.0-android.aab"),
+            stem,
+            version
+        ));
+        assert!(!is_package_artifact(Path::new("notes.txt"), stem, version));
+        assert!(!is_package_artifact(
+            Path::new("demo-0.2.0-android-universal.apk"),
+            stem,
+            version
+        ));
     }
 
     #[test]

@@ -159,6 +159,31 @@ fn build_android(
     metadata: &ProjectMetadata,
     features: &[String],
 ) -> Result<Vec<Artifact>> {
+    build_android_libraries_with(root, config, args, metadata, features)?;
+    let android_dir = root.join("android");
+    let apk = run_gradle(&android_dir, config, args.release, args.json)?;
+    Ok(vec![artifact(apk)?])
+}
+
+/// Build and copy the native libraries for every selected ABI without invoking
+/// Gradle. Packaging uses this for AABs, which do not need an intermediate APK.
+pub(crate) fn build_android_libraries(
+    root: &Path,
+    config: &WiniaConfig,
+    args: &BuildArgs,
+) -> Result<()> {
+    let metadata = cargo_metadata(root)?;
+    let features = effective_features(config, args);
+    build_android_libraries_with(root, config, args, &metadata, &features)
+}
+
+fn build_android_libraries_with(
+    root: &Path,
+    config: &WiniaConfig,
+    args: &BuildArgs,
+    metadata: &ProjectMetadata,
+    features: &[String],
+) -> Result<()> {
     let android_dir = root.join("android");
     if !android_dir.is_dir() {
         bail!(
@@ -173,14 +198,10 @@ fn build_android(
     toolchain.validate(&abis)?;
     clean_jni_libs(root, &abis)?;
 
-    let mut artifacts = Vec::new();
     for abi in &abis {
         build_android_library(root, args, metadata, &toolchain, *abi, features)?;
     }
-
-    let apk = run_gradle(&android_dir, config, args.release, args.json)?;
-    artifacts.push(artifact(apk)?);
-    Ok(artifacts)
+    Ok(())
 }
 
 fn selected_abis(config: &WiniaConfig, args: &BuildArgs) -> Result<Vec<Abi>> {
