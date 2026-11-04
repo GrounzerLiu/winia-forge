@@ -496,7 +496,7 @@ fn bundletool_command() -> Option<Command> {
     None
 }
 
-fn artifact_stem(config: &WiniaConfig) -> String {
+pub(crate) fn artifact_stem(config: &WiniaConfig) -> String {
     let stem: String = config
         .app
         .name

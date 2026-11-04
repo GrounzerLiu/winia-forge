@@ -16,7 +16,7 @@
 | `winia test` | Unit, UI, and device smoke tests | Planned |
 | `winia package` | Package installers/archives/APK/AAB | Implemented for Android APK/AAB |
 | `winia sign` | Code signing | Implemented for Android APKs |
-| `winia release` | Version, tag, publish | Planned |
+| `winia release` | Version, tag, publish | Implemented for Android (local artifacts + GitHub upload) |
 | `winia doctor` | Environment diagnostics | Implemented (Rust/MSRV, platform toolchains, Android SDK/NDK, `--fix`) |
 | `winia add` / `remove` / `update` | Dependency management | Planned |
 | `winia assets` | Icon and asset generation | Planned |
@@ -406,21 +406,24 @@ See [03-android-support.md](03-android-support.md). Implemented behaviour:
 ### 6.4 `winia release`
 
 ```bash
-winia release --dry-run
-winia release --target windows,macos,linux --track github
-winia release --target android --track internal
+winia release --target android --dry-run
+winia release --target android --bump patch
+winia release --target android --bump minor --track github
 ```
 
-Flow:
+Implemented flow (Android only):
 
-1. Verify the worktree is clean (`--allow-dirty` skips this).
-2. Bump the semantic version (`--bump major|minor|patch`).
-3. Generate a changelog from conventional commits.
-4. Create the git tag.
-5. Build artifacts for every platform.
-6. Sign/notarise.
-7. Upload to GitHub Releases or Google Play.
-8. Generate `latest.json` / the update manifest (when auto-update is enabled).
+1. Refuse a dirty worktree unless `--allow-dirty`.
+2. Validate the signing environment (keystore, alias, password) before modifying the repository.
+3. Bump `app.version` and `android.version_code`, then commit `chore(release): vX.Y.Z`.
+4. Generate notes from conventional commits since the previous tag.
+5. Package the release APK/AAB through `winia package`.
+6. Sign the APK when a keystore is configured; `latest.json` lists the signed APK.
+7. Create the annotated tag unless `--no-tag`.
+8. With `--track github`, upload the artifacts to a GitHub release (requires `gh` and a git remote).
+9. Write `dist/latest.json` with the version, tag, and artifact sizes.
+
+Not implemented yet: Play track uploads, desktop/macOS releases, and `--json` output.
 
 ## 7. Environment and toolchain
 
@@ -556,5 +559,5 @@ winia upgrade
 | `winia run` | Implemented: host and Android |
 | `winia package` | Implemented: Android APK (universal or per-ABI) and AAB, with alignment/ABI/signature checks |
 | `winia sign` | Implemented: Android APK signing with apksigner |
-| `winia release` | Planned |
+| `winia release` | Implemented: Android bump/package/sign/tag/latest.json and optional GitHub upload |
 | Template system, hooks, plugins | Planned |

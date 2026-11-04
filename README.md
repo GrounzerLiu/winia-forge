@@ -65,6 +65,7 @@ Implemented:
 - `winia run`: launch the host executable, or install and start the APK on the connected Android device
 - `winia package`: assemble Android APKs (universal or per-ABI) and AABs into `dist/`, checking 16 KB alignment, native ABIs, and debug signatures
 - `winia sign`: sign Android APKs with `apksigner`, writing `*-signed.apk` copies and verifying the certificate
+- `winia release`: bump the version, package, sign, tag, write `dist/latest.json`, and optionally publish a GitHub release
 - `winia doctor`: diagnose the Rust toolchain and MSRV, platform toolchains, the Android SDK/NDK, and `winia.toml` validation
 - `winia info` / `winia targets`: environment and target platform information
 - `winia config show/get`: read `winia.toml`

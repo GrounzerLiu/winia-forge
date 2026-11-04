@@ -8,6 +8,7 @@ pub mod build;
 pub mod doctor;
 pub mod new;
 pub mod package;
+pub mod release;
 pub mod run;
 pub mod sign;
 
@@ -26,6 +27,7 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         Command::Build(args) => build::run(args),
         Command::Run(args) => run::run(args),
         Command::Package(args) => package::run(args),
+        Command::Release(args) => release::run(args),
         Command::Sign(args) => sign::run(args),
         Command::Doctor(args) => doctor::run(args),
         Command::Info(args) => info(args),

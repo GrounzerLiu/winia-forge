@@ -246,12 +246,28 @@ pub struct ReleaseArgs {
     /// Target platform(s), comma-separated.
     #[arg(long, value_delimiter = ',')]
     pub target: Vec<String>,
-    /// Release track: internal, alpha, beta, production (Android).
+    /// Release track: github (Android artifacts), or omit for local artifacts only.
     #[arg(long)]
     pub track: Option<String>,
-    /// Print the plan without publishing.
+    /// Version bump before releasing.
+    #[arg(long, value_enum)]
+    pub bump: Option<Bump>,
+    /// Allow a dirty git worktree.
+    #[arg(long)]
+    pub allow_dirty: bool,
+    /// Do not create a git tag.
+    #[arg(long)]
+    pub no_tag: bool,
+    /// Print the plan without modifying the repository or building.
     #[arg(long)]
     pub dry_run: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum Bump {
+    Major,
+    Minor,
+    Patch,
 }
 
 #[derive(Debug, Args)]
