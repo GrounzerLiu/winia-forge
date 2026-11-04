@@ -1,9 +1,12 @@
 # Winia Forge
 
+[![CI](https://github.com/GrounzerLiu/winia-forge/actions/workflows/ci.yml/badge.svg)](https://github.com/GrounzerLiu/winia-forge/actions/workflows/ci.yml)
+
 The official project toolchain for Winia: create, build, run, and package Winia applications.
 
-> Status: scaffold stage. The command surface, configuration model, and design documents are in
-> place; most commands currently fail with an explicit "not implemented in this scaffold" message.
+> Status: active development. Project creation, build/run/dev/test/clean, Android APK/AAB
+> packaging and signing, Android/GitHub releases, desktop portable archives, doctor, inspect, and
+> asset/icon generation are implemented. Desktop installers and Play Store uploads are pending.
 > See [docs/05-roadmap.md](docs/05-roadmap.md) for progress.
 
 ## Quick start

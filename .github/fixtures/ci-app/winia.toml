@@ -1,0 +1,13 @@
+[app]
+name = "CI Smoke"
+id = "com.example.ci-smoke"
+version = "0.1.0"
+
+[package.windows]
+formats = ["zip"]
+
+[package.macos]
+formats = ["app", "zip"]
+
+[package.linux]
+formats = ["tar.gz"]

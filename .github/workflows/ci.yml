@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test and package (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: windows
+            format: zip
+          - os: macos-latest
+            target: macos
+            format: app
+          - os: ubuntu-latest
+            target: linux
+            format: tar.gz
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace
+
+      - name: Build CLI
+        run: cargo build --release -p winia-cli
+
+      - name: Package fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${{ runner.os }}" in
+            Windows) WINIA="$GITHUB_WORKSPACE/target/release/winia.exe" ;;
+            *)       WINIA="$GITHUB_WORKSPACE/target/release/winia" ;;
+          esac
+          cd .github/fixtures/ci-app
+          "$WINIA" package --target "${{ matrix.target }}" --format "${{ matrix.format }}" --out-dir dist --clean
+
+      - name: Verify Windows zip
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd .github/fixtures/ci-app
+          python - <<'PY'
+          import glob
+          import zipfile
+
+          archive = glob.glob("dist/ci-smoke-*-windows-*.zip")[0]
+          with zipfile.ZipFile(archive) as bundle:
+              names = bundle.namelist()
+          assert any(name.endswith(".exe") for name in names), names
+          assert any(name.endswith("assets.manifest.json") for name in names), names
+          assert any(name.endswith("assets/winia/window-icon.png") for name in names), names
+          PY
+
+      - name: Verify macOS app bundle
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd .github/fixtures/ci-app
+          APP=$(ls -d dist/ci-smoke-*-macos-*.app)
+          test -x "$APP/Contents/MacOS/ci-smoke"
+          test -f "$APP/Contents/Resources/assets.manifest.json"
+          test -f "$APP/Contents/Resources/assets/winia/window-icon.png"
+          test -f "$APP/Contents/Info.plist"
+
+      - name: Verify Linux tar.gz
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd .github/fixtures/ci-app
+          TARBALL=$(ls dist/ci-smoke-*-linux-*.tar.gz)
+          tar -tzf "$TARBALL" | grep -E "/ci-smoke$"
+          tar -tzf "$TARBALL" | grep -E "assets\.manifest\.json"
