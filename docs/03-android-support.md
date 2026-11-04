@@ -314,8 +314,10 @@ This is the most critical blocker for Android support:
 ### 7.6 Assets and fonts
 
 - Android assets are read through `AndroidApp::asset_manager()`.
-- The template's `assets/` is packaged into the APK.
-- winia's image/font loading needs an AssetManager path.
+- `winia build` stages `assets/**` under `android/app/src/main/assets/winia-assets/` with an
+  `assets.manifest.json`; Gradle packages them into the APK/AAB.
+- winia's image/font loading still needs an AssetManager path; until then the files are packaged but
+  desktop-only file loading remains the runtime path.
 - Fonts embedded with `include_bytes!` (such as Material Symbols) are unaffected.
 
 ### 7.7 Accessibility

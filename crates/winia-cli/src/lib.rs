@@ -3,6 +3,7 @@
 //! The crate is split into a small library (for tests) and a thin binary named
 //! `winia`. See `docs/02-feature-spec.md` for the product contract.
 
+pub mod assets;
 pub mod cli;
 pub mod commands;
 pub mod config;

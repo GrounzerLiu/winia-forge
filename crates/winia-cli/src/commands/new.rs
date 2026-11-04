@@ -158,6 +158,7 @@ pub fn run(args: NewArgs) -> Result<()> {
     ];
 
     std::fs::create_dir_all(root.join("src"))?;
+    std::fs::create_dir_all(root.join("assets"))?;
     for file in COMMON_FILES {
         write_rendered(&root, file, &vars)?;
     }

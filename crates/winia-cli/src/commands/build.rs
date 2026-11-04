@@ -201,6 +201,7 @@ fn build_android_libraries_with(
     for abi in &abis {
         build_android_library(root, args, metadata, &toolchain, *abi, features)?;
     }
+    crate::assets::stage_android(root, config)?;
     Ok(())
 }
 

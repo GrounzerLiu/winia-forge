@@ -139,10 +139,7 @@ fn package_desktop(
         .ok_or_else(|| anyhow::anyhow!("executable has no file name"))?;
     std::fs::copy(&executable.path, stage.join(executable_name))
         .with_context(|| format!("copying {}", executable.path.display()))?;
-    let assets = root.join("assets");
-    if assets.is_dir() {
-        copy_dir_all(&assets, &stage.join("assets"))?;
-    }
+    crate::assets::stage_desktop(root, config, &stage)?;
 
     let mut produced = Vec::new();
     for format in &formats {
@@ -400,6 +397,10 @@ fn build_macos_app(stage: &Path, bundle: &Path, config: &WiniaConfig) -> Result<
     let assets = stage.join("assets");
     if assets.is_dir() {
         copy_dir_all(&assets, &resources.join("assets"))?;
+    }
+    let manifest = stage.join("assets.manifest.json");
+    if manifest.is_file() {
+        std::fs::copy(&manifest, resources.join("assets.manifest.json"))?;
     }
 
     let plist = format!(

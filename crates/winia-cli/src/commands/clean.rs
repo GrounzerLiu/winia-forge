@@ -46,6 +46,10 @@ pub fn run(args: CleanArgs) -> Result<()> {
             label: "android/build",
             path: root.join("android/build"),
         },
+        Target {
+            label: "android/app/src/main/assets/winia-assets",
+            path: root.join("android/app/src/main/assets/winia-assets"),
+        },
     ];
     if args.all {
         targets.push(Target {

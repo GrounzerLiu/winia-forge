@@ -543,6 +543,22 @@ for everything that must be done manually.
 
 ## 8. Assets and icons
 
+### 8.1 Runtime assets
+
+```toml
+[assets]
+include = ["assets/**"]
+exclude = ["**/*.psd"]
+```
+
+- `winia build` and `winia package` collect matching files into `assets.manifest.json`.
+- Each entry records the logical path, packaged path, size, SHA-256, and optional density.
+- Desktop staging copies assets next to the executable; Android stages them under
+  `android/app/src/main/assets/winia-assets/` so Gradle packs them into the APK/AAB.
+- Staging verifies every copied file against its manifest hash. Runtime loading through a Winia
+  `AssetBundle` is still pending.
+- `winia clean` also removes the generated Android asset staging directory.
+
 ```bash
 winia assets icon assets/icon.png
 ```

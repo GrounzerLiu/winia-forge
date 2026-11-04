@@ -17,6 +17,7 @@ pub struct WiniaConfig {
     pub build: BuildConfig,
     pub package: PackageConfig,
     pub android: AndroidConfig,
+    pub assets: AssetsConfig,
     pub hooks: HooksConfig,
 }
 
@@ -168,6 +169,24 @@ pub enum AndroidActivity {
     #[default]
     Game,
     Native,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AssetsConfig {
+    /// Project-relative globs included in the app bundle.
+    pub include: Vec<String>,
+    /// Project-relative globs excluded from the app bundle.
+    pub exclude: Vec<String>,
+}
+
+impl Default for AssetsConfig {
+    fn default() -> Self {
+        Self {
+            include: vec!["assets/**".to_owned()],
+            exclude: vec!["**/*.psd".to_owned()],
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
