@@ -140,6 +140,10 @@ The following combination was verified on a Windows host and an Android 15/16 de
 | androidx.appcompat | 1.7.0 |
 | androidx.core | 1.15.0 |
 
+androidx.games:games-activity is pinned to 4.4.0 because android-activity 0.6.1 documents
+support for that version. 4.4.2 was not A/B verified for the InputConnection path in this workspace;
+do not bump it without repeating the real IME test.
+
 minSdk 26 is also the Skia Android baseline. targetSdk must not be lowered just to avoid build
 errors; use the current device target (36 in this setup) and adjust AGP instead.
 
