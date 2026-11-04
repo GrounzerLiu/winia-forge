@@ -13,7 +13,7 @@
 | `winia build` | Build the application | Implemented: host executable and Android APK (NDK driver + Gradle) |
 | `winia run` | Build and run | Implemented: host launch, Android install/start |
 | `winia dev` | Development mode: file watching + restart | Implemented (desktop restart, Android reinstall/restart, automatic debug-server) |
-| `winia inspect` | Debug-server client | Implemented: info, tree, click, key, scroll, screenshot, registry/port discovery |
+| `winia inspect` | Debug-server client | Implemented: info, tree, click, drag, key, scroll, screenshot, registry/port discovery |
 | `winia test` | Unit, UI, and device smoke tests | Planned |
 | `winia package` | Package installers/archives/APK/AAB | Implemented for Android APK/AAB |
 | `winia sign` | Code signing | Implemented for Android APKs |
@@ -309,6 +309,7 @@ winia test --filter scrollbar
 winia inspect info
 winia inspect tree
 winia inspect click 120 80
+winia inspect drag 100 100 300 200 --steps 8
 winia inspect key Return
 winia inspect scroll 120
 winia inspect screenshot --out inspect.png
@@ -320,7 +321,8 @@ winia inspect discover
 - `discover` reads `target/winia-dev/inspect-port-<pid>.json` files written by `winia dev` and probes
   only those ports. Pass `--scan` to scan `--port` through `--port + 100` instead.
 - `info` returns app, version, id, target, platform, arch, pid, and port; `tree` returns the layout
-  tree JSON.
+  tree JSON. `drag x1 y1 x2 y2` sends pointer down, interpolated moves, and pointer up; use
+  `--steps` and `--delay-ms` to control the gesture.
 - `winia screenshot`: desktop or device screenshots.
 - `winia trace`: enable `anim-trace` and emit per-frame animation traces.
 - Windows UIA verification (later): check the accessibility tree.

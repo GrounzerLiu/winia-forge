@@ -35,6 +35,25 @@ pub fn run(args: InspectArgs) -> Result<()> {
             };
             command(args.port, args.json, text)
         }
+        InspectCommand::Drag {
+            x1,
+            y1,
+            x2,
+            y2,
+            steps,
+            delay_ms,
+        } => drag(
+            args.port,
+            args.json,
+            DragPath {
+                x1,
+                y1,
+                x2,
+                y2,
+                steps,
+                delay_ms,
+            },
+        ),
         InspectCommand::Screenshot { out } => screenshot(args.port, args.json, out),
         InspectCommand::Discover { end, scan } => {
             let start = args.port;
@@ -111,6 +130,81 @@ fn command(port: u16, json: bool, command: String) -> Result<()> {
     }
     if !ok {
         bail!("debug server rejected '{command}': {response}");
+    }
+    Ok(())
+}
+
+fn ensure_ok(response: &str, action: &str) -> Result<()> {
+    if !response.starts_with("ok") {
+        bail!("debug server rejected {action}: {response}");
+    }
+    Ok(())
+}
+
+struct DragPath {
+    x1: f32,
+    y1: f32,
+    x2: f32,
+    y2: f32,
+    steps: u32,
+    delay_ms: u64,
+}
+
+fn drag(port: u16, json: bool, path: DragPath) -> Result<()> {
+    let DragPath {
+        x1,
+        y1,
+        x2,
+        y2,
+        steps,
+        delay_ms,
+    } = path;
+    if steps == 0 || steps > 1000 {
+        bail!("drag steps must be between 1 and 1000");
+    }
+    let mut socket = connect(port)?;
+    let down = text_response(send(&mut socket, &format!("d {x1} {y1}"))?)?;
+    ensure_ok(&down, "pointer down")?;
+
+    for step in 1..=steps {
+        let t = step as f32 / steps as f32;
+        let x = x1 + (x2 - x1) * t;
+        let y = y1 + (y2 - y1) * t;
+        let response = match send(&mut socket, &format!("m {x} {y}")) {
+            Ok(message) => text_response(message),
+            Err(error) => Err(error),
+        };
+        let response = match response {
+            Ok(response) => response,
+            Err(error) => {
+                let _ = send(&mut socket, &format!("u {x} {y}"));
+                return Err(error);
+            }
+        };
+        if let Err(error) = ensure_ok(&response, "pointer move") {
+            let _ = send(&mut socket, &format!("u {x} {y}"));
+            return Err(error);
+        }
+        if delay_ms > 0 && step < steps {
+            std::thread::sleep(Duration::from_millis(delay_ms));
+        }
+    }
+
+    let up = text_response(send(&mut socket, &format!("u {x2} {y2}"))?)?;
+    ensure_ok(&up, "pointer up")?;
+
+    if json {
+        println!(
+            "{}",
+            serde_json::json!({
+                "ok": true,
+                "steps": steps,
+                "from": [x1, y1],
+                "to": [x2, y2],
+            })
+        );
+    } else {
+        println!("ok drag ({x1}, {y1}) -> ({x2}, {y2}) in {steps} steps");
     }
     Ok(())
 }

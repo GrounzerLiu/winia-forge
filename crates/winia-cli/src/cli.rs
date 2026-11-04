@@ -230,6 +230,23 @@ pub enum InspectCommand {
         /// One value for vertical scroll, two for horizontal then vertical.
         values: Vec<f32>,
     },
+    /// Drag from one logical point to another.
+    Drag {
+        /// Start x.
+        x1: f32,
+        /// Start y.
+        y1: f32,
+        /// End x.
+        x2: f32,
+        /// End y.
+        y2: f32,
+        /// Number of pointer-move steps.
+        #[arg(long, default_value_t = 10)]
+        steps: u32,
+        /// Delay between pointer-move steps, in milliseconds.
+        #[arg(long, default_value_t = 16)]
+        delay_ms: u64,
+    },
     /// Capture a frame and save it as PNG.
     Screenshot {
         /// Output path. Defaults to inspect-<port>.png.
