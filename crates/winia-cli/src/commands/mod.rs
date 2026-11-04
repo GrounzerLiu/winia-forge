@@ -7,6 +7,7 @@
 pub mod build;
 pub mod doctor;
 pub mod new;
+pub mod package;
 pub mod run;
 
 use crate::cli::{
@@ -23,6 +24,7 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         Command::New(args) => new::run(args),
         Command::Build(args) => build::run(args),
         Command::Run(args) => run::run(args),
+        Command::Package(args) => package::run(args),
         Command::Doctor(args) => doctor::run(args),
         Command::Info(args) => info(args),
         Command::Targets(args) => targets(args),

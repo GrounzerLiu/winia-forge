@@ -14,7 +14,7 @@
 | `winia run` | Build and run | Implemented: host launch, Android install/start |
 | `winia dev` | Development mode: file watching + debug server | Planned |
 | `winia test` | Unit, UI, and device smoke tests | Planned |
-| `winia package` | Package installers/archives/APK/AAB | Planned |
+| `winia package` | Package installers/archives/APK/AAB | Implemented for Android APK/AAB |
 | `winia sign` | Code signing | Planned |
 | `winia release` | Version, tag, publish | Planned |
 | `winia doctor` | Environment diagnostics | Implemented (Rust/MSRV, platform toolchains, Android SDK/NDK, `--fix`) |
@@ -530,5 +530,6 @@ winia upgrade
 | `winia platform add android` | Placeholder directory |
 | `winia build` | Implemented: host executable and Android APK |
 | `winia run` | Implemented: host and Android |
-| `package`, `sign`, `release` | Planned |
+| `winia package` | Implemented: Android APK (universal or per-ABI) and AAB, with alignment/ABI/signature checks |
+| `sign`, `release` | Planned |
 | Template system, hooks, plugins | Planned |

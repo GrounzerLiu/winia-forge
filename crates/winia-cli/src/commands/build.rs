@@ -338,12 +338,7 @@ fn same_contents(left: &Path, right: &Path) -> Result<bool> {
     }
 }
 
-fn run_gradle(android_dir: &Path, release: bool, json: bool) -> Result<PathBuf> {
-    let task = if release {
-        "assembleRelease"
-    } else {
-        "assembleDebug"
-    };
+pub(crate) fn run_gradle_task(android_dir: &Path, task: &str, json: bool) -> Result<()> {
     let mut command = if cfg!(windows) {
         let mut command = Command::new("cmd");
         command.args(["/c", "gradlew.bat", task]);
@@ -354,7 +349,16 @@ fn run_gradle(android_dir: &Path, release: bool, json: bool) -> Result<PathBuf> 
         command
     };
     command.current_dir(android_dir);
-    run_command(&mut command, &format!("gradlew {task}"), json)?;
+    run_command(&mut command, &format!("gradlew {task}"), json)
+}
+
+fn run_gradle(android_dir: &Path, release: bool, json: bool) -> Result<PathBuf> {
+    let task = if release {
+        "assembleRelease"
+    } else {
+        "assembleDebug"
+    };
+    run_gradle_task(android_dir, task, json)?;
 
     let output_dir =
         android_dir
