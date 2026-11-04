@@ -173,6 +173,8 @@ It is not recommended as the official release path:
 - Two build pipelines make problems harder to localise.
 
 The CLI should default to Gradle and use cargo-apk2 only with `--pure-rust`.
+cargo-apk2's manifest path produces a NativeActivity APK, so it cannot exercise the GameActivity
+InputConnection or validate IME input. See [06-android-ime-and-apk.md](06-android-ime-and-apk.md).
 
 ## 5. Running and debugging
 
@@ -275,15 +277,18 @@ winia screenshot --target android --output shot.png
 
 This is the most critical blocker for Android support:
 
-- winit 0.31.0-beta.4's Android backend only handles MotionEvent/KeyEvent; `InputEvent::TextEvent` and
-  `TextAction` are dropped.
+- Upstream winit 0.31.0-beta.4's Android backend only handles MotionEvent/KeyEvent; `InputEvent::TextEvent`
+  and `TextAction` are dropped.
 - `android-activity 0.6.1`'s GameActivity already provides `TextEvent` / `TextAction` /
   `text_input_state()`.
-- winit's Android backend must be forked to translate those events into `WindowEvent::Ime`.
+- The Winia fork translates those events into `WindowEvent::Ime`; its published packages are
+  `winia-winit` (library name `winit`) and `winia-winit-android`.
 - NativeActivity has no `InputConnection` and cannot realistically do soft-keyboard text input; TextField
   therefore requires GameActivity.
-- The research record lives in the Mnemon document "winit Android IME support research and refactor plan
-  (0.30.13 / 0.31.0-beta.4, GameActivity)".
+- See [06-android-ime-and-apk.md](06-android-ime-and-apk.md) for the build configuration, lifecycle failures,
+  and verification procedure.
+- The original research record lives in the Mnemon document "winit Android IME support research and refactor
+  plan (0.30.13 / 0.31.0-beta.4, GameActivity)".
 
 ### 7.5 Clipboard
 
@@ -324,7 +329,7 @@ The paths below are all in the `D:\Projects\winia` repository.
 | Clipboard | `arboard` has no Android platform module | Conditional compilation + a JNI ClipboardManager |
 | Window API | `winia/src/app/window.rs`'s builder only has `title/size/on_close` | Add fullscreen, orientation, status bar, icon, and other mobile attributes; restrict to a single window |
 | Insets | `winia/src/window/insets.rs` describes itself as desktop-shaped and has no Android data source | Wire up `AndroidApp::content_rect`, IME insets, status bar, and navigation bar |
-| IME | winit 0.31.0-beta.4 does not forward `TextEvent` | Fork the winit Android backend (GameActivity route) |
+| IME | The Winia winit fork forwards `TextEvent` / `Commit` / `DeleteSurrounding`; published as `winia-winit` + `winia-winit-android` | Use GameActivity; the native library entry and lifecycle hooks are documented in 06-android-ime-and-apk.md |
 | Lifecycle | No handling for Android Activity recreation | Map `suspended/resumed`; write `SaveableStateRegistry` into the Bundle |
 | Input | winit has touch events, but gestures need verification | Test the `PointerEvent` touch path; add long-press/swipe/double-tap |
 | Debug channel | `winia/src/app.rs` starts `start_stdin_channel()` | Android has no stdin; skip it under cfg and keep only the WebSocket |
