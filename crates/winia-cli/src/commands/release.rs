@@ -40,6 +40,10 @@ pub fn run(args: ReleaseArgs) -> Result<()> {
             bail!("release track '{other}' is not implemented yet; use --track github or omit it")
         }
     };
+    let push = args.push || track == Some("github");
+    if track.is_some() && args.no_tag {
+        bail!("GitHub releases require a tag; remove --no-tag");
+    }
 
     let current = config.app.version.clone();
     let version = match args.bump {
@@ -69,6 +73,30 @@ pub fn run(args: ReleaseArgs) -> Result<()> {
     }
 
     if args.dry_run {
+        if args.json {
+            let values: Vec<_> = planned
+                .iter()
+                .map(|path| {
+                    serde_json::json!({
+                        "name": path.file_name().and_then(|name| name.to_str()).unwrap_or_default(),
+                        "bytes": 0,
+                    })
+                })
+                .collect();
+            let value = serde_json::json!({
+                "target": "android",
+                "dry_run": true,
+                "version": version,
+                "tag": if args.no_tag { serde_json::Value::Null } else { serde_json::json!(tag) },
+                "pushed": push,
+                "track": track,
+                "artifacts": values,
+                "notes": notes,
+                "duration_ms": 0,
+            });
+            println!("{}", serde_json::to_string_pretty(&value)?);
+            return Ok(());
+        }
         println!("Release plan");
         if version == current {
             println!("  version: {version}");
@@ -77,6 +105,7 @@ pub fn run(args: ReleaseArgs) -> Result<()> {
         }
         println!("  tag: {}", if args.no_tag { "(none)" } else { &tag });
         println!("  track: {}", track.unwrap_or("none"));
+        println!("  push: {push}");
         println!("  artifacts:");
         for artifact in &planned {
             println!("    {}", display_relative(&root, artifact));
@@ -95,20 +124,31 @@ pub fn run(args: ReleaseArgs) -> Result<()> {
         config.app.version = version.clone();
         config.android.version_code = config.android.version_code.saturating_add(1);
         config.save(&config_path)?;
-        git(&root, &["add", "winia.toml"])?;
+        let mut files = vec!["winia.toml".to_owned()];
+        if update_cargo_version(&root, &version)? {
+            files.push("Cargo.toml".to_owned());
+        }
+        let mut add = vec!["add".to_owned()];
+        add.extend(files);
+        let add_args: Vec<&str> = add.iter().map(String::as_str).collect();
+        git(&root, &add_args)?;
         git(&root, &["commit", "-m", &format!("chore(release): {tag}")])?;
     }
 
-    package::run(PackageArgs {
-        target: vec!["android".to_owned()],
-        format: formats,
-        release: true,
-        out_dir: Some(out_dir.clone()),
-        split: None,
-        json: false,
-        dry_run: false,
-        clean: false,
-    })?;
+    if args.json {
+        run_package_json(&root, &formats, &out_dir)?;
+    } else {
+        package::run(PackageArgs {
+            target: vec!["android".to_owned()],
+            format: formats.clone(),
+            release: true,
+            out_dir: Some(out_dir.clone()),
+            split: None,
+            json: false,
+            dry_run: false,
+            clean: false,
+        })?;
+    }
 
     let mut artifacts = version_artifacts(&out_dir, &stem, &version)?;
     if artifacts.is_empty() {
@@ -126,28 +166,35 @@ pub fn run(args: ReleaseArgs) -> Result<()> {
             })
             .cloned();
         if let Some(apk) = unsigned_apk {
-            sign::run(SignArgs {
-                target: vec!["android".to_owned()],
-                keystore: None,
-                apk: Some(apk.clone()),
-                alias: None,
-                in_place: false,
-                dry_run: false,
-                release: false,
-                json: false,
-            })?;
+            if args.json {
+                run_sign_json(&root, &apk)?;
+            } else {
+                sign::run(SignArgs {
+                    target: vec!["android".to_owned()],
+                    keystore: None,
+                    apk: Some(apk.clone()),
+                    alias: None,
+                    in_place: false,
+                    dry_run: false,
+                    release: false,
+                    json: false,
+                })?;
+            }
             let signed = signed_path(&apk);
             if signed.is_file() && !artifacts.contains(&signed) {
                 artifacts.push(signed);
             }
         }
     } else if !artifacts.is_empty() {
-        println!("warning: no Android keystore configured; release artifacts are unsigned");
+        eprintln!("warning: no Android keystore configured; release artifacts are unsigned");
     }
     let artifacts = select_release_artifacts(&artifacts);
 
     if !args.no_tag {
         git(&root, &["tag", "-a", &tag, "-m", &tag])?;
+    }
+    if push {
+        push_release(&root, if args.no_tag { None } else { Some(&tag) })?;
     }
 
     if track == Some("github") {
@@ -156,11 +203,140 @@ pub fn run(args: ReleaseArgs) -> Result<()> {
 
     write_manifest(&out_dir, &version, &tag, &artifacts)?;
 
+    if args.json {
+        let values: Vec<_> = artifacts
+            .iter()
+            .map(|path| {
+                let bytes = std::fs::metadata(path)
+                    .map(|metadata| metadata.len())
+                    .unwrap_or(0);
+                serde_json::json!({
+                    "name": path.file_name().and_then(|name| name.to_str()).unwrap_or_default(),
+                    "bytes": bytes,
+                })
+            })
+            .collect();
+        let value = serde_json::json!({
+            "target": "android",
+            "version": version,
+            "tag": if args.no_tag { serde_json::Value::Null } else { serde_json::json!(tag) },
+            "pushed": push,
+            "published": track.is_some(),
+            "artifacts": values,
+            "notes": notes,
+            "duration_ms": started.elapsed().as_millis(),
+        });
+        println!("{}", serde_json::to_string_pretty(&value)?);
+        return Ok(());
+    }
+
     println!(
         "Released {tag} ({} artifacts) in {:.1}s",
         artifacts.len(),
         started.elapsed().as_secs_f64()
     );
+    Ok(())
+}
+
+fn run_self_json(root: &Path, args: &[String]) -> Result<serde_json::Value> {
+    let executable = std::env::current_exe().context("locating the winia executable")?;
+    let output = Command::new(executable)
+        .args(args)
+        .current_dir(root)
+        .output()
+        .with_context(|| format!("running winia {}", args.join(" ")))?;
+    if !output.status.success() {
+        bail!(
+            "winia {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    serde_json::from_slice(&output.stdout).context("parsing winia JSON output")
+}
+
+fn run_package_json(root: &Path, formats: &[String], out_dir: &Path) -> Result<()> {
+    let mut args = vec![
+        "package".to_owned(),
+        "--target".to_owned(),
+        "android".to_owned(),
+        "--release".to_owned(),
+        "--out-dir".to_owned(),
+        out_dir.display().to_string(),
+        "--json".to_owned(),
+    ];
+    if !formats.is_empty() {
+        args.push("--format".to_owned());
+        args.push(formats.join(","));
+    }
+    run_self_json(root, &args)?;
+    Ok(())
+}
+
+fn run_sign_json(root: &Path, apk: &Path) -> Result<()> {
+    let args = vec![
+        "sign".to_owned(),
+        "--target".to_owned(),
+        "android".to_owned(),
+        "--apk".to_owned(),
+        apk.display().to_string(),
+        "--json".to_owned(),
+    ];
+    run_self_json(root, &args)?;
+    Ok(())
+}
+
+fn update_cargo_version(root: &Path, version: &str) -> Result<bool> {
+    let path = root.join("Cargo.toml");
+    if !path.is_file() {
+        return Ok(false);
+    }
+    let text =
+        std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+    let mut output = String::new();
+    let mut in_package = false;
+    let mut changed = false;
+    for line in text.lines() {
+        let trimmed = line.trim_start();
+        if trimmed == "[package]" {
+            in_package = true;
+            output.push_str(line);
+            output.push('\n');
+            continue;
+        }
+        if in_package && !changed && trimmed.starts_with("version = \"") {
+            let indent = &line[..line.len() - trimmed.len()];
+            output.push_str(indent);
+            output.push_str(&format!("version = \"{version}\""));
+            output.push('\n');
+            changed = true;
+            in_package = false;
+            continue;
+        }
+        if in_package && trimmed.starts_with('[') {
+            in_package = false;
+        }
+        output.push_str(line);
+        output.push('\n');
+    }
+    if changed {
+        std::fs::write(&path, output).with_context(|| format!("writing {}", path.display()))?;
+    }
+    Ok(changed)
+}
+
+fn push_release(root: &Path, tag: Option<&str>) -> Result<()> {
+    let remotes = git(root, &["remote"])?;
+    if remotes.trim().is_empty() {
+        bail!("no git remote configured; add one before pushing");
+    }
+    git(root, &["push", "origin", "HEAD"])?;
+    if let Some(tag) = tag {
+        git(root, &["push", "origin", tag])?;
+        eprintln!("Pushed HEAD and {tag}");
+    } else {
+        eprintln!("Pushed HEAD");
+    }
     Ok(())
 }
 
@@ -306,6 +482,14 @@ fn preflight_github(root: &Path, tag: &str) -> Result<()> {
     if !command_exists("gh") {
         bail!("GitHub release upload requires the gh CLI on PATH");
     }
+    let auth = Command::new("gh")
+        .args(["auth", "status"])
+        .current_dir(root)
+        .output()
+        .context("running gh auth status")?;
+    if !auth.status.success() {
+        bail!("gh is not authenticated; run 'gh auth login'");
+    }
     let remotes = git(root, &["remote"])?;
     if remotes.trim().is_empty() {
         bail!("no git remote configured; add one before --track github");
@@ -323,20 +507,19 @@ fn preflight_github(root: &Path, tag: &str) -> Result<()> {
 
 fn select_release_artifacts(artifacts: &[PathBuf]) -> Vec<PathBuf> {
     let mut selected = Vec::new();
-    let signed_apk = artifacts.iter().find(|path| {
-        path.file_name()
-            .and_then(|name| name.to_str())
-            .map(|name| name.ends_with("-signed.apk") && !name.ends_with("-signed-signed.apk"))
-            .unwrap_or(false)
-    });
     let unsigned_apk = artifacts.iter().find(|path| {
         path.file_name()
             .and_then(|name| name.to_str())
             .map(|name| name.ends_with("-universal.apk") && !name.ends_with("-signed.apk"))
             .unwrap_or(false)
     });
-    if let Some(apk) = signed_apk.or(unsigned_apk) {
-        selected.push(apk.clone());
+    if let Some(unsigned) = unsigned_apk {
+        let expected = signed_path(unsigned);
+        let chosen = artifacts
+            .iter()
+            .find(|path| path.as_path() == expected.as_path())
+            .unwrap_or(unsigned);
+        selected.push(chosen.clone());
     }
     selected.extend(
         artifacts
@@ -382,7 +565,7 @@ fn upload_github(root: &Path, tag: &str, notes: &str, artifacts: &[PathBuf]) -> 
             String::from_utf8_lossy(&output.stderr).trim()
         );
     }
-    println!("Published GitHub release {tag}");
+    eprintln!("Published GitHub release {tag}");
     Ok(())
 }
 

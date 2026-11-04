@@ -258,9 +258,15 @@ pub struct ReleaseArgs {
     /// Do not create a git tag.
     #[arg(long)]
     pub no_tag: bool,
+    /// Push the release commit and tag after building.
+    #[arg(long)]
+    pub push: bool,
     /// Print the plan without modifying the repository or building.
     #[arg(long)]
     pub dry_run: bool,
+    /// Emit machine-readable output.
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]

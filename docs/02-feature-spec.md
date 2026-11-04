@@ -408,22 +408,29 @@ See [03-android-support.md](03-android-support.md). Implemented behaviour:
 ```bash
 winia release --target android --dry-run
 winia release --target android --bump patch
+winia release --target android --bump patch --push
 winia release --target android --bump minor --track github
 ```
 
 Implemented flow (Android only):
 
 1. Refuse a dirty worktree unless `--allow-dirty`.
-2. Validate the signing environment (keystore, alias, password) before modifying the repository.
-3. Bump `app.version` and `android.version_code`, then commit `chore(release): vX.Y.Z`.
+2. Validate the signing environment and, for GitHub, `gh auth status` plus a git remote before
+   modifying the repository.
+3. Bump `app.version`, `android.version_code`, and the `Cargo.toml` package version; commit
+   `chore(release): vX.Y.Z`.
 4. Generate notes from conventional commits since the previous tag.
 5. Package the release APK/AAB through `winia package`.
 6. Sign the APK when a keystore is configured; `latest.json` lists the signed APK.
 7. Create the annotated tag unless `--no-tag`.
-8. With `--track github`, upload the artifacts to a GitHub release (requires `gh` and a git remote).
-9. Write `dist/latest.json` with the version, tag, and artifact sizes.
+8. Push HEAD and the tag when `--push` is given, or automatically with `--track github`.
+9. With `--track github`, upload the artifacts to a GitHub release (the tag must exist remotely).
+10. Write `dist/latest.json` with the version, tag, and artifact sizes.
 
-Not implemented yet: Play track uploads, desktop/macOS releases, and `--json` output.
+`--json` prints `{ target, version, tag, pushed, published, artifacts, notes, duration_ms }`.
+
+Not implemented yet: Play track uploads, desktop/macOS releases, rollback after a failed build, and
+checksums in `latest.json`.
 
 ## 7. Environment and toolchain
 
