@@ -21,9 +21,13 @@ pub struct IconSet {
     pub store_png: PathBuf,
 }
 
+const GENERATOR_VERSION: u32 = 2;
+
 #[derive(Serialize, Deserialize)]
 struct Marker {
     source_sha256: String,
+    #[serde(default)]
+    generator_version: u32,
 }
 
 pub fn ensure(root: &Path, config: &WiniaConfig) -> Result<Option<IconSet>> {
@@ -78,6 +82,9 @@ fn generate_from_bytes(
     let icons = icon_root(root);
     std::fs::create_dir_all(&icons).with_context(|| format!("creating {}", icons.display()))?;
     let source = Source::load(bytes, source)?;
+    for warning in source.validate()? {
+        eprintln!("icon warning: {warning}");
+    }
 
     let windows_ico = icons.join("windows/app.ico");
     let macos_icns = icons.join("macos/app.icns");
@@ -101,6 +108,7 @@ fn generate_from_bytes(
         icons.join("manifest.json"),
         serde_json::to_string_pretty(&Marker {
             source_sha256: digest.to_owned(),
+            generator_version: GENERATOR_VERSION,
         })?,
     )?;
     Ok(paths(&icons))
@@ -129,9 +137,16 @@ fn marker_matches(icons: &Path, digest: &str) -> bool {
         return false;
     };
     marker.source_sha256 == digest
+        && marker.generator_version == GENERATOR_VERSION
         && icons.join("windows/app.ico").is_file()
         && icons.join("macos/app.icns").is_file()
         && icons.join("store/icon-512.png").is_file()
+        && icons
+            .join("android/res/mipmap-anydpi-v26/ic_launcher.xml")
+            .is_file()
+        && icons
+            .join("android/res/mipmap-mdpi/ic_launcher_foreground.png")
+            .is_file()
 }
 
 enum Source {
@@ -140,6 +155,24 @@ enum Source {
 }
 
 impl Source {
+    fn validate(&self) -> Result<Vec<String>> {
+        match self {
+            Source::Bitmap(image) => validate_bitmap(image),
+            Source::Svg(tree) => {
+                let size = tree.size();
+                let mut warnings = Vec::new();
+                if size.width() < 512.0 || size.height() < 512.0 {
+                    warnings.push(format!(
+                        "SVG viewBox is {:.0}x{:.0}; 512x512 or larger is recommended",
+                        size.width(),
+                        size.height()
+                    ));
+                }
+                Ok(warnings)
+            }
+        }
+    }
+
     fn load(bytes: &[u8], path: &Path) -> Result<Self> {
         let extension = path
             .extension()
@@ -179,6 +212,51 @@ fn render(source: &Source, size: u32) -> Result<RgbaImage> {
             Ok(image::load_from_memory(&png)?.to_rgba8())
         }
     }
+}
+
+fn validate_bitmap(image: &RgbaImage) -> Result<Vec<String>> {
+    let (width, height) = image.dimensions();
+    let mut warnings = Vec::new();
+    if width < 512 || height < 512 {
+        warnings.push(format!(
+            "source is {width}x{height}; 512x512 or larger is recommended"
+        ));
+    }
+    let mut min_x = width;
+    let mut min_y = height;
+    let mut max_x = 0;
+    let mut max_y = 0;
+    let mut any_opaque = false;
+    let mut fully_opaque = true;
+    for (x, y, pixel) in image.enumerate_pixels() {
+        let alpha = pixel[3];
+        if alpha > 0 {
+            any_opaque = true;
+            min_x = min_x.min(x);
+            min_y = min_y.min(y);
+            max_x = max_x.max(x);
+            max_y = max_y.max(y);
+        }
+        if alpha < 255 {
+            fully_opaque = false;
+        }
+    }
+    if !any_opaque {
+        bail!("icon source is fully transparent");
+    }
+    if min_x == 0 || min_y == 0 || max_x + 1 == width || max_y + 1 == height {
+        warnings.push(
+            "icon artwork touches the canvas edge; add transparent padding for launcher cropping"
+                .to_owned(),
+        );
+    }
+    if fully_opaque {
+        warnings.push(
+            "icon source has no transparent pixels; Android adaptive icons need a safe margin"
+                .to_owned(),
+        );
+    }
+    Ok(warnings)
 }
 
 fn resize_square(image: &RgbaImage, size: u32) -> RgbaImage {
@@ -281,7 +359,74 @@ fn write_android(root: &Path, source: &Source) -> Result<()> {
             &render(source, size)?,
         )?;
     }
+
+    for (density, size) in [
+        ("mdpi", 108u32),
+        ("hdpi", 162),
+        ("xhdpi", 216),
+        ("xxhdpi", 324),
+        ("xxxhdpi", 432),
+    ] {
+        let directory = root.join(format!("mipmap-{density}"));
+        write_png(
+            &directory.join("ic_launcher_foreground.png"),
+            &render_with_margin(source, size, 0.6667)?,
+        )?;
+    }
+
+    let background = average_color(source)?;
+    let values = root.join("values");
+    std::fs::create_dir_all(&values)?;
+    std::fs::write(
+        values.join("ic_launcher_background.xml"),
+        format!(
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<resources>\n    <color name=\"ic_launcher_background\">{background}</color>\n</resources>\n"
+        ),
+    )?;
+    let anydpi = root.join("mipmap-anydpi-v26");
+    std::fs::create_dir_all(&anydpi)?;
+    let adaptive = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<adaptive-icon xmlns:android=\"http://schemas.android.com/apk/res/android\">\n    <background android:drawable=\"@color/ic_launcher_background\" />\n    <foreground android:drawable=\"@mipmap/ic_launcher_foreground\" />\n</adaptive-icon>\n";
+    std::fs::write(anydpi.join("ic_launcher.xml"), adaptive)?;
+    std::fs::write(anydpi.join("ic_launcher_round.xml"), adaptive)?;
     Ok(())
+}
+
+fn render_with_margin(source: &Source, size: u32, content_scale: f32) -> Result<RgbaImage> {
+    let content_size = ((size as f32 * content_scale).round() as u32).max(1);
+    let content = render(source, content_size)?;
+    let mut canvas = RgbaImage::from_pixel(size, size, Rgba([0, 0, 0, 0]));
+    image::imageops::overlay(
+        &mut canvas,
+        &content,
+        ((size - content_size) / 2) as i64,
+        ((size - content_size) / 2) as i64,
+    );
+    Ok(canvas)
+}
+
+fn average_color(source: &Source) -> Result<String> {
+    let image = render(source, 64)?;
+    let mut red = 0u64;
+    let mut green = 0u64;
+    let mut blue = 0u64;
+    let mut count = 0u64;
+    for pixel in image.pixels() {
+        if pixel[3] > 16 {
+            red += pixel[0] as u64;
+            green += pixel[1] as u64;
+            blue += pixel[2] as u64;
+            count += 1;
+        }
+    }
+    if count == 0 {
+        return Ok("#FFFFFF".to_owned());
+    }
+    Ok(format!(
+        "#{:02X}{:02X}{:02X}",
+        red / count,
+        green / count,
+        blue / count
+    ))
 }
 
 #[cfg(test)]
@@ -304,6 +449,18 @@ mod tests {
             icons
                 .android_res
                 .join("mipmap-mdpi/ic_launcher.png")
+                .is_file()
+        );
+        assert!(
+            icons
+                .android_res
+                .join("mipmap-anydpi-v26/ic_launcher.xml")
+                .is_file()
+        );
+        assert!(
+            icons
+                .android_res
+                .join("mipmap-mdpi/ic_launcher_foreground.png")
                 .is_file()
         );
         assert!(icons.store_png.is_file());

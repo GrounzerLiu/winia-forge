@@ -569,11 +569,14 @@ winia assets icon assets/icon.png
   - Windows `.ico` (16, 24, 32, 48, 64, 128, 256).
   - macOS `.icns`.
   - Linux hicolor multi-size PNGs.
-  - Android mipmap densities (`ic_launcher` and `ic_launcher_round`).
+  - Android mipmap densities (`ic_launcher`, `ic_launcher_round`) plus adaptive foreground and
+    `mipmap-anydpi-v26` XML.
 - Generate the 512×512 Play Store icon.
 - Generated files live under `target/winia/icons/`; Android uses a Gradle res source directory.
-- Not implemented yet: Windows exe resource embedding, macOS signing, Android adaptive icons, and
-  transparency/safe-margin validation.
+- Icon validation warns about sources below 512 px, fully transparent artwork, and artwork touching
+  the canvas edge.
+- Not implemented yet: Windows exe resource embedding, macOS signing, and wiring the Android manifest
+  to the generated launcher icon.
 
 ## 9. CI/CD
 
