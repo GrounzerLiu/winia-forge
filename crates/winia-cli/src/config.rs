@@ -210,10 +210,7 @@ impl WiniaConfig {
             );
         }
         for abi in &self.android.abis {
-            match abi.as_str() {
-                "arm64-v8a" | "armeabi-v7a" | "x86_64" | "x86" => {}
-                other => anyhow::bail!("unknown Android ABI: {other}"),
-            }
+            crate::platform::android::Abi::parse(abi)?;
         }
         Ok(())
     }

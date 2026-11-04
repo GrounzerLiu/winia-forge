@@ -933,12 +933,10 @@ fn project_abis() -> Vec<String> {
 
 fn abi_triples(abis: &[String]) -> Vec<String> {
     abis.iter()
-        .filter_map(|abi| match abi.as_str() {
-            "arm64-v8a" => Some("aarch64-linux-android".to_owned()),
-            "armeabi-v7a" => Some("armv7-linux-androideabi".to_owned()),
-            "x86_64" => Some("x86_64-linux-android".to_owned()),
-            "x86" => Some("i686-linux-android".to_owned()),
-            _ => None,
+        .filter_map(|abi| {
+            crate::platform::android::Abi::parse(abi)
+                .ok()
+                .map(|abi| abi.rust_triple().to_owned())
         })
         .collect()
 }

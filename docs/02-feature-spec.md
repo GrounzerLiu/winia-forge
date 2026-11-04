@@ -8,9 +8,9 @@
 
 | Command | Purpose | Current status |
 | --- | --- | --- |
-| `winia new` | Create a new project from a template | Minimal version implemented (blank template) |
+| `winia new` | Create a new project from a template | Implemented (blank template, desktop + Android) |
 | `winia init` | Add Winia to an existing Rust project | Planned |
-| `winia build` | Build the application | Planned |
+| `winia build` | Build the application | Implemented: host executable and Android APK (NDK driver + Gradle) |
 | `winia run` | Build and run | Planned |
 | `winia dev` | Development mode: file watching + debug server | Planned |
 | `winia test` | Unit, UI, and device smoke tests | Planned |
@@ -522,5 +522,6 @@ winia upgrade
 | `winia config show/get` | Implemented |
 | Shell completions | Implemented |
 | `winia platform add android` | Placeholder directory |
-| Build, run, package, sign, release | Planned |
+| `winia build` | Implemented: host executable and Android APK |
+| `winia run`, `package`, `sign`, `release` | Planned |
 | Template system, hooks, plugins | Planned |

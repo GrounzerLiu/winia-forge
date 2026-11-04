@@ -160,6 +160,7 @@ pub fn run(args: NewArgs) -> Result<()> {
     config.app.name = args.name.clone();
     config.app.id = app_id.clone();
     config.android.package = app_id.clone();
+    config.android.abis = vec!["arm64-v8a".to_owned()];
     config.window.title = args.name.clone();
     config.window.width = 1000.0;
     config.window.height = 700.0;
@@ -193,7 +194,7 @@ pub fn run(args: NewArgs) -> Result<()> {
     println!("  winia doctor");
     println!("  winia run");
     if platforms.contains(&Platform::Android) {
-        println!("  Android: see README.md for the manual APK build");
+        println!("  winia build --target android");
     }
     Ok(())
 }

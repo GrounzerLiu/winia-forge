@@ -10,18 +10,18 @@ cargo run
 
 ## Android
 
-The Android project lives in `android/`. Until `winia build --target android` is implemented, build the
-native library manually:
+Only `arm64-v8a` is configured by default. For an x86_64 emulator, add `"x86_64"` to
+`[android].abis` in `winia.toml` and run `rustup target add x86_64-linux-android`.
 
 ```bash
-export ANDROID_NDK=<sdk>/ndk/27.0.12077973
-export LIBCLANG_PATH=<llvm>/bin
-export RUSTFLAGS="-C link-arg=-Wl,-z,max-page-size=16384"
-
-cargo build --target aarch64-linux-android --lib
-mkdir -p android/app/src/main/jniLibs/arm64-v8a
-cp target/aarch64-linux-android/debug/lib__LIB_NAME__.so android/app/src/main/jniLibs/arm64-v8a/
-cd android
-./gradlew assembleDebug
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+winia build --target android
+adb install -r android/app/build/outputs/apk/debug/app-debug.apk
 ```
+
+`winia build` locates the NDK, injects the linker / `CC` / `AR` environment, copies the
+`.so` into `android/app/src/main/jniLibs/<abi>/`, verifies 16 KB alignment, and runs the
+Gradle wrapper. It needs `ANDROID_NDK` (or an NDK under the Android SDK) and LLVM libclang
+for bindgen.
+
+The generated Android project uses GameActivity and the Vulkan backend, matching the Skia
+prebuilt archive that includes `svg`.

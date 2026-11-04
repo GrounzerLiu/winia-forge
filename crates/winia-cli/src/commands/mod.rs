@@ -4,6 +4,7 @@
 //! implemented in this scaffold; every other command fails with an explicit
 //! "not implemented yet" message that points at the written contract.
 
+pub mod build;
 pub mod doctor;
 pub mod new;
 
@@ -19,6 +20,7 @@ use std::path::PathBuf;
 pub fn dispatch(cli: Cli) -> Result<()> {
     match cli.command {
         Command::New(args) => new::run(args),
+        Command::Build(args) => build::run(args),
         Command::Doctor(args) => doctor::run(args),
         Command::Info(args) => info(args),
         Command::Targets(args) => targets(args),
