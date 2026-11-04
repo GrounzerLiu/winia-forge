@@ -22,6 +22,8 @@ pub struct AssetManifest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AssetEntry {
+    /// Stable logical asset id without a density marker.
+    pub id: String,
     /// Project-relative logical path, using forward slashes.
     pub path: String,
     /// Path inside the platform bundle.
@@ -41,6 +43,7 @@ pub fn collect(root: &Path, config: &WiniaConfig) -> Result<AssetManifest> {
 
     let mut entries = Vec::new();
     let mut seen: HashMap<String, String> = HashMap::new();
+    let mut variants: HashMap<String, String> = HashMap::new();
     for path in files {
         let relative = path
             .strip_prefix(root)
@@ -57,17 +60,23 @@ pub fn collect(root: &Path, config: &WiniaConfig) -> Result<AssetManifest> {
         let bytes =
             std::fs::read(&path).with_context(|| format!("reading asset {}", path.display()))?;
         let digest = Sha256::digest(&bytes);
+        let (id, density) = asset_identity(&relative);
+        let variant_key = format!("{}@{:.3}", id, density.unwrap_or(1.0));
+        if let Some(previous) = variants.insert(variant_key, relative.clone()) {
+            bail!("asset density conflict: {previous} and {relative}");
+        }
         entries.push(AssetEntry {
+            id,
             packaged: relative.clone(),
             path: relative.clone(),
             bytes: bytes.len() as u64,
             sha256: format!("{digest:x}"),
-            density: density_of(&relative),
+            density,
         });
     }
 
     Ok(AssetManifest {
-        version: 1,
+        version: 2,
         window_icon: None,
         files: entries,
     })
@@ -90,6 +99,7 @@ pub fn stage_desktop(root: &Path, config: &WiniaConfig, stage: &Path) -> Result<
         let bytes = std::fs::read(&destination)?;
         let digest = Sha256::digest(&bytes);
         manifest.files.push(AssetEntry {
+            id: relative.to_owned(),
             path: relative.to_owned(),
             packaged: relative.to_owned(),
             bytes: bytes.len() as u64,
@@ -137,6 +147,7 @@ pub fn stage_android(root: &Path, config: &WiniaConfig) -> Result<AssetManifest>
         let digest = Sha256::digest(&bytes);
         let logical = format!("assets/{relative}");
         manifest.files.push(AssetEntry {
+            id: logical.clone(),
             path: logical.clone(),
             packaged: format!("winia-assets/{relative}"),
             bytes: bytes.len() as u64,
@@ -230,13 +241,47 @@ fn skip_directory(relative: &str) -> bool {
         || relative.starts_with("android/app/src/main/assets/winia-assets")
 }
 
-fn density_of(path: &str) -> Option<f32> {
-    path.split('/').find_map(|segment| {
-        segment
-            .strip_suffix('x')
-            .and_then(|value| value.parse::<f32>().ok())
-            .filter(|value| *value > 0.0)
-    })
+fn asset_identity(path: &str) -> (String, Option<f32>) {
+    let mut segments: Vec<String> = path.split('/').map(str::to_owned).collect();
+    let mut density = None;
+
+    if let Some(index) = segments
+        .iter()
+        .take(segments.len().saturating_sub(1))
+        .position(|segment| density_token(segment).is_some())
+    {
+        density = density_token(&segments[index]);
+        segments.remove(index);
+    }
+
+    if let Some(filename) = segments.pop() {
+        let (stem, extension) = filename
+            .rsplit_once('.')
+            .map_or((filename.as_str(), None), |(stem, extension)| {
+                (stem, Some(extension))
+            });
+        let (stem, suffix_density) = match stem.rsplit_once('@') {
+            Some((stem, token)) => match density_token(token) {
+                Some(value) => (stem, Some(value)),
+                None => (stem, None),
+            },
+            None => (stem, None),
+        };
+        if suffix_density.is_some() {
+            density = suffix_density;
+        }
+        segments.push(match extension {
+            Some(extension) => format!("{stem}.{extension}"),
+            None => stem.to_owned(),
+        });
+    }
+
+    (segments.join("/"), density)
+}
+
+fn density_token(value: &str) -> Option<f32> {
+    let value = value.strip_suffix('x')?;
+    value.parse::<f32>().ok().filter(|value| *value > 0.0)
 }
 
 #[cfg(test)]
@@ -262,6 +307,26 @@ mod tests {
         assert_eq!(manifest.files[0].bytes, 6);
         assert_eq!(manifest.files[0].sha256.len(), 64);
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn identifies_density_variants() {
+        assert_eq!(
+            asset_identity("assets/icons/logo@2x.png"),
+            ("assets/icons/logo.png".to_owned(), Some(2.0))
+        );
+        assert_eq!(
+            asset_identity("assets/icons/2x/logo.png"),
+            ("assets/icons/logo.png".to_owned(), Some(2.0))
+        );
+        assert_eq!(
+            asset_identity("assets/icons/logo@1.5x.svg"),
+            ("assets/icons/logo.svg".to_owned(), Some(1.5))
+        );
+        assert_eq!(
+            asset_identity("assets/icons/logo.png"),
+            ("assets/icons/logo.png".to_owned(), None)
+        );
     }
 
     #[test]

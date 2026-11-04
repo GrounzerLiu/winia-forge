@@ -556,7 +556,11 @@ exclude = ["**/*.psd"]
 ```
 
 - `winia build` and `winia package` collect matching files into `assets.manifest.json`.
-- Each entry records the logical path, packaged path, size, SHA-256, and optional density.
+- Each entry records a stable `id`, logical path, packaged path, size, SHA-256, and optional
+  density. Density variants use `logo@2x.png` or `2x/logo.png`; the `id` strips the marker
+  (`assets/icons/logo.png`).
+- Runtime `Image::asset` resolves the `id` against the window density: exact match, then the
+  smallest density at or above the target, then the largest available density.
 - Desktop staging copies assets next to the executable; Android stages them under
   `android/app/src/main/assets/winia-assets/` so Gradle packs them into the APK/AAB.
 - Staging verifies every copied file against its manifest hash.
