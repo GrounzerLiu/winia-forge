@@ -59,9 +59,12 @@ fn run_desktop(root: &Path, config: &WiniaConfig, args: &RunArgs, target: &str) 
         .into_iter()
         .find(|artifact| extension(&artifact.path) != Some("apk"))
         .ok_or_else(|| anyhow::anyhow!("the build produced no executable"))?;
+    let assets_root = root.join("target/winia/assets/desktop");
+    crate::assets::stage_desktop(root, config, &assets_root)?;
     println!("Running {}", executable.path.display());
     let status = Command::new(&executable.path)
         .args(&args.args)
+        .env("WINIA_ASSET_ROOT", &assets_root)
         .current_dir(root)
         .status()
         .with_context(|| format!("running {}", executable.path.display()))?;

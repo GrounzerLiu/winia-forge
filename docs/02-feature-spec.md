@@ -556,8 +556,11 @@ exclude = ["**/*.psd"]
 - Each entry records the logical path, packaged path, size, SHA-256, and optional density.
 - Desktop staging copies assets next to the executable; Android stages them under
   `android/app/src/main/assets/winia-assets/` so Gradle packs them into the APK/AAB.
-- Staging verifies every copied file against its manifest hash. Runtime loading through a Winia
-  `AssetBundle` is still pending.
+- Staging verifies every copied file against its manifest hash.
+- Runtime loading uses `Image::asset(logical_path)`; desktop `run`/`dev` stage the bundle under
+  `target/winia/assets/desktop`, while Android reads `winia-assets/` through `AssetManager`.
+- The desktop window icon is loaded from the manifest's `window_icon` entry and set through
+  `WindowAttributes::window_icon`.
 - `winia clean` also removes the generated Android asset staging directory.
 
 ```bash

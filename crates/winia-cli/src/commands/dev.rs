@@ -192,8 +192,13 @@ impl Dev {
                     let _ = std::fs::remove_file(&port_file);
                 }
                 println!("Running {}", prepared.display());
+                let assets_root = self.root.join("target/winia/assets/desktop");
+                crate::assets::stage_desktop(&self.root, &self.config, &assets_root)?;
                 let mut command = Command::new(&prepared);
-                command.args(&self.args.args).current_dir(&self.root);
+                command
+                    .args(&self.args.args)
+                    .env("WINIA_ASSET_ROOT", &assets_root)
+                    .current_dir(&self.root);
                 if self.debug_enabled {
                     command
                         .env("WINIA_DEBUG_PORT", self.debug_port.to_string())

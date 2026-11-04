@@ -15,6 +15,8 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AssetManifest {
     pub version: u32,
+    #[serde(default)]
+    pub window_icon: Option<String>,
     pub files: Vec<AssetEntry>,
 }
 
@@ -66,6 +68,7 @@ pub fn collect(root: &Path, config: &WiniaConfig) -> Result<AssetManifest> {
 
     Ok(AssetManifest {
         version: 1,
+        window_icon: None,
         files: entries,
     })
 }
@@ -75,6 +78,25 @@ pub fn stage_desktop(root: &Path, config: &WiniaConfig, stage: &Path) -> Result<
     for entry in &mut manifest.files {
         let destination = stage.join(&entry.packaged);
         copy_entry(root, entry, &destination)?;
+    }
+    if let Some(icons) = crate::icons::ensure(root, config)? {
+        let relative = "assets/winia/window-icon.png";
+        let destination = stage.join(relative);
+        if let Some(parent) = destination.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::copy(&icons.store_png, &destination)
+            .with_context(|| format!("copying {}", icons.store_png.display()))?;
+        let bytes = std::fs::read(&destination)?;
+        let digest = Sha256::digest(&bytes);
+        manifest.files.push(AssetEntry {
+            path: relative.to_owned(),
+            packaged: relative.to_owned(),
+            bytes: bytes.len() as u64,
+            sha256: format!("{digest:x}"),
+            density: None,
+        });
+        manifest.window_icon = Some(relative.to_owned());
     }
     write_manifest(&stage.join("assets.manifest.json"), &manifest)?;
     Ok(manifest)
@@ -103,6 +125,25 @@ pub fn stage_android(root: &Path, config: &WiniaConfig) -> Result<AssetManifest>
         entry.packaged = format!("winia-assets/{relative}");
         let target = destination.join(&relative);
         copy_entry(root, entry, &target)?;
+    }
+    if let Some(icons) = crate::icons::ensure(root, config)? {
+        let relative = "winia/window-icon.png";
+        let target = destination.join(relative);
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::copy(&icons.store_png, &target)?;
+        let bytes = std::fs::read(&target)?;
+        let digest = Sha256::digest(&bytes);
+        let logical = format!("assets/{relative}");
+        manifest.files.push(AssetEntry {
+            path: logical.clone(),
+            packaged: format!("winia-assets/{relative}"),
+            bytes: bytes.len() as u64,
+            sha256: format!("{digest:x}"),
+            density: None,
+        });
+        manifest.window_icon = Some(logical);
     }
     write_manifest(&destination.join("manifest.json"), &manifest)?;
     Ok(manifest)
