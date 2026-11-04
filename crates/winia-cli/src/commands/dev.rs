@@ -49,6 +49,15 @@ pub fn run(args: DevArgs) -> Result<()> {
         eprintln!("note: debug server auto-start is disabled for release builds");
     }
     let debug_enabled = !args.no_debug_server && !args.release;
+    let explicit_debug = args
+        .features
+        .iter()
+        .any(|feature| feature == "winia/debug-server" || feature == "debug-server");
+    if explicit_debug && !debug_enabled {
+        eprintln!(
+            "warning: debug-server is enabled in --features but automatic port/forward setup is disabled"
+        );
+    }
     let debug_port = if debug_enabled {
         if target == "android" {
             if let Some(port) = args.debug_port {
@@ -100,7 +109,10 @@ pub fn run(args: DevArgs) -> Result<()> {
 
     if dev.args.once {
         println!("Initial build...");
-        dev.rebuild()?;
+        if let Err(error) = dev.rebuild() {
+            dev.stop_debug_forward();
+            return Err(error);
+        }
         return dev.wait_once();
     }
     dev.watch()
@@ -137,13 +149,14 @@ impl Dev {
             Session::Android { abi, .. } => vec![abi.as_str().to_owned()],
             Session::Desktop { .. } => Vec::new(),
         };
+        let debug_feature = if project_has_debug_feature(&self.root) {
+            "debug-server"
+        } else {
+            "winia/debug-server"
+        };
         let mut features = self.args.features.clone();
-        if self.debug_enabled
-            && !features
-                .iter()
-                .any(|feature| feature == "winia/debug-server")
-        {
-            features.push("winia/debug-server".to_owned());
+        if self.debug_enabled && !features.iter().any(|feature| feature == debug_feature) {
+            features.push(debug_feature.to_owned());
         }
         let build_args = BuildArgs {
             target: vec![self.target.clone()],
@@ -231,7 +244,17 @@ impl Dev {
             },
             _ => None,
         };
-        self.stop_debug_forward();
+        let keep_forward = self.debug_enabled && matches!(&self.session, Session::Android { .. });
+        if keep_forward {
+            if let Session::Android { device, .. } = &self.session {
+                println!(
+                    "Debug server forward kept on {device}: ws://127.0.0.1:{} (remove: adb -s {device} forward --remove tcp:{})",
+                    self.debug_port, self.debug_port
+                );
+            }
+        } else {
+            self.stop_debug_forward();
+        }
         self.stop_desktop();
         if let Some(status) = status {
             if !status.success() {
@@ -268,6 +291,7 @@ impl Dev {
 
         println!("Initial build...");
         if let Err(error) = self.rebuild() {
+            self.stop_debug_forward();
             eprintln!("Build failed: {error:#}");
             eprintln!("Watching for changes to retry...");
         }
@@ -310,6 +334,7 @@ impl Dev {
                         );
                     }
                     if let Err(error) = self.rebuild() {
+                        self.stop_debug_forward();
                         eprintln!("Build failed: {error:#}");
                     }
                 }
@@ -367,6 +392,27 @@ impl Dev {
             }
         }
     }
+}
+
+fn project_has_debug_feature(root: &Path) -> bool {
+    let Ok(text) = std::fs::read_to_string(root.join("Cargo.toml")) else {
+        return false;
+    };
+    let mut in_features = false;
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed == "[features]" {
+            in_features = true;
+            continue;
+        }
+        if in_features && trimmed.starts_with('[') {
+            break;
+        }
+        if in_features && trimmed.starts_with("debug-server") && trimmed.contains('=') {
+            return true;
+        }
+    }
+    false
 }
 
 fn android_has_internet_permission(root: &Path) -> bool {
@@ -547,6 +593,34 @@ mod tests {
             &root.join("android/app/build/outputs/apk/app.apk"),
             root
         ));
+    }
+
+    #[test]
+    fn accepts_a_websocket_upgrade_response() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0u8; 1024];
+            let _ = stream.read(&mut request);
+            let _ = stream.write_all(b"HTTP/1.1 101 Switching Protocols\r\n\r\n");
+        });
+        assert!(websocket_handshake_ok(port));
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn detects_a_project_debug_server_feature() {
+        let root = std::env::temp_dir().join(format!("winia-dev-feature-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"demo\"\n\n[features]\ndebug-server = []\n",
+        )
+        .unwrap();
+        assert!(project_has_debug_feature(&root));
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]

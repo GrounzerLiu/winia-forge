@@ -282,7 +282,8 @@ winia test --filter scrollbar
   `ws://127.0.0.1:<port>`. `--no-debug-server` opts out; release builds disable it automatically.
 - Android uses port 9998 and forwards it with `adb forward tcp:9998 tcp:9998`. The debug manifest
   (`android/app/src/debug/AndroidManifest.xml`) needs `android.permission.INTERNET`; the blank
-  template includes it and existing projects must add it.
+  template includes it and existing projects must add it. With `--once`, the forward is kept so the
+  debug server remains reachable after the command returns; the command prints the removal command.
 - Note: Rust has no code hot-swapping; a "hot restart" is a process-level restart, not Flutter-style hot
   reload.
 

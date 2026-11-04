@@ -234,6 +234,24 @@ pub(crate) fn install(device: &str, apk: &Path) -> Result<()> {
 
 pub(crate) fn adb_forward(device: &str, port: u16) -> Result<()> {
     let mapping = format!("tcp:{port}");
+    let list = Command::new(adb_program())
+        .args(["-s", device, "forward", "--list"])
+        .output()
+        .context("running adb forward --list")?;
+    let listing = String::from_utf8_lossy(&list.stdout);
+    if listing.lines().any(|line| {
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        fields.len() >= 3 && fields[0] == device && fields[1] == mapping && fields[2] == mapping
+    }) {
+        return Ok(());
+    }
+    if listing
+        .lines()
+        .any(|line| line.split_whitespace().any(|field| field == mapping))
+    {
+        bail!("adb forward {mapping} is already used by another device; remove it first");
+    }
+
     let _ = Command::new(adb_program())
         .args(["-s", device, "forward", "--remove", &mapping])
         .output();

@@ -204,7 +204,8 @@ winia screenshot --target android --output shot.png
 - Debug builds enable `winia/debug-server`, use port 9998, and run
   `adb forward tcp:9998 tcp:9998` so `ws://127.0.0.1:9998` reaches the app. The debug manifest
   (`android/app/src/debug/AndroidManifest.xml`) needs `android.permission.INTERNET`; the blank
-  template includes it and existing projects must add it.
+  template includes it and existing projects must add it. `--once` keeps the forward after exit and
+  prints how to remove it.
 - This is a process-level hot restart, not code hot-swapping.
 
 ### 5.3 Logs and symbols
