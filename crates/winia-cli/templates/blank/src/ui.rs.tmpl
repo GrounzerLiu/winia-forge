@@ -1,0 +1,17 @@
+use winia::prelude::*;
+
+#[composable]
+pub fn app(ctx: &mut ComposeCtx) {
+    WiniaTheme::auto(ctx, |ctx| {
+        Window::new()
+            .title("__APP_NAME__")
+            .size(1000.0, 700.0)
+            .build(ctx, |ctx| {
+                Column::new()
+                    .modifier(Modifier::new().fill_max_size().padding(24.0))
+                    .build(ctx, |ctx| {
+                        Text::new("Hello, Winia!").build(ctx);
+                    });
+            });
+    });
+}

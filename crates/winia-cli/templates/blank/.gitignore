@@ -1,0 +1,13 @@
+/target
+/dist
+*.apk
+*.aab
+*.pdb
+*.exe
+*.dll
+*.dylib
+*.so
+/android/.gradle
+/android/local.properties
+/android/app/build
+/android/app/src/main/jniLibs

@@ -516,7 +516,7 @@ winia upgrade
 | Feature | Status |
 | --- | --- |
 | clap command surface | Implemented; covers every command in this document |
-| Minimal `winia new` template | Implemented |
+| `winia new` blank template | Implemented; desktop + Android GameActivity scaffold |
 | `winia doctor` environment checks | Implemented; covers MSRV, host platform toolchains, Android SDK/NDK/licenses, `winia.toml` validation, `--strict` and `--fix` |
 | `winia info` / `targets` | Implemented |
 | `winia config show/get` | Implemented |

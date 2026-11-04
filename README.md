@@ -56,7 +56,7 @@ winia-forge/
 
 Implemented:
 
-- `winia new`: generate a minimal Winia application (Cargo package, `winia.toml`, README)
+- `winia new`: generate a blank Winia application from the embedded template (desktop binary, shared UI, `winia.toml`, and a GameActivity Gradle project when Android is selected)
 - `winia doctor`: diagnose the Rust toolchain and MSRV, platform toolchains, the Android SDK/NDK, and `winia.toml` validation
 - `winia info` / `winia targets`: environment and target platform information
 - `winia config show/get`: read `winia.toml`

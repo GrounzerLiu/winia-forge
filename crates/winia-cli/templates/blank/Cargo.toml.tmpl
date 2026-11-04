@@ -1,0 +1,25 @@
+[package]
+name = "__PACKAGE_NAME__"
+version = "__VERSION__"
+edition = "2024"
+
+[lib]
+name = "__LIB_NAME__"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "__PACKAGE_NAME__"
+path = "src/main.rs"
+
+[target.'cfg(target_os = "android")'.dependencies]
+# Vulkan rather than GL: the only Android Skia prebuilt that includes `svg` is the
+# svg + vulkan + webp archive; a GL build would compile Skia from source.
+winia = __WINIA_DEP_ANDROID__
+winit = { package = "winia-winit", version = "=0.31.0-beta.4", features = ["android-game-activity"] }
+# skia-bindings resolves a prebuilt archive by an exact feature key. The Android archive
+# that includes `svg` also includes `webp`; without this feature the first build compiles
+# Skia from source instead of downloading the prebuilt binaries.
+skia-safe = { version = "0.99", features = ["webp"] }
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+winia = __WINIA_DEP_DESKTOP__
