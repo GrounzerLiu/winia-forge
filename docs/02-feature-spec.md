@@ -15,7 +15,7 @@
 | `winia dev` | Development mode: file watching + debug server | Planned |
 | `winia test` | Unit, UI, and device smoke tests | Planned |
 | `winia package` | Package installers/archives/APK/AAB | Implemented for Android APK/AAB |
-| `winia sign` | Code signing | Planned |
+| `winia sign` | Code signing | Implemented for Android APKs |
 | `winia release` | Version, tag, publish | Planned |
 | `winia doctor` | Environment diagnostics | Implemented (Rust/MSRV, platform toolchains, Android SDK/NDK, `--fix`) |
 | `winia add` / `remove` / `update` | Dependency management | Planned |
@@ -391,7 +391,12 @@ See [03-android-support.md](03-android-support.md). Implemented behaviour:
   - `WINIA_ANDROID_KEYSTORE_PASSWORD`
   - `WINIA_ANDROID_KEY_PASSWORD`
 - Google Play App Signing: the upload key and the Play signing key are kept separate.
-- `winia sign --target android` wraps `apksigner` and verifies the certificate.
+- `winia sign --target android` signs every APK in `dist/` (or the `--apk` path) with
+  `apksigner`, writing `*-signed.apk` copies unless `--in-place` is given.
+- Passwords are read through `--ks-pass env:...`, so they never appear in the process list. The
+  alias comes from `--alias` or `WINIA_ANDROID_KEY_ALIAS`.
+- The command verifies the result with `apksigner verify --print-certs` and reports the certificate
+  DN. AAB signing is not implemented yet.
 
 ### 6.4 `winia release`
 
@@ -545,5 +550,6 @@ winia upgrade
 | `winia build` | Implemented: host executable and Android APK |
 | `winia run` | Implemented: host and Android |
 | `winia package` | Implemented: Android APK (universal or per-ABI) and AAB, with alignment/ABI/signature checks |
-| `sign`, `release` | Planned |
+| `winia sign` | Implemented: Android APK signing with apksigner |
+| `winia release` | Planned |
 | Template system, hooks, plugins | Planned |

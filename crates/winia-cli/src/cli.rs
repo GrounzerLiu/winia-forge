@@ -221,6 +221,18 @@ pub struct SignArgs {
     /// Signing material (keystore on Android, certificate on Windows/macOS).
     #[arg(long)]
     pub keystore: Option<PathBuf>,
+    /// APK to sign. Defaults to every APK in dist/.
+    #[arg(long)]
+    pub apk: Option<PathBuf>,
+    /// Key alias. Defaults to WINIA_ANDROID_KEY_ALIAS.
+    #[arg(long)]
+    pub alias: Option<String>,
+    /// Overwrite the input APK instead of writing a *-signed.apk copy.
+    #[arg(long)]
+    pub in_place: bool,
+    /// Emit machine-readable output.
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Debug, Args)]
