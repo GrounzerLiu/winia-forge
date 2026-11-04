@@ -266,12 +266,17 @@ winia test --filter scrollbar
 
 ### 4.2 `winia dev`
 
-- File watching: `.rs`, `.toml`, `.java`, `.kt`, `.xml`, and `assets/`, recursively. `target/`,
-  `dist/`, `.git/`, and Android build directories are ignored.
-- Desktop: rebuild and restart the process.
+- The watcher starts before the initial build and watches `src/`, `assets/`, `Cargo.toml`,
+  `winia.toml`, `build.rs`, `android/app/src/`, and the Android Gradle files. `target/`, `dist/`,
+  `.git/`, and Android build directories are never registered.
+- Desktop: rebuild first; on Windows the executable runs from `target/winia-dev/` so Cargo can
+  replace the build output. A successful build kills and restarts the old process; a failed build
+  leaves the old app running.
 - Android: recompile the device ABI, reinstall the APK, force-stop, and restart the Activity.
+- If the desktop app exits on its own, dev reports it and waits for the next change.
 - Build failures keep the watcher alive; the next edit retries.
-- `--debounce <ms>` sets event coalescing (default 300); `--once` builds and runs once.
+- `--debounce <ms>` sets event coalescing (default 300); `--once` builds and runs once, waiting for a
+  desktop app to close.
 - Note: Rust has no code hot-swapping; a "hot restart" is a process-level restart, not Flutter-style hot
   reload. Debug-server startup and `adb reverse` are not implemented yet.
 

@@ -1,9 +1,9 @@
 //! 'winia dev' — watch sources, rebuild, and restart the application.
 //!
 //! Rust has no code hot-swapping, so a "hot restart" is a process restart. Desktop
-//! builds kill and respawn the executable; Android builds reinstall the APK and
-//! restart the activity. Build failures keep the watcher alive so the next edit can
-//! retry.
+//! builds copy the executable on Windows (the running binary cannot be replaced),
+//! kill and respawn it; Android builds reinstall the APK and restart the activity.
+//! Build failures keep the watcher alive so the next edit can retry.
 
 use crate::cli::{BuildArgs, DevArgs};
 use crate::commands::{build, run};
@@ -46,7 +46,13 @@ pub fn run(args: DevArgs) -> Result<()> {
         println!("Device {device} uses {}", abi.as_str());
         Session::Android { device, abi }
     } else {
-        Session::Desktop { child: None }
+        if args.device.is_some() {
+            eprintln!("warning: --device is ignored for desktop targets");
+        }
+        Session::Desktop {
+            child: None,
+            executable: None,
+        }
     };
 
     let mut dev = Dev {
@@ -57,23 +63,24 @@ pub fn run(args: DevArgs) -> Result<()> {
         target,
         session,
     };
-    println!("Initial build...");
-    if let Err(error) = dev.rebuild() {
-        eprintln!("Build failed: {error:#}");
-        if dev.args.once {
-            return Err(error);
-        }
-        eprintln!("Watching for changes to retry...");
-    }
+
     if dev.args.once {
+        println!("Initial build...");
+        dev.rebuild()?;
         return dev.wait_once();
     }
     dev.watch()
 }
 
 enum Session {
-    Desktop { child: Option<Child> },
-    Android { device: String, abi: Abi },
+    Desktop {
+        child: Option<Child>,
+        executable: Option<PathBuf>,
+    },
+    Android {
+        device: String,
+        abi: Abi,
+    },
 }
 
 struct Dev {
@@ -89,6 +96,7 @@ impl Dev {
     fn rebuild(&mut self) -> Result<()> {
         self.config = WiniaConfig::load(&self.config_path)?;
         self.config.validate()?;
+
         let abis = match &self.session {
             Session::Android { abi, .. } => vec![abi.as_str().to_owned()],
             Session::Desktop { .. } => Vec::new(),
@@ -101,29 +109,35 @@ impl Dev {
             json: false,
             out_dir: None,
         };
+        let built = build::build_all(&self.root, &self.config, &build_args)?;
 
         match &mut self.session {
-            Session::Desktop { child } => {
-                if let Some(mut current) = child.take() {
-                    let _ = current.kill();
-                    let _ = current.wait();
-                }
-                let built = build::build_all(&self.root, &self.config, &build_args)?;
-                let executable = run::artifacts(&built)
+            Session::Desktop { child, executable } => {
+                let artifact = run::artifacts(&built)
                     .into_iter()
                     .find(|artifact| run::extension(&artifact.path) != Some("apk"))
                     .ok_or_else(|| anyhow::anyhow!("the build produced no executable"))?;
-                println!("Running {}", executable.path.display());
-                let spawned = Command::new(&executable.path)
+                let prepared = prepare_executable(&self.root, &artifact.path)?;
+
+                if let Some(mut current) = child.take() {
+                    stop_child(&mut current);
+                }
+                if let Some(previous) = executable.take() {
+                    let _ = std::fs::remove_file(previous);
+                }
+                println!("Running {}", prepared.display());
+                let spawned = Command::new(&prepared)
                     .args(&self.args.args)
                     .current_dir(&self.root)
                     .spawn()
-                    .with_context(|| format!("running {}", executable.path.display()))?;
+                    .with_context(|| format!("running {}", prepared.display()))?;
                 println!("Application started (pid {})", spawned.id());
                 *child = Some(spawned);
+                if cfg!(windows) {
+                    *executable = Some(prepared);
+                }
             }
             Session::Android { device, .. } => {
-                let built = build::build_all(&self.root, &self.config, &build_args)?;
                 let apk = run::artifacts(&built)
                     .into_iter()
                     .find(|artifact| run::extension(&artifact.path) == Some("apk"))
@@ -141,12 +155,16 @@ impl Dev {
         Ok(())
     }
 
-    fn wait_once(self) -> Result<()> {
-        if let Session::Desktop {
-            child: Some(mut child),
-        } = self.session
-        {
-            let status = child.wait().context("waiting for the application")?;
+    fn wait_once(mut self) -> Result<()> {
+        let status = match &mut self.session {
+            Session::Desktop { child, .. } => match child.take() {
+                Some(mut child) => Some(child.wait().context("waiting for the application")?),
+                None => None,
+            },
+            _ => None,
+        };
+        self.stop_desktop();
+        if let Some(status) = status {
             if !status.success() {
                 bail!("application exited with {status}");
             }
@@ -155,21 +173,37 @@ impl Dev {
     }
 
     fn watch(mut self) -> Result<()> {
+        let paths = watch_paths(&self.root);
+        if paths.is_empty() {
+            bail!(
+                "no source paths found to watch under {}",
+                self.root.display()
+            );
+        }
+
         let (sender, receiver) = std::sync::mpsc::channel();
         let mut watcher = notify::recommended_watcher(move |result| {
             let _ = sender.send(result);
         })
         .context("creating the file watcher")?;
-        watcher
-            .watch(&self.root, RecursiveMode::Recursive)
-            .with_context(|| format!("watching {}", self.root.display()))?;
+        for (path, mode) in &paths {
+            if let Err(error) = watcher.watch(path, *mode) {
+                eprintln!("warning: cannot watch {}: {error}", path.display());
+            }
+        }
 
         let running = Arc::new(AtomicBool::new(true));
         let signal = running.clone();
         ctrlc::set_handler(move || signal.store(false, Ordering::SeqCst))
             .context("installing the Ctrl+C handler")?;
 
+        println!("Initial build...");
+        if let Err(error) = self.rebuild() {
+            eprintln!("Build failed: {error:#}");
+            eprintln!("Watching for changes to retry...");
+        }
         println!("Watching for changes (Ctrl+C to stop)...");
+
         'watch: while running.load(Ordering::SeqCst) {
             match receiver.recv_timeout(Duration::from_millis(200)) {
                 Ok(Ok(event)) => {
@@ -211,21 +245,112 @@ impl Dev {
                     }
                 }
                 Ok(Err(error)) => eprintln!("watch error: {error}"),
-                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Timeout) => self.check_application_exit(),
                 Err(RecvTimeoutError::Disconnected) => break 'watch,
             }
         }
 
-        if let Session::Desktop {
-            child: Some(mut child),
-        } = self.session
-        {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
+        self.stop_desktop();
         println!("Stopped.");
         Ok(())
     }
+
+    fn check_application_exit(&mut self) {
+        let status = match &mut self.session {
+            Session::Desktop {
+                child: Some(child), ..
+            } => match child.try_wait() {
+                Ok(status) => status,
+                Err(error) => {
+                    eprintln!("watch error: {error}");
+                    return;
+                }
+            },
+            _ => None,
+        };
+        if let Some(status) = status {
+            if let Session::Desktop { child, executable } = &mut self.session {
+                let _ = child.take();
+                if let Some(path) = executable.take() {
+                    let _ = std::fs::remove_file(path);
+                }
+            }
+            println!("Application exited with {status}; waiting for changes...");
+        }
+    }
+
+    fn stop_desktop(&mut self) {
+        if let Session::Desktop { child, executable } = &mut self.session {
+            if let Some(mut current) = child.take() {
+                stop_child(&mut current);
+            }
+            if let Some(path) = executable.take() {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+    }
+}
+
+fn prepare_executable(root: &Path, artifact: &Path) -> Result<PathBuf> {
+    #[cfg(windows)]
+    {
+        let directory = root.join("target").join("winia-dev");
+        std::fs::create_dir_all(&directory)
+            .with_context(|| format!("creating {}", directory.display()))?;
+        let stem = artifact
+            .file_stem()
+            .map(|stem| stem.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "app".to_owned());
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_millis())
+            .unwrap_or(0);
+        let destination = directory.join(format!("{stem}-{stamp}.exe"));
+        std::fs::copy(artifact, &destination)
+            .with_context(|| format!("copying {}", artifact.display()))?;
+        Ok(destination)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = root;
+        Ok(artifact.to_owned())
+    }
+}
+
+fn stop_child(child: &mut Child) {
+    #[cfg(windows)]
+    {
+        let _ = Command::new("taskkill")
+            .args(["/PID", &child.id().to_string(), "/T", "/F"])
+            .output();
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+fn watch_paths(root: &Path) -> Vec<(PathBuf, RecursiveMode)> {
+    let mut paths = Vec::new();
+    for directory in ["src", "assets", "android/app/src"] {
+        let path = root.join(directory);
+        if path.is_dir() {
+            paths.push((path, RecursiveMode::Recursive));
+        }
+    }
+    for file in [
+        "Cargo.toml",
+        "winia.toml",
+        "build.rs",
+        "android/app/build.gradle.kts",
+        "android/build.gradle.kts",
+        "android/settings.gradle.kts",
+        "android/gradle.properties",
+    ] {
+        let path = root.join(file);
+        if path.is_file() {
+            paths.push((path, RecursiveMode::NonRecursive));
+        }
+    }
+    paths
 }
 
 fn event_is_relevant(event: &Event, root: &Path) -> bool {
@@ -251,7 +376,7 @@ fn is_relevant(path: &Path, root: &Path) -> bool {
     {
         return false;
     }
-    if text.starts_with("assets/") {
+    if text == "assets" || text.starts_with("assets/") {
         return true;
     }
     matches!(
@@ -286,5 +411,19 @@ mod tests {
             &root.join("android/app/build/outputs/apk/app.apk"),
             root
         ));
+    }
+
+    #[test]
+    fn watch_paths_skip_build_directories() {
+        let root = std::env::temp_dir().join(format!("winia-dev-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::create_dir_all(root.join("target")).unwrap();
+        std::fs::write(root.join("Cargo.toml"), "").unwrap();
+        let paths = watch_paths(&root);
+        assert!(paths.iter().any(|(path, _)| path.ends_with("src")));
+        assert!(paths.iter().any(|(path, _)| path.ends_with("Cargo.toml")));
+        assert!(!paths.iter().any(|(path, _)| path.ends_with("target")));
+        std::fs::remove_dir_all(&root).unwrap();
     }
 }

@@ -176,7 +176,7 @@ pub struct DevArgs {
     /// Debounce interval in milliseconds.
     #[arg(long, default_value_t = 300)]
     pub debounce: u64,
-    /// Build and run once, then exit.
+    /// Build and run once, then exit (desktop waits for the app to close).
     #[arg(long)]
     pub once: bool,
     /// Arguments passed through to the application after `--`.

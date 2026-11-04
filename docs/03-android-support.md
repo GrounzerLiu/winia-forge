@@ -196,8 +196,10 @@ winia screenshot --target android --output shot.png
 
 ### 5.2 `winia dev`
 
-- Watch `.rs`, `.toml`, `.java`, `.kt`, `.xml`, and `assets/`.
-- Recompile the device ABI's `.so`, reinstall the APK, force-stop the old process, then start the Activity.
+- Watch `src/`, `assets/`, `Cargo.toml`, `winia.toml`, `android/app/src/`, and the Android Gradle
+  files; build outputs are not registered.
+- Build first, then recompile the device ABI's `.so`, reinstall the APK, force-stop the old process,
+  and start the Activity. A failed build leaves the previous app running.
 - Build failures keep the watcher alive and retry on the next edit.
 - Debug-server exposure through `adb reverse tcp:<port> tcp:<port>` is still planned.
 - This is a process-level hot restart, not code hot-swapping.
