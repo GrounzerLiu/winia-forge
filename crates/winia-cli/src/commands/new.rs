@@ -160,7 +160,6 @@ pub fn run(args: NewArgs) -> Result<()> {
     config.app.name = args.name.clone();
     config.app.id = app_id.clone();
     config.android.package = app_id.clone();
-    config.android.abis = vec!["arm64-v8a".to_owned()];
     config.window.title = args.name.clone();
     config.window.width = 1000.0;
     config.window.height = 700.0;

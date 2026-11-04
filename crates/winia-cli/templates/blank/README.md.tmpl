@@ -10,13 +10,16 @@ cargo run
 
 ## Android
 
-Only `arm64-v8a` is configured by default. For an x86_64 emulator, add `"x86_64"` to
-`[android].abis` in `winia.toml` and run `rustup target add x86_64-linux-android`.
+`[android].abis` lists every ABI that goes into the APK; the generated project defaults to
+`arm64-v8a` and `x86_64`, so one APK runs on both real devices and emulators. Each ABI needs
+its Rust target installed (`rustup target add aarch64-linux-android x86_64-linux-android`).
 
 ```bash
 winia build --target android
 adb install -r android/app/build/outputs/apk/debug/app-debug.apk
 ```
+
+`winia build --abi arm64-v8a` narrows the build to a single ABI when a smaller APK is wanted.
 
 `winia build` locates the NDK, injects the linker / `CC` / `AR` environment, copies the
 `.so` into `android/app/src/main/jniLibs/<abi>/`, verifies 16 KB alignment, and runs the

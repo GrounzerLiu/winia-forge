@@ -32,6 +32,13 @@ android {
             useLegacyPackaging = false
         }
     }
+
+    lint {
+        // The vital release lint loads the Kotlin runtime bundled with AGP; the
+        // games-activity dependency graph pins an older stdlib, which makes the
+        // analysis fail with a NoClassDefFoundError. Run lint separately instead.
+        checkReleaseBuilds = false
+    }
 }
 
 dependencies {
