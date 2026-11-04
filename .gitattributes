@@ -1,0 +1,24 @@
+# Normalize text files to LF on checkout, including Windows checkouts.
+* text=auto eol=lf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
+*.jar binary
+*.jks binary
+*.keystore binary
+*.apk binary
+*.aab binary
+*.exe binary
+*.dll binary
+*.so binary
+*.dylib binary
+*.zip binary
