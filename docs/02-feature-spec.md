@@ -258,8 +258,11 @@ winia test --filter scrollbar
 
 - Picks the current platform automatically; `--target` overrides it.
 - `--release` uses the release profile.
-- Arguments after `--` are passed through to the application.
-- Android: build a debug APK, `adb install -r`, `am start -W`, and wait for the launch result.
+- Arguments after `--` are passed through to the desktop application. On Android they become string
+  intent extras (`winia.args` holds the joined value and `winia.argN` each argument).
+- Android: selects the device (or `--device`), reads `ro.product.cpu.abi`, builds only that ABI,
+  installs with `adb install -r`, and starts the launcher activity parsed from the manifest with
+  `am start -W`.
 
 ### 4.2 `winia dev`
 

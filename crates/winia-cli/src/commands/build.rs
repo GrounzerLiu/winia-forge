@@ -466,7 +466,7 @@ impl AndroidToolchain {
     }
 
     fn available_api_levels(&self, abi: Abi) -> Vec<String> {
-        let prefix = abi.rust_triple();
+        let prefix = abi.clang_triple();
         let mut levels = Vec::new();
         if let Ok(entries) = std::fs::read_dir(&self.bin) {
             for entry in entries.flatten() {
@@ -493,7 +493,7 @@ impl AndroidToolchain {
     fn clang(&self, abi: Abi, cxx: bool) -> PathBuf {
         let mut name = format!(
             "{}{}-clang{}",
-            abi.rust_triple(),
+            abi.clang_triple(),
             self.min_sdk,
             if cxx { "++" } else { "" }
         );

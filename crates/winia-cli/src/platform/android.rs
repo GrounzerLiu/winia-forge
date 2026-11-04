@@ -45,6 +45,17 @@ impl Abi {
         }
     }
 
+    /// The triple used in NDK clang wrapper names. It differs from the Rust
+    /// target triple for the legacy 32-bit ARM ABI (`armv7a-` vs `armv7-`).
+    pub fn clang_triple(self) -> &'static str {
+        match self {
+            Self::Arm64V8a => "aarch64-linux-android",
+            Self::ArmeabiV7a => "armv7a-linux-androideabi",
+            Self::X86_64 => "x86_64-linux-android",
+            Self::X86 => "i686-linux-android",
+        }
+    }
+
     pub fn jni_libs_dir(self) -> &'static str {
         self.as_str()
     }
@@ -71,6 +82,14 @@ mod tests {
             assert_eq!(abi.rust_triple(), triple);
             assert_eq!(abi.jni_libs_dir(), name);
         }
+    }
+
+    #[test]
+    fn clang_triples_match_the_ndk_wrapper_names() {
+        assert_eq!(Abi::Arm64V8a.clang_triple(), "aarch64-linux-android");
+        assert_eq!(Abi::ArmeabiV7a.clang_triple(), "armv7a-linux-androideabi");
+        assert_eq!(Abi::X86_64.clang_triple(), "x86_64-linux-android");
+        assert_eq!(Abi::X86.clang_triple(), "i686-linux-android");
     }
 
     #[test]
