@@ -39,7 +39,7 @@ Remaining:
 - [ ] `winia run`: build and run, forwarding arguments.
 - [x] `winia dev`: file watching, process restart, and automatic debug-server.
 - [x] `winia test`: host cargo tests + Android install/launch/logcat/screenshot smoke.
-- [ ] `winia clean`.
+- [x] `winia clean`.
 - [ ] Portable artifacts for the three desktop platforms: Windows zip, macOS .app/zip, Linux tar.gz.
 
 Acceptance:

@@ -23,7 +23,7 @@
 | `winia assets` | Icon and asset generation | Planned |
 | `winia ci` | Generate CI configuration | Planned |
 | `winia upgrade` | Framework upgrade and code migration | Planned |
-| `winia clean` | Remove build artifacts | Planned |
+| `winia clean` | Remove build artifacts | Implemented: target/dist/Android build outputs, `--all` Gradle caches, `--dry-run`, `--json` |
 | `winia info` | Environment and project information | Implemented |
 | `winia targets` | Supported/installed target platforms | Implemented |
 | `winia config` | View/read `winia.toml` | show/get implemented |
@@ -238,6 +238,20 @@ reports a clear error instead of silently skipping.
   ],
   "duration_ms": 34567
 }
+
+### 3.5 `winia clean`
+
+```bash
+winia clean
+winia clean --dry-run
+winia clean --all --json
+```
+
+- Removes `target/`, `dist/`, `android/app/build/`, and `android/build/` under the project root.
+- `--all` additionally removes the project-local `android/.gradle/` cache.
+- Paths that resolve outside the project root, or symlinks, are skipped.
+- `--dry-run` reports what would be removed; `--json` returns per-path status, sizes, and
+  `total_bytes`.
 ```
 
 A single target uses the shape above. `--target all` emits

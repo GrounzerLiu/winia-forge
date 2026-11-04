@@ -476,9 +476,15 @@ pub struct UpgradeArgs {
 
 #[derive(Debug, Args)]
 pub struct CleanArgs {
-    /// Also remove shared caches (planned).
+    /// Also remove project-local Gradle caches.
     #[arg(long)]
     pub all: bool,
+    /// Print what would be removed without deleting.
+    #[arg(long)]
+    pub dry_run: bool,
+    /// Emit machine-readable output.
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Debug, Args)]

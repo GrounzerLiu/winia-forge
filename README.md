@@ -65,6 +65,7 @@ Implemented:
 - `winia run`: launch the host executable, or install and start the APK on the connected Android device
 - `winia dev`: watch sources and assets, rebuild and restart the host app or reinstall/restart the Android activity, and auto-start the debug server
 - `winia test`: run host cargo tests and an Android install/launch/logcat/screenshot smoke test
+- `winia clean`: remove `target/`, `dist/`, and Android build outputs, with `--dry-run`/`--all`
 - `winia inspect`: query the debug server for app identity, layout trees, input events, screenshots, and port discovery
 - `winia package`: assemble Android APKs (universal or per-ABI) and AABs into `dist/`, checking 16 KB alignment, native ABIs, and debug signatures
 - `winia sign`: sign Android APKs with `apksigner`, writing `*-signed.apk` copies and verifying the certificate
