@@ -20,7 +20,7 @@
 | `winia release` | Version, tag, publish | Implemented for Android (local artifacts + GitHub upload) |
 | `winia doctor` | Environment diagnostics | Implemented (Rust/MSRV, platform toolchains, Android SDK/NDK, `--fix`) |
 | `winia add` / `remove` / `update` | Dependency management | Planned |
-| `winia assets` | Icon and asset generation | Planned |
+| `winia assets` | Icon and asset generation | Implemented: icon sets from PNG/SVG; automatic via `app.icon` |
 | `winia ci` | Generate CI configuration | Planned |
 | `winia upgrade` | Framework upgrade and code migration | Planned |
 | `winia clean` | Remove build artifacts | Implemented: target/dist/Android build outputs, `--all` Gradle caches, `--dry-run`, `--json` |
@@ -563,14 +563,17 @@ exclude = ["**/*.psd"]
 winia assets icon assets/icon.png
 ```
 
-- From a 1024×1024 PNG/SVG, generate:
+- `winia build` and `winia package` generate icons automatically from `app.icon`; `winia assets icon`
+  regenerates them explicitly.
+- From a PNG or SVG source, generate:
   - Windows `.ico` (16, 24, 32, 48, 64, 128, 256).
   - macOS `.icns`.
   - Linux hicolor multi-size PNGs.
-  - Android adaptive icons: foreground/background layers + mipmap densities.
+  - Android mipmap densities (`ic_launcher` and `ic_launcher_round`).
 - Generate the 512×512 Play Store icon.
-- Validate icon transparency, size, and safe margins.
-- Sync assets into each platform's packaging directory.
+- Generated files live under `target/winia/icons/`; Android uses a Gradle res source directory.
+- Not implemented yet: Windows exe resource embedding, macOS signing, Android adaptive icons, and
+  transparency/safe-margin validation.
 
 ## 9. CI/CD
 

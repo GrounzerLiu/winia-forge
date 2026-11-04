@@ -4,6 +4,7 @@
 //! implemented in this scaffold; every other command fails with an explicit
 //! "not implemented yet" message that points at the written contract.
 
+pub mod assets;
 pub mod build;
 pub mod clean;
 pub mod dev;
@@ -17,8 +18,8 @@ pub mod sign;
 pub mod test;
 
 use crate::cli::{
-    AssetsArgs, CiArgs, Cli, Command, CompletionShell, ConfigArgs, ConfigCommand, EmulatorsArgs,
-    InfoArgs, LogcatArgs, PlatformArgs, PlatformCommand, ScreenshotArgs, TargetsArgs,
+    CiArgs, Cli, Command, CompletionShell, ConfigArgs, ConfigCommand, EmulatorsArgs, InfoArgs,
+    LogcatArgs, PlatformArgs, PlatformCommand, ScreenshotArgs, TargetsArgs,
 };
 use crate::config::{WiniaConfig, find_config};
 use anyhow::{Context, Result, bail};
@@ -43,7 +44,7 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         Command::Config(args) => config(args),
         Command::Completions(args) => completions(args),
         Command::Platform(args) => platform(args),
-        Command::Assets(args) => assets(args),
+        Command::Assets(args) => assets::run(args),
         Command::Ci(args) => ci(args),
         Command::Emulators(args) => emulators(args),
         Command::Logcat(args) => logcat(args),
@@ -196,10 +197,6 @@ fn platform(args: PlatformArgs) -> Result<()> {
             Ok(())
         }
     }
-}
-
-fn assets(_args: AssetsArgs) -> Result<()> {
-    planned("assets")
 }
 
 fn ci(_args: CiArgs) -> Result<()> {

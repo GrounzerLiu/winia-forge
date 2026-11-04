@@ -62,6 +62,7 @@ pub(crate) fn build_all(
     config: &WiniaConfig,
     args: &BuildArgs,
 ) -> Result<Vec<(String, Vec<Artifact>)>> {
+    crate::icons::ensure(root, config)?;
     let metadata = cargo_metadata(root)?;
     let features = effective_features(config, args);
     let targets = resolve_targets(&args.target)?;
@@ -192,6 +193,7 @@ fn build_android_libraries_with(
     }
 
     ensure_android_project(&android_dir)?;
+    crate::icons::ensure(root, config)?;
     let toolchain = AndroidToolchain::discover(config)?;
     let abis = selected_abis(config, args)?;
     ensure_rust_targets(&abis)?;

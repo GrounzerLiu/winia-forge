@@ -140,6 +140,18 @@ fn package_desktop(
     std::fs::copy(&executable.path, stage.join(executable_name))
         .with_context(|| format!("copying {}", executable.path.display()))?;
     crate::assets::stage_desktop(root, config, &stage)?;
+    let icons = crate::icons::ensure(root, config)?;
+    if let Some(icons) = &icons {
+        match target {
+            "windows" => {
+                std::fs::copy(&icons.windows_ico, stage.join("app.ico"))?;
+            }
+            "linux" => {
+                copy_dir_all(&icons.linux_icons, &stage.join("share/icons"))?;
+            }
+            _ => {}
+        }
+    }
 
     let mut produced = Vec::new();
     for format in &formats {
@@ -147,7 +159,7 @@ fn package_desktop(
         match format.as_str() {
             "zip" => zip_directory(&stage, &destination)?,
             "tar.gz" => tar_gz_directory(&stage, &destination)?,
-            "app" => build_macos_app(&stage, &destination, config)?,
+            "app" => build_macos_app(&stage, &destination, config, icons.as_ref())?,
             other => bail!("unsupported desktop format '{other}'"),
         }
         produced.push(destination);
@@ -368,7 +380,12 @@ fn tar_gz_directory(stage: &Path, archive: &Path) -> Result<()> {
     Ok(())
 }
 
-fn build_macos_app(stage: &Path, bundle: &Path, config: &WiniaConfig) -> Result<()> {
+fn build_macos_app(
+    stage: &Path,
+    bundle: &Path,
+    config: &WiniaConfig,
+    icons: Option<&crate::icons::IconSet>,
+) -> Result<()> {
     if bundle.exists() {
         std::fs::remove_dir_all(bundle)
             .with_context(|| format!("removing {}", bundle.display()))?;
@@ -402,6 +419,12 @@ fn build_macos_app(stage: &Path, bundle: &Path, config: &WiniaConfig) -> Result<
     if manifest.is_file() {
         std::fs::copy(&manifest, resources.join("assets.manifest.json"))?;
     }
+    let icon_entry = if let Some(icons) = icons {
+        std::fs::copy(&icons.macos_icns, resources.join("AppIcon.icns"))?;
+        "  <key>CFBundleIconFile</key><string>AppIcon</string>\n"
+    } else {
+        ""
+    };
 
     let plist = format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
@@ -414,12 +437,13 @@ fn build_macos_app(stage: &Path, bundle: &Path, config: &WiniaConfig) -> Result<
   <key>CFBundleShortVersionString</key><string>{}</string>\n\
   <key>CFBundleVersion</key><string>{}</string>\n\
   <key>LSMinimumSystemVersion</key><string>11.0</string>\n\
-</dict></plist>\n",
+{} </dict></plist>\n",
         xml_escape(&config.app.name),
         xml_escape(&config.app.id),
         xml_escape(&executable_name.to_string_lossy()),
         xml_escape(&config.app.version),
         xml_escape(&config.app.version),
+        icon_entry,
     );
     std::fs::write(contents.join("Info.plist"), plist)?;
     Ok(())

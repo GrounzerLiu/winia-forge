@@ -7,6 +7,7 @@ pub mod assets;
 pub mod cli;
 pub mod commands;
 pub mod config;
+pub mod icons;
 pub mod platform;
 
 use clap::Parser;

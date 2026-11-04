@@ -39,6 +39,11 @@ android {
         // analysis fail with a NoClassDefFoundError. Run lint separately instead.
         checkReleaseBuilds = false
     }
+
+    val winiaGeneratedRes = rootProject.projectDir.resolve("../target/winia/icons/android/res")
+    if (winiaGeneratedRes.exists()) {
+        sourceSets.getByName("main").res.srcDir(winiaGeneratedRes)
+    }
 }
 
 dependencies {

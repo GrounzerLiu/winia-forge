@@ -316,6 +316,8 @@ This is the most critical blocker for Android support:
 - Android assets are read through `AndroidApp::asset_manager()`.
 - `winia build` stages `assets/**` under `android/app/src/main/assets/winia-assets/` with an
   `assets.manifest.json`; Gradle packages them into the APK/AAB.
+- Launcher icons generated from `app.icon` live in `target/winia/icons/android/res`; the template adds
+  that directory to the Gradle `res` source set.
 - winia's image/font loading still needs an AssetManager path; until then the files are packaged but
   desktop-only file loading remains the runtime path.
 - Fonts embedded with `include_bytes!` (such as Material Symbols) are unaffected.
