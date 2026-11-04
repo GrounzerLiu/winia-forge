@@ -213,6 +213,8 @@ winia screenshot --target android --output shot.png
   `winia dev --once` keeps the forward so the port stays reachable. Dev writes
   `target/winia-dev/inspect-port-<pid>.json` for `winia inspect discover`; use `--scan` to search the
   port range instead.
+- `winia test --target android --device <serial>` builds and installs the APK, launches it, checks the
+  app PID's logcat for panics, and captures `target/winia-test/android-smoke.png`.
 
 ### 5.3 Logs and symbols
 

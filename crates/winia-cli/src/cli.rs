@@ -272,9 +272,21 @@ pub struct TestArgs {
     /// Test name filter.
     #[arg(long)]
     pub filter: Option<String>,
+    /// Android device serial for --target android.
+    #[arg(long)]
+    pub device: Option<String>,
     /// Use the release profile.
     #[arg(long)]
     pub release: bool,
+    /// Extra cargo features, comma-separated.
+    #[arg(long, value_delimiter = ',')]
+    pub features: Vec<String>,
+    /// Update screenshot snapshots.
+    #[arg(long)]
+    pub update_snapshots: bool,
+    /// Emit machine-readable output.
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Debug, Args)]

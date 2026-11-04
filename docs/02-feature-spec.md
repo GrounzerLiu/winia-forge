@@ -14,7 +14,7 @@
 | `winia run` | Build and run | Implemented: host launch, Android install/start |
 | `winia dev` | Development mode: file watching + restart | Implemented (desktop restart, Android reinstall/restart, automatic debug-server) |
 | `winia inspect` | Debug-server client | Implemented: info, tree, click, drag, key, scroll, screenshot, registry/port discovery |
-| `winia test` | Unit, UI, and device smoke tests | Planned |
+| `winia test` | Unit, UI, and device smoke tests | Implemented: host cargo tests, Android install/launch/logcat/screenshot smoke |
 | `winia package` | Package installers/archives/APK/AAB | Implemented for Android APK/AAB |
 | `winia sign` | Code signing | Implemented for Android APKs |
 | `winia release` | Version, tag, publish | Implemented for Android (local artifacts + GitHub upload) |
@@ -297,11 +297,24 @@ winia test --filter scrollbar
 
 ### 4.3 `winia test`
 
-- Unit/layout/render tests: `cargo test -p <app>`.
-- UI integration tests: with `--features debug-server`.
-- Screenshot snapshots: on failure, print the diff and the actual image.
-- Android smoke test: install, launch, check logcat for a panic, capture one screenshot.
-- `--update-snapshots` updates the baselines.
+```bash
+winia test
+winia test --filter text_field
+winia test --features winia/debug-server
+winia test --target android --device 192.0.0.172:5555
+winia test --json
+```
+
+- Host: runs `cargo test` in the project root; `--filter` becomes the Cargo test filter,
+  `--release` selects the release profile, and `--features` is merged with `build.features`.
+- UI integration tests run when the project's test targets require `winia/debug-server` and that
+  feature is passed to `cargo test`.
+- Android smoke: builds the APK, installs it, launches the activity, checks the app PID's logcat for
+  panics, and writes `target/winia-test/android-smoke.png`.
+- `--json` reports `{target, passed, failed, ignored, success, exit_code, duration_ms}` (Android also
+  includes `device` and `screenshot`).
+- `--update-snapshots` sets `WINIA_UPDATE_SNAPSHOTS=1`; snapshot diff/baseline handling is still
+  owned by the project's test suite, not this command.
 
 ### 4.4 Debugging tools
 

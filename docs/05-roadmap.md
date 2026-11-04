@@ -38,7 +38,7 @@ Remaining:
 - [ ] `winia build`: call Cargo, support target/profile/features, produce a build report.
 - [ ] `winia run`: build and run, forwarding arguments.
 - [x] `winia dev`: file watching, process restart, and automatic debug-server.
-- [ ] `winia test`: unit tests + UI tests (`--features debug-server`).
+- [x] `winia test`: host cargo tests + Android install/launch/logcat/screenshot smoke.
 - [ ] `winia clean`.
 - [ ] Portable artifacts for the three desktop platforms: Windows zip, macOS .app/zip, Linux tar.gz.
 

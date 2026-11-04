@@ -217,7 +217,17 @@ pub(crate) fn device_abi(device: &str) -> Result<Abi> {
 }
 
 pub(crate) fn install(device: &str, apk: &Path) -> Result<()> {
-    println!("Installing {}", apk.display());
+    install_impl(device, apk, false)
+}
+
+pub(crate) fn install_quiet(device: &str, apk: &Path) -> Result<()> {
+    install_impl(device, apk, true)
+}
+
+fn install_impl(device: &str, apk: &Path, quiet: bool) -> Result<()> {
+    if !quiet {
+        println!("Installing {}", apk.display());
+    }
     let mut command = Command::new(adb_program());
     command.args(["-s", device, "install", "-r"]).arg(apk);
     let output = output_with_timeout(command, Duration::from_secs(180))?;
@@ -315,6 +325,58 @@ pub(crate) fn clear_logcat(device: &str) {
         .output();
 }
 
+pub(crate) fn app_pid(device: &str, package: &str) -> Option<u32> {
+    let output = Command::new(adb_program())
+        .args(["-s", device, "shell", "pidof", package])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&output.stdout)
+        .split_whitespace()
+        .next()
+        .and_then(|value| value.parse().ok())
+}
+
+pub(crate) fn logcat_pid(device: &str, pid: u32) -> Result<String> {
+    let output = Command::new(adb_program())
+        .args(["-s", device, "logcat", "-d", "--pid", &pid.to_string()])
+        .output()
+        .context("running adb logcat --pid")?;
+    Ok(format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    ))
+}
+
+pub(crate) fn logcat_dump(device: &str) -> Result<String> {
+    let output = Command::new(adb_program())
+        .args(["-s", device, "logcat", "-d", "-s", "RustStdoutStderr:I"])
+        .output()
+        .context("running adb logcat")?;
+    Ok(format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    ))
+}
+
+pub(crate) fn screencap(device: &str) -> Result<Vec<u8>> {
+    let output = Command::new(adb_program())
+        .args(["-s", device, "exec-out", "screencap", "-p"])
+        .output()
+        .context("running adb screencap")?;
+    if !output.status.success() {
+        bail!(
+            "adb screencap failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(output.stdout)
+}
+
 pub(crate) fn debug_server_port(device: &str) -> Result<Option<u16>> {
     let output = Command::new(adb_program())
         .args(["-s", device, "logcat", "-d", "-s", "RustStdoutStderr:I"])
@@ -341,6 +403,25 @@ pub(crate) fn debug_server_port(device: &str) -> Result<Option<u16>> {
 }
 
 pub(crate) fn launch(device: &str, package: &str, component: &str, args: &[String]) -> Result<()> {
+    launch_impl(device, package, component, args, false)
+}
+
+pub(crate) fn launch_quiet(
+    device: &str,
+    package: &str,
+    component: &str,
+    args: &[String],
+) -> Result<()> {
+    launch_impl(device, package, component, args, true)
+}
+
+fn launch_impl(
+    device: &str,
+    package: &str,
+    component: &str,
+    args: &[String],
+    quiet: bool,
+) -> Result<()> {
     let mut stop = Command::new(adb_program());
     stop.args(["-s", device, "shell", "am", "force-stop", package]);
     let _ = output_with_timeout(stop, Duration::from_secs(10));
@@ -365,7 +446,9 @@ pub(crate) fn launch(device: &str, package: &str, component: &str, args: &[Strin
     if !output.status.success() || text.contains("Error") {
         bail!("could not start {component}:\n{}", text.trim());
     }
-    println!("Launched {component} on {device}");
+    if !quiet {
+        println!("Launched {component} on {device}");
+    }
     Ok(())
 }
 

@@ -13,6 +13,7 @@ pub mod package;
 pub mod release;
 pub mod run;
 pub mod sign;
+pub mod test;
 
 use crate::cli::{
     AssetsArgs, CiArgs, Cli, Command, CompletionShell, ConfigArgs, ConfigCommand, EmulatorsArgs,
@@ -33,6 +34,7 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         Command::Package(args) => package::run(args),
         Command::Release(args) => release::run(args),
         Command::Sign(args) => sign::run(args),
+        Command::Test(args) => test::run(args),
         Command::Doctor(args) => doctor::run(args),
         Command::Info(args) => info(args),
         Command::Targets(args) => targets(args),
