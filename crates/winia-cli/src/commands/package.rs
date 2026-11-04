@@ -159,7 +159,13 @@ fn package_desktop(
         match format.as_str() {
             "zip" => zip_directory(&stage, &destination)?,
             "tar.gz" => tar_gz_directory(&stage, &destination)?,
-            "app" => build_macos_app(&stage, &destination, config, icons.as_ref())?,
+            "app" => build_macos_app(
+                &stage,
+                &destination,
+                config,
+                icons.as_ref(),
+                &executable.path,
+            )?,
             other => bail!("unsupported desktop format '{other}'"),
         }
         produced.push(destination);
@@ -385,6 +391,7 @@ fn build_macos_app(
     bundle: &Path,
     config: &WiniaConfig,
     icons: Option<&crate::icons::IconSet>,
+    executable: &Path,
 ) -> Result<()> {
     if bundle.exists() {
         std::fs::remove_dir_all(bundle)
@@ -397,20 +404,11 @@ fn build_macos_app(
     std::fs::create_dir_all(&resources)
         .with_context(|| format!("creating {}", resources.display()))?;
 
-    let mut executable = None;
-    for entry in std::fs::read_dir(stage)? {
-        let entry = entry?;
-        if entry.file_type()?.is_file() {
-            executable = Some(entry.path());
-            break;
-        }
-    }
-    let executable = executable.ok_or_else(|| anyhow::anyhow!("no executable to bundle"))?;
     let executable_name = executable
         .file_name()
         .ok_or_else(|| anyhow::anyhow!("executable has no file name"))?
         .to_owned();
-    std::fs::copy(&executable, macos.join(&executable_name))?;
+    std::fs::copy(executable, macos.join(&executable_name))?;
     let assets = stage.join("assets");
     if assets.is_dir() {
         copy_dir_all(&assets, &resources.join("assets"))?;

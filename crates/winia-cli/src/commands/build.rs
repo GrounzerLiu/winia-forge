@@ -43,14 +43,24 @@ pub fn run(args: BuildArgs) -> Result<()> {
     let built = build_all(&root, &config, &args)?;
 
     let mut all = Vec::new();
-    for (_, artifacts) in &built {
+    for (target, artifacts) in &built {
         for artifact in artifacts {
             all.push(artifact);
+        }
+        if target != "android" {
+            if let Some(executable) = artifacts.iter().find(|artifact| {
+                artifact.path.extension().and_then(|ext| ext.to_str()) != Some("apk")
+            }) {
+                if let Some(parent) = executable.path.parent() {
+                    crate::assets::stage_desktop(&root, &config, parent)?;
+                }
+            }
         }
     }
     let profile = if args.release { "release" } else { "debug" };
     if let Some(out_dir) = &args.out_dir {
         copy_artifacts(&all, out_dir)?;
+        crate::assets::stage_desktop(&root, &config, out_dir)?;
     }
     report(&root, &built, profile, started.elapsed(), args.json)
 }
