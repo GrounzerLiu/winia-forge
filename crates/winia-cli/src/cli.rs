@@ -32,6 +32,8 @@ pub enum Command {
     Run(RunArgs),
     /// Run in development mode with file watching and automatic restart.
     Dev(DevArgs),
+    /// Inspect a running application through its debug server.
+    Inspect(InspectArgs),
     /// Run unit, UI, and device smoke tests.
     Test(TestArgs),
     /// Package the application for distribution.
@@ -188,6 +190,55 @@ pub struct DevArgs {
     /// Arguments passed through to the application after `--`.
     #[arg(last = true)]
     pub args: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct InspectArgs {
+    /// Debug-server port on the host. Defaults to 9998.
+    #[arg(long, global = true, default_value_t = 9998)]
+    pub port: u16,
+    /// Emit machine-readable output.
+    #[arg(long, global = true)]
+    pub json: bool,
+    #[command(subcommand)]
+    pub command: Option<InspectCommand>,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum InspectCommand {
+    /// Print application identity.
+    Info,
+    /// Print the layout tree.
+    Tree,
+    /// Click at logical coordinates.
+    Click {
+        /// Logical x coordinate.
+        x: f32,
+        /// Logical y coordinate.
+        y: f32,
+    },
+    /// Send a key event, e.g. `key Return`.
+    Key {
+        /// Key names passed to the debug server.
+        keys: Vec<String>,
+    },
+    /// Send a wheel event: `scroll <dy>` or `scroll <dx> <dy>`.
+    Scroll {
+        /// One value for vertical scroll, two for horizontal then vertical.
+        values: Vec<f32>,
+    },
+    /// Capture a frame and save it as PNG.
+    Screenshot {
+        /// Output path. Defaults to inspect-<port>.png.
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+    /// Scan ports and print the applications found.
+    Discover {
+        /// Last port to scan (inclusive). Defaults to start + 100.
+        #[arg(long)]
+        end: Option<u16>,
+    },
 }
 
 #[derive(Debug, Args)]

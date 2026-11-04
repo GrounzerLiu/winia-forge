@@ -13,6 +13,7 @@
 | `winia build` | Build the application | Implemented: host executable and Android APK (NDK driver + Gradle) |
 | `winia run` | Build and run | Implemented: host launch, Android install/start |
 | `winia dev` | Development mode: file watching + restart | Implemented (desktop restart, Android reinstall/restart, automatic debug-server) |
+| `winia inspect` | Debug-server client | Implemented: info, tree, click, key, scroll, screenshot, discover |
 | `winia test` | Unit, UI, and device smoke tests | Planned |
 | `winia package` | Package installers/archives/APK/AAB | Implemented for Android APK/AAB |
 | `winia sign` | Code signing | Implemented for Android APKs |
@@ -304,8 +305,19 @@ winia test --filter scrollbar
 
 ### 4.4 Debugging tools
 
-- `winia inspect`: connect to the debug-server to inspect the layout tree, simulate clicks, and capture
-  screenshots.
+```bash
+winia inspect info
+winia inspect tree
+winia inspect click 120 80
+winia inspect key Return
+winia inspect scroll 120
+winia inspect screenshot --out inspect.png
+winia inspect discover
+```
+
+- `--port <port>` selects the debug server (default 9998); `--json` emits compact output.
+- `discover` scans `--port` through `--port + 100` and prints the app, version, id, and target
+  reported by each debug server.
 - `winia screenshot`: desktop or device screenshots.
 - `winia trace`: enable `anim-trace` and emit per-frame animation traces.
 - Windows UIA verification (later): check the accessibility tree.

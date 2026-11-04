@@ -7,6 +7,7 @@
 pub mod build;
 pub mod dev;
 pub mod doctor;
+pub mod inspect;
 pub mod new;
 pub mod package;
 pub mod release;
@@ -28,6 +29,7 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         Command::Build(args) => build::run(args),
         Command::Run(args) => run::run(args),
         Command::Dev(args) => dev::run(args),
+        Command::Inspect(args) => inspect::run(args),
         Command::Package(args) => package::run(args),
         Command::Release(args) => release::run(args),
         Command::Sign(args) => sign::run(args),
@@ -62,6 +64,7 @@ fn command_name(command: &Command) -> &'static str {
         Command::Build(_) => "build",
         Command::Run(_) => "run",
         Command::Dev(_) => "dev",
+        Command::Inspect(_) => "inspect",
         Command::Test(_) => "test",
         Command::Package(_) => "package",
         Command::Sign(_) => "sign",

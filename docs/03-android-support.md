@@ -209,6 +209,8 @@ winia screenshot --target android --output shot.png
   prints how to remove it. Dev also writes app metadata to
   `files/winia-debug-info.json`; send `info` over the WebSocket to read it.
 - This is a process-level hot restart, not code hot-swapping.
+- Inspect the running app from the host with `winia inspect --port <host-port> info|tree|screenshot|...`;
+  `winia dev --once` keeps the forward so the port stays reachable.
 
 ### 5.3 Logs and symbols
 
