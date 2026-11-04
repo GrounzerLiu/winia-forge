@@ -196,10 +196,10 @@ winia screenshot --target android --output shot.png
 
 ### 5.2 `winia dev`
 
-- Watch `.rs`, `winia.toml`, `assets/`.
-- Recompile the `.so`.
-- Reinstall the APK, force-stop the old process, then start the Activity.
-- Expose the debug-server through `adb reverse tcp:<port> tcp:<port>`.
+- Watch `.rs`, `.toml`, `.java`, `.kt`, `.xml`, and `assets/`.
+- Recompile the device ABI's `.so`, reinstall the APK, force-stop the old process, then start the Activity.
+- Build failures keep the watcher alive and retry on the next edit.
+- Debug-server exposure through `adb reverse tcp:<port> tcp:<port>` is still planned.
 - This is a process-level hot restart, not code hot-swapping.
 
 ### 5.3 Logs and symbols

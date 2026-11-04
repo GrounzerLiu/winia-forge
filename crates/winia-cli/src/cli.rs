@@ -30,7 +30,7 @@ pub enum Command {
     Build(BuildArgs),
     /// Build and run the application.
     Run(RunArgs),
-    /// Run in development mode with file watching and the debug server.
+    /// Run in development mode with file watching and automatic restart.
     Dev(DevArgs),
     /// Run unit, UI, and device smoke tests.
     Test(TestArgs),
@@ -164,6 +164,24 @@ pub struct DevArgs {
     /// Target platform. Defaults to the current host.
     #[arg(long)]
     pub target: Option<String>,
+    /// Android device serial. Defaults to the only connected device.
+    #[arg(long)]
+    pub device: Option<String>,
+    /// Build with the release profile.
+    #[arg(long)]
+    pub release: bool,
+    /// Extra cargo features, comma-separated.
+    #[arg(long, value_delimiter = ',')]
+    pub features: Vec<String>,
+    /// Debounce interval in milliseconds.
+    #[arg(long, default_value_t = 300)]
+    pub debounce: u64,
+    /// Build and run once, then exit.
+    #[arg(long)]
+    pub once: bool,
+    /// Arguments passed through to the application after `--`.
+    #[arg(last = true)]
+    pub args: Vec<String>,
 }
 
 #[derive(Debug, Args)]

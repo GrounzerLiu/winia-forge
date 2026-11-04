@@ -5,6 +5,7 @@
 //! "not implemented yet" message that points at the written contract.
 
 pub mod build;
+pub mod dev;
 pub mod doctor;
 pub mod new;
 pub mod package;
@@ -26,6 +27,7 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         Command::New(args) => new::run(args),
         Command::Build(args) => build::run(args),
         Command::Run(args) => run::run(args),
+        Command::Dev(args) => dev::run(args),
         Command::Package(args) => package::run(args),
         Command::Release(args) => release::run(args),
         Command::Sign(args) => sign::run(args),

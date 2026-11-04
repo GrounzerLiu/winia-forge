@@ -97,14 +97,14 @@ fn run_android(root: &Path, config: &WiniaConfig, args: &RunArgs) -> Result<()> 
     Ok(())
 }
 
-fn artifacts(built: &[(String, Vec<build::Artifact>)]) -> Vec<&build::Artifact> {
+pub(crate) fn artifacts(built: &[(String, Vec<build::Artifact>)]) -> Vec<&build::Artifact> {
     built
         .iter()
         .flat_map(|(_, artifacts)| artifacts.iter())
         .collect()
 }
 
-fn extension(path: &Path) -> Option<&str> {
+pub(crate) fn extension(path: &Path) -> Option<&str> {
     path.extension().and_then(|extension| extension.to_str())
 }
 
@@ -166,7 +166,7 @@ fn output_with_timeout(mut command: Command, timeout: Duration) -> Result<Output
     child.wait_with_output().context("collecting adb output")
 }
 
-fn select_device(requested: Option<&str>) -> Result<String> {
+pub(crate) fn select_device(requested: Option<&str>) -> Result<String> {
     if let Some(device) = requested.filter(|device| !device.is_empty()) {
         let mut command = Command::new(adb_program());
         command.args(["-s", device, "get-state"]);
@@ -210,13 +210,13 @@ fn parse_devices(output: &str) -> Vec<String> {
         .collect()
 }
 
-fn device_abi(device: &str) -> Result<Abi> {
+pub(crate) fn device_abi(device: &str) -> Result<Abi> {
     let output = adb(&["-s", device, "shell", "getprop", "ro.product.cpu.abi"])?;
     let raw = output.lines().next().unwrap_or_default().trim();
     Abi::parse(raw).with_context(|| format!("device {device} reports unsupported ABI '{raw}'"))
 }
 
-fn install(device: &str, apk: &Path) -> Result<()> {
+pub(crate) fn install(device: &str, apk: &Path) -> Result<()> {
     println!("Installing {}", apk.display());
     let mut command = Command::new(adb_program());
     command.args(["-s", device, "install", "-r"]).arg(apk);
@@ -232,7 +232,7 @@ fn install(device: &str, apk: &Path) -> Result<()> {
     Ok(())
 }
 
-fn launch(device: &str, package: &str, component: &str, args: &[String]) -> Result<()> {
+pub(crate) fn launch(device: &str, package: &str, component: &str, args: &[String]) -> Result<()> {
     let mut stop = Command::new(adb_program());
     stop.args(["-s", device, "shell", "am", "force-stop", package]);
     let _ = output_with_timeout(stop, Duration::from_secs(10));
@@ -263,7 +263,7 @@ fn launch(device: &str, package: &str, component: &str, args: &[String]) -> Resu
 
 /// Resolve the launcher activity from the generated manifest, falling back to
 /// the template's `.MainActivity`.
-fn activity_component(root: &Path, package: &str) -> String {
+pub(crate) fn activity_component(root: &Path, package: &str) -> String {
     let manifest = root.join("android/app/src/main/AndroidManifest.xml");
     if let Ok(text) = std::fs::read_to_string(&manifest) {
         if let Some(name) = first_activity_name(&text) {

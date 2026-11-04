@@ -12,7 +12,7 @@
 | `winia init` | Add Winia to an existing Rust project | Planned |
 | `winia build` | Build the application | Implemented: host executable and Android APK (NDK driver + Gradle) |
 | `winia run` | Build and run | Implemented: host launch, Android install/start |
-| `winia dev` | Development mode: file watching + debug server | Planned |
+| `winia dev` | Development mode: file watching + restart | Implemented (desktop restart, Android reinstall/restart; debug-server pending) |
 | `winia test` | Unit, UI, and device smoke tests | Planned |
 | `winia package` | Package installers/archives/APK/AAB | Implemented for Android APK/AAB |
 | `winia sign` | Code signing | Implemented for Android APKs |
@@ -266,13 +266,14 @@ winia test --filter scrollbar
 
 ### 4.2 `winia dev`
 
-- File watching: `.rs`, `winia.toml`, `assets/`.
-- Desktop: process-level restart.
-- Android: recompile the `.so`, reinstall the APK, restart the Activity.
-- Starts the debug-server automatically and opens the `winia inspect` WebSocket connection.
-- Android runs `adb reverse` automatically.
+- File watching: `.rs`, `.toml`, `.java`, `.kt`, `.xml`, and `assets/`, recursively. `target/`,
+  `dist/`, `.git/`, and Android build directories are ignored.
+- Desktop: rebuild and restart the process.
+- Android: recompile the device ABI, reinstall the APK, force-stop, and restart the Activity.
+- Build failures keep the watcher alive; the next edit retries.
+- `--debounce <ms>` sets event coalescing (default 300); `--once` builds and runs once.
 - Note: Rust has no code hot-swapping; a "hot restart" is a process-level restart, not Flutter-style hot
-  reload.
+  reload. Debug-server startup and `adb reverse` are not implemented yet.
 
 ### 4.3 `winia test`
 
