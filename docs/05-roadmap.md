@@ -122,12 +122,9 @@ Acceptance:
 
 ## 8. Next steps
 
-An **Android P0 spike** is the recommended next step:
+The Android P0 spike has passed: GameActivity IME input, the lifecycle fixes, and a device-verified
+APK build are recorded in [06-android-ime-and-apk.md](06-android-ime-and-apk.md).
 
-1. Build a minimal example in `D:\Projects\winia` using winit's `android-game-activity` feature.
-2. Manually produce an APK with `cargo ndk` + Gradle.
-3. Verify window, GL/softbuffer, and touch on an emulator/device.
-4. Write the results back into this roadmap and `03-android-support.md`.
-
-The CLI's Android features should wait until the P0 validation passes; otherwise the platform-layer
-uncertainty leaks into the toolchain.
+The consolidated follow-up backlog — doctor correctness, the built-in NDK driver, the Android
+template, the ABI model, and the documentation updates — lives in
+[07-improvement-plan.md](07-improvement-plan.md).

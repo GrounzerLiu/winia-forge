@@ -36,7 +36,8 @@ winia-forge/
     ├── 03-android-support.md
     ├── 04-architecture.md
     ├── 05-roadmap.md
-    └── 06-android-ime-and-apk.md
+    ├── 06-android-ime-and-apk.md
+    └── 07-improvement-plan.md
 ```
 
 ## Documentation
@@ -49,6 +50,7 @@ winia-forge/
 | [04-architecture.md](docs/04-architecture.md) | Crate layout, implementation conventions, extension points |
 | [05-roadmap.md](docs/05-roadmap.md) | P0–P4 roadmap and acceptance criteria |
 | [06-android-ime-and-apk.md](docs/06-android-ime-and-apk.md) | GameActivity IME requirements, APK build pitfalls, verification checklist |
+| [07-improvement-plan.md](docs/07-improvement-plan.md) | Prioritised follow-up plan: doctor, Android toolchain, ABI model, config boundary, docs |
 
 ## Current implementation
 
