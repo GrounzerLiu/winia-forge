@@ -201,8 +201,9 @@ winia screenshot --target android --output shot.png
 - Build first, then recompile the device ABI's `.so`, reinstall the APK, force-stop the old process,
   and start the Activity. A failed build leaves the previous app running.
 - Build failures keep the watcher alive and retry on the next edit.
-- Debug builds enable `winia/debug-server`, use port 9998, and run
-  `adb forward tcp:9998 tcp:9998` so `ws://127.0.0.1:9998` reaches the app. The debug manifest
+- Debug builds enable `winia/debug-server`. Winia scans device ports from 9998; dev picks a free
+  host port, reads the device port from logcat, and runs `adb forward tcp:<host> tcp:<device>` so
+  `ws://127.0.0.1:<host>` reaches the app. The debug manifest
   (`android/app/src/debug/AndroidManifest.xml`) needs `android.permission.INTERNET`; the blank
   template includes it and existing projects must add it. `--once` keeps the forward after exit and
   prints how to remove it.

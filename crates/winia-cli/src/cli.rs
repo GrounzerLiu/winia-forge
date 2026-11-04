@@ -179,7 +179,7 @@ pub struct DevArgs {
     /// Disable the automatic debug-server feature and port setup.
     #[arg(long)]
     pub no_debug_server: bool,
-    /// Debug-server port on desktop. Android always uses 9998.
+    /// Debug-server starting port; Android uses it as the host-side forward port.
     #[arg(long)]
     pub debug_port: Option<u16>,
     /// Build and run once, then exit (desktop waits for the app to close).

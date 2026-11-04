@@ -59,17 +59,13 @@ pub fn run(args: DevArgs) -> Result<()> {
         );
     }
     let debug_port = if debug_enabled {
+        if args.debug_port == Some(0) {
+            bail!("--debug-port must be between 1 and 65535");
+        }
         if target == "android" {
-            if let Some(port) = args.debug_port {
-                if port != 9998 {
-                    bail!(
-                        "the Android debug server port is fixed at 9998; the app cannot receive WINIA_DEBUG_PORT"
-                    );
-                }
-            }
-            9998
-        } else {
             choose_debug_port(args.debug_port)?
+        } else {
+            args.debug_port.unwrap_or(9998)
         }
     } else {
         0
@@ -104,6 +100,7 @@ pub fn run(args: DevArgs) -> Result<()> {
         target,
         debug_enabled,
         debug_port,
+        debug_actual_port: debug_port,
         session,
     };
 
@@ -137,6 +134,7 @@ struct Dev {
     target: String,
     debug_enabled: bool,
     debug_port: u16,
+    debug_actual_port: u16,
     session: Session,
 }
 
@@ -182,17 +180,32 @@ impl Dev {
                 if let Some(previous) = executable.take() {
                     let _ = std::fs::remove_file(previous);
                 }
+                let port_file = debug_port_file(&self.root);
+                if self.debug_enabled {
+                    if let Some(parent) = port_file.parent() {
+                        std::fs::create_dir_all(parent)
+                            .with_context(|| format!("creating {}", parent.display()))?;
+                    }
+                    let _ = std::fs::remove_file(&port_file);
+                }
                 println!("Running {}", prepared.display());
                 let mut command = Command::new(&prepared);
                 command.args(&self.args.args).current_dir(&self.root);
                 if self.debug_enabled {
-                    command.env("WINIA_DEBUG_PORT", self.debug_port.to_string());
+                    command
+                        .env("WINIA_DEBUG_PORT", self.debug_port.to_string())
+                        .env("WINIA_DEBUG_PORT_FILE", &port_file);
                 }
                 let spawned = command
                     .spawn()
                     .with_context(|| format!("running {}", prepared.display()))?;
                 println!("Application started (pid {})", spawned.id());
                 *child = Some(spawned);
+                if self.debug_enabled {
+                    self.debug_actual_port =
+                        wait_for_debug_port_file(&port_file, Duration::from_secs(10))
+                            .unwrap_or(self.debug_port);
+                }
                 if cfg!(windows) {
                     *executable = Some(prepared);
                 }
@@ -204,7 +217,7 @@ impl Dev {
                     .ok_or_else(|| anyhow::anyhow!("the build produced no APK"))?;
                 run::install(device, &apk.path)?;
                 if self.debug_enabled {
-                    run::adb_forward(device, self.debug_port)?;
+                    run::clear_logcat(device);
                 }
                 let package = if self.config.android.package.is_empty() {
                     self.config.app.id.clone()
@@ -213,6 +226,19 @@ impl Dev {
                 };
                 let component = run::activity_component(&self.root, &package);
                 run::launch(device, &package, &component, &self.args.args)?;
+                if self.debug_enabled {
+                    let device_port = match discover_android_debug_port(device) {
+                        Some(port) => port,
+                        None => {
+                            eprintln!(
+                                "warning: could not discover the Android debug port; assuming 9998"
+                            );
+                            9998
+                        }
+                    };
+                    run::adb_forward(device, self.debug_port, device_port)?;
+                    self.debug_actual_port = self.debug_port;
+                }
             }
         }
         if self.debug_enabled {
@@ -224,15 +250,18 @@ impl Dev {
     fn wait_for_debug_server(&self) {
         let deadline = Instant::now() + Duration::from_secs(15);
         while Instant::now() < deadline {
-            if websocket_handshake_ok(self.debug_port) {
-                println!("Debug server ready at ws://127.0.0.1:{}", self.debug_port);
+            if websocket_handshake_ok(self.debug_actual_port) {
+                println!(
+                    "Debug server ready at ws://127.0.0.1:{}",
+                    self.debug_actual_port
+                );
                 return;
             }
             std::thread::sleep(Duration::from_millis(200));
         }
         eprintln!(
             "warning: debug server did not become ready on port {}",
-            self.debug_port
+            self.debug_actual_port
         );
     }
 
@@ -383,6 +412,7 @@ impl Dev {
     }
 
     fn stop_desktop(&mut self) {
+        let _ = std::fs::remove_file(debug_port_file(&self.root));
         if let Session::Desktop { child, executable } = &mut self.session {
             if let Some(mut current) = child.take() {
                 stop_child(&mut current);
@@ -456,21 +486,61 @@ fn websocket_handshake_ok(port: u16) -> bool {
 }
 
 fn choose_debug_port(requested: Option<u16>) -> Result<u16> {
-    if let Some(port) = requested {
-        if port == 0 {
-            bail!("--debug-port must be between 1 and 65535");
-        }
-        return match TcpListener::bind(("127.0.0.1", port)) {
-            Ok(_) => Ok(port),
-            Err(error) => bail!("debug port {port} is not available: {error}"),
-        };
+    let start = requested.unwrap_or(9998);
+    if start == 0 {
+        bail!("--debug-port must be between 1 and 65535");
     }
-    for port in 9998..=10098 {
+    for offset in 0..=100u16 {
+        let port = start.saturating_add(offset);
+        if port == 0 {
+            continue;
+        }
         if TcpListener::bind(("127.0.0.1", port)).is_ok() {
             return Ok(port);
         }
     }
-    bail!("no free debug port between 9998 and 10098")
+    bail!(
+        "no free debug port in {}..={}",
+        start,
+        start.saturating_add(100)
+    )
+}
+
+fn debug_port_file(root: &Path) -> PathBuf {
+    root.join("target")
+        .join("winia-dev")
+        .join(format!("debug-port-{}.txt", std::process::id()))
+}
+
+fn wait_for_debug_port_file(path: &Path, timeout: Duration) -> Option<u16> {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if let Ok(text) = std::fs::read_to_string(path) {
+            if let Ok(port) = text.trim().parse::<u16>() {
+                if port > 0 {
+                    return Some(port);
+                }
+            }
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    None
+}
+
+fn discover_android_debug_port(device: &str) -> Option<u16> {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < deadline {
+        match run::debug_server_port(device) {
+            Ok(Some(port)) => return Some(port),
+            Ok(None) => {}
+            Err(error) => {
+                eprintln!("watch error: {error}");
+                return None;
+            }
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    None
 }
 
 fn prepare_executable(root: &Path, artifact: &Path) -> Result<PathBuf> {

@@ -277,10 +277,13 @@ winia test --filter scrollbar
 - Build failures keep the watcher alive; the next edit retries.
 - `--debounce <ms>` sets event coalescing (default 300); `--once` builds and runs once, waiting for a
   desktop app to close.
-- Debug builds automatically enable the `winia/debug-server` feature, pick a free port starting at 9998
-  (or use `--debug-port`), set `WINIA_DEBUG_PORT`, wait for the WebSocket handshake, and print
-  `ws://127.0.0.1:<port>`. `--no-debug-server` opts out; release builds disable it automatically.
-- Android uses port 9998 and forwards it with `adb forward tcp:9998 tcp:9998`. The debug manifest
+- Debug builds automatically enable the `winia/debug-server` feature. `--debug-port` is the starting
+  port (default 9998); Winia scans up to +100 on a conflict and writes the actual desktop port to
+  `target/winia-dev/debug-port-<pid>.txt`. Dev reads that file, waits for the WebSocket handshake, and
+  prints `ws://127.0.0.1:<actual>`. `--no-debug-server` opts out; release builds disable it automatically.
+- Android: Winia scans device ports from 9998. Dev picks a free host port (starting from `--debug-port`
+  or 9998), reads the device port from the `RustStdoutStderr` logcat line, forwards
+  `tcp:<host> tcp:<device>`, and prints the host URL. The debug manifest
   (`android/app/src/debug/AndroidManifest.xml`) needs `android.permission.INTERNET`; the blank
   template includes it and existing projects must add it. With `--once`, the forward is kept so the
   debug server remains reachable after the command returns; the command prints the removal command.

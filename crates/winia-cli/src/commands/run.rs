@@ -232,8 +232,9 @@ pub(crate) fn install(device: &str, apk: &Path) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn adb_forward(device: &str, port: u16) -> Result<()> {
-    let mapping = format!("tcp:{port}");
+pub(crate) fn adb_forward(device: &str, host_port: u16, device_port: u16) -> Result<()> {
+    let host_mapping = format!("tcp:{host_port}");
+    let device_mapping = format!("tcp:{device_port}");
     let list = Command::new(adb_program())
         .args(["-s", device, "forward", "--list"])
         .output()
@@ -241,22 +242,25 @@ pub(crate) fn adb_forward(device: &str, port: u16) -> Result<()> {
     let listing = String::from_utf8_lossy(&list.stdout);
     if listing.lines().any(|line| {
         let fields: Vec<&str> = line.split_whitespace().collect();
-        fields.len() >= 3 && fields[0] == device && fields[1] == mapping && fields[2] == mapping
+        fields.len() >= 3
+            && fields[0] == device
+            && fields[1] == host_mapping
+            && fields[2] == device_mapping
     }) {
         return Ok(());
     }
-    if listing
-        .lines()
-        .any(|line| line.split_whitespace().any(|field| field == mapping))
-    {
-        bail!("adb forward {mapping} is already used by another device; remove it first");
+    if listing.lines().any(|line| {
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        fields.len() >= 2 && fields[1] == host_mapping
+    }) {
+        bail!("adb forward {host_mapping} is already used by another mapping; remove it first");
     }
 
     let _ = Command::new(adb_program())
-        .args(["-s", device, "forward", "--remove", &mapping])
+        .args(["-s", device, "forward", "--remove", &host_mapping])
         .output();
     let output = Command::new(adb_program())
-        .args(["-s", device, "forward", &mapping, &mapping])
+        .args(["-s", device, "forward", &host_mapping, &device_mapping])
         .output()
         .context("running adb forward")?;
     if !output.status.success() {
@@ -268,8 +272,8 @@ pub(crate) fn adb_forward(device: &str, port: u16) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn adb_remove_forward(device: &str, port: u16) -> Result<()> {
-    let mapping = format!("tcp:{port}");
+pub(crate) fn adb_remove_forward(device: &str, host_port: u16) -> Result<()> {
+    let mapping = format!("tcp:{host_port}");
     let output = Command::new(adb_program())
         .args(["-s", device, "forward", "--remove", &mapping])
         .output()
@@ -281,6 +285,37 @@ pub(crate) fn adb_remove_forward(device: &str, port: u16) -> Result<()> {
         }
     }
     Ok(())
+}
+
+pub(crate) fn clear_logcat(device: &str) {
+    let _ = Command::new(adb_program())
+        .args(["-s", device, "logcat", "-c"])
+        .output();
+}
+
+pub(crate) fn debug_server_port(device: &str) -> Result<Option<u16>> {
+    let output = Command::new(adb_program())
+        .args(["-s", device, "logcat", "-d", "-s", "RustStdoutStderr:I"])
+        .output()
+        .context("running adb logcat")?;
+    if !output.status.success() {
+        return Ok(None);
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    for line in text.lines().rev() {
+        if let Some(index) = line.find("localhost:") {
+            let digits: String = line[index + "localhost:".len()..]
+                .chars()
+                .take_while(|character| character.is_ascii_digit())
+                .collect();
+            if let Ok(port) = digits.parse::<u16>() {
+                if port > 0 {
+                    return Ok(Some(port));
+                }
+            }
+        }
+    }
+    Ok(None)
 }
 
 pub(crate) fn launch(device: &str, package: &str, component: &str, args: &[String]) -> Result<()> {
