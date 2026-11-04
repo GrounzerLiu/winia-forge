@@ -127,8 +127,8 @@ The following combination was verified on a Windows host and an Android 15/16 de
 
 | Component | Working version |
 | --- | --- |
-| Gradle | 8.14.5 |
-| Android Gradle Plugin | 8.13.2 |
+| Gradle | 9.5.0 |
+| Android Gradle Plugin | 9.3.2 |
 | JDK | 21 |
 | Kotlin (transitive) | 1.8.22 |
 | compileSdk / targetSdk | 36 / 36 |
@@ -139,6 +139,11 @@ The following combination was verified on a Windows host and an Android 15/16 de
 | androidx.games | 4.4.0 |
 | androidx.appcompat | 1.7.0 |
 | androidx.core | 1.15.0 |
+
+The AGP 9.3.2/Gradle 9.5.0 combination was verified with a clean GRADLE_USER_HOME. An existing
+Gradle cache that has recorded failed AGP resolutions can keep reporting missing tools 32.3.2
+artifacts even when the repository serves them. Clear the failed metadata or use a fresh Gradle
+user home in that case; a local Maven proxy is not a normal project requirement.
 
 androidx.games:games-activity is pinned to 4.4.0 because android-activity 0.6.1 documents
 support for that version. 4.4.2 was not A/B verified for the InputConnection path in this workspace;
@@ -267,7 +272,7 @@ include(":app")
 
 ~~~kotlin
 plugins {
-    id("com.android.application") version "8.13.2" apply false
+    id("com.android.application") version "9.3.2" apply false
 }
 ~~~
 
@@ -275,10 +280,10 @@ If Gradle reports missing AGP artifacts, verify that the exact AGP version is av
 configured repositories, clear the failed Gradle metadata cache, and retry. Do not silently downgrade
 AGP just to make a stale cache disappear.
 
-AGP 9 is a separate migration, not a drop-in version bump. AGP 9.0 requires Gradle 9.1.0 or newer,
-JDK 17 or newer, Kotlin Gradle plugin 2.2.10 or newer, and Build Tools 36.0.0. The baseline in this
-document uses Gradle 8.14.5 and AGP 8.13.2; upgrading to AGP 9 requires bumping the wrapper and
-repeating the full build and device tests.
+AGP 9.3 requires Gradle 9.5.0, JDK 17 or newer, and Build Tools 36.0.0. The baseline in this
+document uses that combination and was built and launched on a device. AGP 9 is still a major
+migration: if a project uses the old variant APIs or custom Gradle plugins, those must be migrated
+to the new DSL/androidComponents APIs before the upgrade.
 
 ### 7.3 app/build.gradle.kts
 
