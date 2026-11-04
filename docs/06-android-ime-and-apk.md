@@ -275,6 +275,11 @@ If Gradle reports missing AGP artifacts, verify that the exact AGP version is av
 configured repositories, clear the failed Gradle metadata cache, and retry. Do not silently downgrade
 AGP just to make a stale cache disappear.
 
+AGP 9 is a separate migration, not a drop-in version bump. AGP 9.0 requires Gradle 9.1.0 or newer,
+JDK 17 or newer, Kotlin Gradle plugin 2.2.10 or newer, and Build Tools 36.0.0. The baseline in this
+document uses Gradle 8.14.5 and AGP 8.13.2; upgrading to AGP 9 requires bumping the wrapper and
+repeating the full build and device tests.
+
 ### 7.3 app/build.gradle.kts
 
 ~~~kotlin
