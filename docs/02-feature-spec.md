@@ -19,7 +19,7 @@
 | `winia sign` | Code signing | Implemented: Android APKs (apksigner), Windows Authenticode (signtool), macOS codesign |
 | `winia release` | Version, tag, publish | Implemented for Android and desktop targets (local artifacts + GitHub upload) |
 | `winia doctor` | Environment diagnostics | Implemented (Rust/MSRV, platform toolchains, Android SDK/NDK, `--fix`) |
-| `winia add` / `remove` / `update` | Dependency management | Planned |
+| `winia add` / `remove` / `update` | Dependency management | Implemented: delegate to cargo in the project root |
 | `winia assets` | Icon and asset generation | Implemented: icon sets from PNG/SVG; automatic via `app.icon` |
 | `winia ci` | Generate CI configuration | Implemented: `ci init` for GitHub Actions and GitLab CI |
 | `winia upgrade` | Framework upgrade and code migration | Planned |
@@ -115,6 +115,20 @@ Implemented: `winia init` never rewrites the user's sources.
 - Refuses to run twice (`winia.toml` already present) or when `Cargo.toml` is missing, and
   rejects a `--winia-path` that points at a workspace manifest instead of the crate.
 - `ios` is rejected explicitly.
+
+### 1.5 Dependencies
+
+```bash
+winia add serde --features derive
+winia add proptest --dev
+winia remove serde
+winia update --check
+```
+
+Implemented: these commands resolve the project root through `winia.toml` and then run
+`cargo add` / `cargo remove` / `cargo update` there (with `--dry-run` for `update --check`).
+Cargo owns resolution, the lockfile and feature unification, so the wrapper only keeps the working
+directory and flags consistent; the output is cargo's own.
 
 ### 1.4 Adopting an existing project
 

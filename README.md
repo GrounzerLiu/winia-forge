@@ -73,6 +73,7 @@ Implemented:
 - `winia test`: run host cargo tests and an Android install/launch/logcat/screenshot smoke test
 - `winia clean`: remove `target/`, `dist/`, and Android build outputs, with `--dry-run`/`--all`
 - `winia ci init`: write a ready-to-run GitHub Actions or GitLab CI workflow for the project
+- `winia add` / `remove` / `update`: dependency changes through cargo, resolved from the project root
 - `winia android sync`: regenerate the Gradle build files Winia owns (`--check`/`--force`)
 - `winia init`: add the Winia dependency and configuration to an existing Cargo project, with optional Android scaffolding
 - `winia assets icon`: generate Windows ICO, macOS ICNS, Linux hicolor, Android mipmap/adaptive, and store icons from one PNG/SVG; Windows executables embed the ICO via `build.rs`

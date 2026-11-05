@@ -9,6 +9,7 @@ pub mod assets;
 pub mod build;
 pub mod ci;
 pub mod clean;
+pub mod dependencies;
 pub mod dev;
 pub mod devices;
 pub mod doctor;
@@ -46,6 +47,9 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         Command::Sign(args) => sign::run(args),
         Command::Test(args) => test::run(args),
         Command::Doctor(args) => doctor::run(args),
+        Command::Add(args) => dependencies::add(args),
+        Command::Remove(args) => dependencies::remove(args),
+        Command::Update(args) => dependencies::update(args),
         Command::Clean(args) => clean::run(args),
         Command::Info(args) => info(args),
         Command::Targets(args) => targets(args),

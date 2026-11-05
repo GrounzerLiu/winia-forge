@@ -30,6 +30,7 @@ Remaining:
 
 - [ ] Real templates (counter, multi-window, navigation, dashboard).
 - [x] `winia init`: add Winia to an existing Cargo project.
+- [x] `winia add` / `remove` / `update`: delegate to cargo from the project root.
 - [ ] A unified `--json` / `--dry-run` output layer.
 - [ ] Snapshot tests for command help.
 
