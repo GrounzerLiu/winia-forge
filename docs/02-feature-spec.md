@@ -260,6 +260,22 @@ packaging. They are kept in the schema so projects can declare intent without br
 
 ## 3. Building
 
+### 3.0 Renderer backends
+
+The renderer is not a `winia.toml` setting; it is a cargo feature of the `winia` dependency.
+
+- The template pins one backend per target to keep builds small: desktop `features = ["gl"]`,
+  Android `features = ["android-…", "vulkan"]`. Android cannot use GL: no Skia prebuilt exists for
+  that combination, so it would compile Skia from source.
+- Add the other desktop backend without editing the manifest: `winia build --features winia/vulkan`
+  (cargo features are additive).
+- Pin a single backend: edit the desktop dependency's `features` list in `Cargo.toml`. A rebuild
+  follows, because the backend is compiled in.
+- At runtime `WINIA_RENDER_BACKEND=vulkan|gl|cpu` selects among the compiled backends; the auto
+  order is vulkan → gl → cpu. A backend that was not compiled in cannot be selected.
+- Skia itself is fixed: on Windows the prebuilt archive is compiled with d3d/gl/vulkan, on Android
+  with vulkan, so `skiwin` is the only layer a project can choose.
+
 ### 3.1 Basic commands
 
 ```bash
