@@ -114,11 +114,13 @@ const ANDROID_FILES: &[TemplateFile] = &[
         template: ANDROID_DEBUG_MANIFEST,
         destination: "android/app/src/debug/AndroidManifest.xml",
     },
-    TemplateFile {
-        template: ANDROID_ACTIVITY,
-        destination: "android/app/src/main/java/__PACKAGE_PATH__/MainActivity.java",
-    },
 ];
+
+/// GameActivity needs a Java subclass; NativeActivity is the platform class and needs no source.
+const ANDROID_GAME_ACTIVITY: TemplateFile = TemplateFile {
+    template: ANDROID_ACTIVITY,
+    destination: "android/app/src/main/java/__PACKAGE_PATH__/MainActivity.java",
+};
 
 /// Build configuration owned by 'winia android sync'. Application code (manifest, activity,
 /// resources) is deliberately not in this list: those files belong to the project.
@@ -193,6 +195,13 @@ pub fn run(args: NewArgs) -> Result<()> {
         ("__VERSION__", VERSION),
         ("__WINIA_DEP_ANDROID__", winia_android.as_str()),
         ("__WINIA_DEP_DESKTOP__", winia_desktop.as_str()),
+        // 'winia new' always writes the default GameActivity project; switching is an explicit
+        // 'winia android init --force' after editing winia.toml.
+        ("__MAIN_ACTIVITY__", ".MainActivity"),
+        (
+            "__ANDROID_BACKEND__",
+            android_feature(crate::config::AndroidActivity::Game),
+        ),
     ];
 
     std::fs::create_dir_all(root.join("src"))?;
@@ -211,8 +220,8 @@ pub fn run(args: NewArgs) -> Result<()> {
     config.save(&root.join("winia.toml"))?;
 
     if platforms.contains(&Platform::Android) {
-        for file in ANDROID_FILES {
-            write_rendered(&root, file, &vars)?;
+        for file in android_files(config.android.activity) {
+            write_rendered(&root, &file, &vars)?;
         }
         write_bytes(&root, "android/gradlew", ANDROID_GRADLEW)?;
         #[cfg(unix)]
@@ -337,8 +346,26 @@ fn make_executable(path: &Path) -> Result<()> {
 }
 
 /// The Android project files the blank template installs, for 'winia init' to reuse.
-pub(crate) fn android_files() -> &'static [TemplateFile] {
-    ANDROID_FILES
+pub(crate) fn android_files(activity: crate::config::AndroidActivity) -> Vec<TemplateFile> {
+    let mut files: Vec<TemplateFile> = ANDROID_FILES
+        .iter()
+        .map(|file| TemplateFile {
+            template: file.template,
+            destination: file.destination,
+        })
+        .collect();
+    if activity == crate::config::AndroidActivity::Game {
+        files.push(ANDROID_GAME_ACTIVITY);
+    }
+    files
+}
+
+/// winia feature that selects the Android backend.
+pub(crate) fn android_feature(activity: crate::config::AndroidActivity) -> &'static str {
+    match activity {
+        crate::config::AndroidActivity::Game => "android-game-activity",
+        crate::config::AndroidActivity::Native => "android-native-activity",
+    }
 }
 
 /// Write the Gradle wrapper binaries and the jniLibs directories.
@@ -369,6 +396,30 @@ fn write_bytes(root: &Path, destination: &str, bytes: &[u8]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn android_files_follow_the_activity_choice() {
+        let game = android_files(crate::config::AndroidActivity::Game);
+        let native = android_files(crate::config::AndroidActivity::Native);
+        assert!(
+            game.iter()
+                .any(|file| file.destination.ends_with("MainActivity.java"))
+        );
+        assert!(
+            !native
+                .iter()
+                .any(|file| file.destination.ends_with("MainActivity.java"))
+        );
+        assert_eq!(game.len(), native.len() + 1);
+        assert_eq!(
+            android_feature(crate::config::AndroidActivity::Native),
+            "android-native-activity"
+        );
+        assert_eq!(
+            android_feature(crate::config::AndroidActivity::Game),
+            "android-game-activity"
+        );
+    }
 
     #[test]
     fn package_name_normalises_spaces_and_rejects_non_ascii() {

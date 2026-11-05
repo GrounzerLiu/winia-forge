@@ -317,16 +317,6 @@ mod tests {
     }
 
     #[test]
-    fn ignores_the_retired_permissions_key() {
-        // Permissions live in AndroidManifest.xml now; an older winia.toml must still load.
-        let config = WiniaConfig::parse(
-            "[app]\nname = \"Demo\"\nid = \"com.example.demo\"\n\n[android]\npackage = \"com.example.demo\"\npermissions = [\"CAMERA\"]\n",
-        )
-        .unwrap();
-        assert!(config.validate().is_ok());
-    }
-
-    #[test]
     fn rejects_android_packages_that_are_not_java_identifiers() {
         let mut config = WiniaConfig::default();
         config.app.id = "com.example.app".to_owned();

@@ -245,6 +245,7 @@ Applied by the Android build (passed to Gradle as `-P` properties, read by the g
 | `android.target_sdk` | `winiaTargetSdk` | `targetSdkVersion` |
 | `android.compile_sdk` | `winiaCompileSdk` | `compileSdk` |
 | `android.label` (falls back to `app.name`) | `winiaAppLabel` | `app_name` string resource behind `android:label="@string/app_name"` |
+| `android.activity` | scaffold-time choice | `game` generates a `MainActivity extends GameActivity` subclass; `native` declares `android.app.NativeActivity` and ships no Java source. Switching requires `winia android init --force`, which also flips the `winia`/`winia-winit` backend feature |
 | `android.permissions` | removed from the schema | Declare `<uses-permission>` in `AndroidManifest.xml`; the template ships `INTERNET` |
 
 `android.label` reaches the manifest through a generated string resource, so projects created
@@ -257,7 +258,6 @@ packaging. They are kept in the schema so projects can declare intent without br
 | --- | --- |
 | `[window]` title/width/height/resizable/decorations | The template app creates its window through `winia::run_app!` and never reads `winia.toml` |
 | `android.orientation` | The manifest omits `screenOrientation` |
-| `android.activity` | The template is always GameActivity |
 | `build.backend` | The backend comes from the `winia` dependency's features |
 | `app.authors`, `app.license` | Not used in any package metadata yet |
 

@@ -248,27 +248,8 @@ fn collect_checks(target: Option<Target>, android_required: bool) -> Vec<Check> 
     if let Some(check) = winia_dependency_check() {
         checks.push(check);
     }
-    if let Some(check) = retired_permissions_check() {
-        checks.push(check);
-    }
     checks.push(config_check());
     checks
-}
-
-/// Warn when winia.toml still carries the retired `[android].permissions` key: the CLI no longer
-/// applies it, so the manifest is the only place that decides permissions.
-fn retired_permissions_check() -> Option<Check> {
-    let cwd = std::env::current_dir().ok()?;
-    let config_path = crate::config::find_config(&cwd)?;
-    let text = std::fs::read_to_string(&config_path).ok()?;
-    let value: toml::Value = text.parse().ok()?;
-    value.get("android")?.get("permissions")?;
-    Some(Check {
-        name: "android permissions",
-        status: Status::Warning,
-        detail: "declared in winia.toml but no longer applied; use <uses-permission> in AndroidManifest.xml".to_owned(),
-        required: false,
-    })
 }
 
 /// Report how the project declares its winia dependency. Only runs inside a Winia project.

@@ -37,7 +37,7 @@ pub(crate) fn android_init(force: bool) -> Result<()> {
         config.android.package = config.app.id.replace('-', "_");
         config.save(&config_path)?;
     }
-    crate::commands::init::ensure_android_cargo(&root, None)?;
+    crate::commands::init::ensure_android_cargo(&root, None, config.android.activity, force)?;
     crate::commands::init::scaffold_android(&root, &config)?;
     println!("Next:");
     println!("  winia doctor --target android");

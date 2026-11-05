@@ -6,7 +6,7 @@
 
 use crate::cli::{InitArgs, Platform};
 use crate::commands::new;
-use crate::config::WiniaConfig;
+use crate::config::{AndroidActivity, WiniaConfig};
 use anyhow::{Context, Result, bail};
 use std::path::{Path, PathBuf};
 use toml_edit::{Array, DocumentMut, Item, Table};
@@ -138,14 +138,29 @@ pub(crate) fn scaffold_android(root: &Path, config: &WiniaConfig) -> Result<()> 
         ("__APP_ID__", app_id.as_str()),
         ("__PACKAGE_PATH__", package_path.as_str()),
         ("__VERSION__", config.app.version.as_str()),
+        (
+            "__MAIN_ACTIVITY__",
+            match config.android.activity {
+                AndroidActivity::Game => ".MainActivity",
+                AndroidActivity::Native => "android.app.NativeActivity",
+            },
+        ),
     ];
     if !root.join("src/lib.rs").is_file() {
         std::fs::write(root.join("src/lib.rs"), ANDROID_ENTRY)
             .with_context(|| format!("writing {}", root.join("src/lib.rs").display()))?;
         println!("Wrote src/lib.rs (android_main entry point)");
     }
-    for file in new::android_files() {
-        new::write_rendered(root, file, &vars)?;
+    for file in new::android_files(config.android.activity) {
+        new::write_rendered(root, &file, &vars)?;
+    }
+    if config.android.activity == AndroidActivity::Native {
+        // Switching back to NativeActivity leaves the GameActivity subclass behind.
+        let stale = root
+            .join("android/app/src/main/java")
+            .join(&package_path)
+            .join("MainActivity.java");
+        let _ = std::fs::remove_file(stale);
     }
     new::write_android_binaries(root)?;
     println!("Wrote android/ Gradle project");
@@ -154,7 +169,12 @@ pub(crate) fn scaffold_android(root: &Path, config: &WiniaConfig) -> Result<()> 
 
 /// Add the Android dependency and the cdylib crate type to Cargo.toml, leaving an existing entry
 /// alone so a hand-written dependency spec survives.
-pub(crate) fn ensure_android_cargo(root: &Path, winia_path: Option<PathBuf>) -> Result<()> {
+pub(crate) fn ensure_android_cargo(
+    root: &Path,
+    winia_path: Option<PathBuf>,
+    activity: AndroidActivity,
+    replace: bool,
+) -> Result<()> {
     let path = root.join("Cargo.toml");
     let text =
         std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
@@ -168,13 +188,65 @@ pub(crate) fn ensure_android_cargo(root: &Path, winia_path: Option<PathBuf>) -> 
         .and_then(|target| target.get("dependencies"))
         .and_then(|dependencies| dependencies.get("winia"))
         .is_some();
-    if !present {
-        let spec = new::winia_dependency(winia_path, &["android-game-activity", "vulkan"])?;
+    let backend = new::android_feature(activity);
+    let features = [backend, "vulkan"];
+    if present && replace {
+        // Keep the existing path/version; only the backend feature changes.
+        set_dependency_features(&mut doc, cfg, "winia", &features, true)?;
+        // The direct winia-winit dependency must use the same backend, but keep its own
+        // default-features setting: winia decides those, not this rewrite.
+        let _ = set_dependency_features(&mut doc, cfg, "winit", &[backend], false);
+    } else if !present {
+        let spec = new::winia_dependency(winia_path, &features)?;
         set_target_dependency(&mut doc, cfg, &spec)?;
     }
     ensure_crate_types(&mut doc)?;
     std::fs::write(&path, doc.to_string())
         .with_context(|| format!("writing {}", path.display()))?;
+    Ok(())
+}
+
+/// Replace the feature list of an existing winia dependency, leaving its path or version alone.
+fn set_dependency_features(
+    doc: &mut DocumentMut,
+    filter: &str,
+    name: &str,
+    features: &[&str],
+    default_features_off: bool,
+) -> Result<()> {
+    use toml_edit::{Array, Item, Value};
+    let dependency = doc["target"][filter]["dependencies"]
+        .get_mut(name)
+        .ok_or_else(|| anyhow::anyhow!("{name} dependency disappeared while rewriting it"))?;
+    let array: Array = features
+        .iter()
+        .map(|feature| Value::from(*feature))
+        .collect();
+    match dependency {
+        Item::Value(Value::InlineTable(table)) => {
+            table.insert("features", Value::Array(array));
+            if default_features_off {
+                table.insert("default-features", Value::from(false));
+            }
+        }
+        Item::Table(table) => {
+            table.insert("features", toml_edit::value(array));
+            if default_features_off {
+                table.insert("default-features", toml_edit::value(false));
+            }
+        }
+        Item::Value(Value::String(version)) => {
+            // A bare version string becomes an inline table so it can carry features.
+            let mut table = toml_edit::InlineTable::new();
+            table.insert("version", Value::from(version.value().clone()));
+            if default_features_off {
+                table.insert("default-features", Value::from(false));
+            }
+            table.insert("features", Value::Array(array));
+            *dependency = Item::Value(Value::InlineTable(table));
+        }
+        _ => anyhow::bail!("winia dependency has an unsupported shape in Cargo.toml"),
+    }
     Ok(())
 }
 

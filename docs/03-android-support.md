@@ -107,6 +107,10 @@ Notes:
 - `min_sdk = 26` is the Skia Android build baseline (skia-bindings' Android platform module pins the API
   level to 26).
 - `version_code` must increase monotonically; `winia release` can bump it automatically.
+- `activity = "game"` (default) generates a `MainActivity extends GameActivity` subclass; `native`
+  declares `android.app.NativeActivity` directly and ships no Java source. Switching needs
+  `winia android init --force`, which rewrites the manifest and flips the `winia`/`winia-winit`
+  backend feature so the Rust side matches.
 - Permissions are not configured here: declare `<uses-permission>` in `AndroidManifest.xml`. Runtime
   permission requests come later through a JNI bridge.
 - When `label` is empty, `app.name` is used.
