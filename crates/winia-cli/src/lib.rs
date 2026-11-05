@@ -9,7 +9,6 @@ pub mod commands;
 pub mod config;
 pub mod hooks;
 pub mod icons;
-pub mod manifest;
 pub mod platform;
 
 use clap::Parser;

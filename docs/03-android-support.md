@@ -100,7 +100,6 @@ activity = "game"              # game | native
 version_code = 1
 abis = ["arm64-v8a", "x86_64"]
 orientation = "unspecified"    # portrait | landscape | unspecified
-permissions = ["INTERNET"]
 ```
 
 Notes:
@@ -108,7 +107,8 @@ Notes:
 - `min_sdk = 26` is the Skia Android build baseline (skia-bindings' Android platform module pins the API
   level to 26).
 - `version_code` must increase monotonically; `winia release` can bump it automatically.
-- `permissions` generates `<uses-permission>`; runtime permission requests come later through a JNI bridge.
+- Permissions are not configured here: declare `<uses-permission>` in `AndroidManifest.xml`. Runtime
+  permission requests come later through a JNI bridge.
 - When `label` is empty, `app.name` is used.
 - `package` defaults to `app.id` but can be overridden separately.
 
@@ -298,21 +298,15 @@ winia screenshot --target android --output shot.png
 
 ### 7.1 Permissions and Manifest
 
-- `[android] permissions` is applied by `winia android sync` into a block the CLI owns:
-
-  ```xml
-  <!-- winia:permissions:begin -->
-  <uses-permission android:name="android.permission.INTERNET" />
-  <!-- winia:permissions:end -->
-  ```
-
-- Short names (`INTERNET`) become `android.permission.INTERNET`; a dotted name from another package is
-  kept as written. Duplicates are dropped and order follows the configuration.
-- An empty list keeps `INTERNET`, because the debug server binds a socket.
-- Everything outside the markers is preserved byte for byte, including permissions you add yourself.
-  A manifest without the markers is reported as `permissions-skipped` and left untouched; add the
-  two marker lines to opt in.
-- Runtime permission requests still need a JNI bridge; the CLI only declares permissions.
+- Permissions are declared in `AndroidManifest.xml` like any other Android project. There is no
+  `[android].permissions` key: Gradle already merges library manifests, and permission entries can
+  carry attributes (`maxSdkVersion`, `tools:node="remove"`) that a list of names cannot express.
+- The generated template ships `android.permission.INTERNET`, because the debug server binds a
+  socket in debug builds.
+- `winia doctor` warns when an older `winia.toml` still declares `[android].permissions`; the key is
+  ignored and the message points at the manifest.
+- Runtime permission requests still need a JNI bridge; declaring permissions is all the toolchain
+  does today.
 - `android:exported`, `launchMode`, `configChanges`, and similar are generated uniformly by the template;
   users do not edit them by hand.
 

@@ -143,7 +143,6 @@ pub struct AndroidConfig {
     pub abis: Vec<String>,
     /// portrait, landscape, or unspecified.
     pub orientation: String,
-    pub permissions: Vec<String>,
 }
 
 impl Default for AndroidConfig {
@@ -158,7 +157,6 @@ impl Default for AndroidConfig {
             version_code: 1,
             abis: vec!["arm64-v8a".to_owned(), "x86_64".to_owned()],
             orientation: "unspecified".to_owned(),
-            permissions: Vec::new(),
         }
     }
 }
@@ -316,6 +314,16 @@ mod tests {
             config.app.id = id.to_owned();
             assert!(config.validate().is_ok(), "{id} should be accepted");
         }
+    }
+
+    #[test]
+    fn ignores_the_retired_permissions_key() {
+        // Permissions live in AndroidManifest.xml now; an older winia.toml must still load.
+        let config = WiniaConfig::parse(
+            "[app]\nname = \"Demo\"\nid = \"com.example.demo\"\n\n[android]\npackage = \"com.example.demo\"\npermissions = [\"CAMERA\"]\n",
+        )
+        .unwrap();
+        assert!(config.validate().is_ok());
     }
 
     #[test]

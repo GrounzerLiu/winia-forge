@@ -322,7 +322,7 @@ fn ensure_android_project(android_dir: &Path) -> Result<()> {
     let manifest = android_dir.join("app/src/main/AndroidManifest.xml");
     if !manifest.is_file() {
         bail!(
-            "{} is missing app/src/main/AndroidManifest.xml; run 'winia android sync'",
+            "{} is missing app/src/main/AndroidManifest.xml; create the project with 'winia new --platforms android' or 'winia android init'",
             android_dir.display()
         );
     }

@@ -130,7 +130,8 @@ The app launches, and a TextField accepts input through ADB Keyboard. Every pack
 
 | Setting | Home | Reason |
 | --- | --- | --- |
-| App identity, SDK levels, activity mode, ABIs, permissions, version code | `winia.toml` `[android]` | Shared by `config`, `doctor`, `build`, `release` |
+| App identity, SDK levels, activity mode, ABIs, version code | `winia.toml` `[android]` | Shared by `config`, `doctor`, `build`, `release` |
+| Permissions, intent filters, services, metadata | `AndroidManifest.xml` | Gradle merges library manifests; entries carry attributes a config key cannot express |
 | `crate-type`, features, dependencies | `Cargo.toml` | Cargo owns these |
 | NDK and JDK pins | Optional `[android]` fields | `build`/`doctor` need to locate the toolchain |
 | Gradle and AGP versions | Gradle wrapper and version catalog | Gradle owns these; duplicating them invites drift |

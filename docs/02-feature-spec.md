@@ -197,7 +197,6 @@ activity = "game"          # game | native
 version_code = 1
 abis = ["arm64-v8a", "x86_64"]
 orientation = "unspecified" # portrait | landscape | unspecified
-permissions = ["INTERNET"]
 
 [assets]
 include = ["assets/**"]
@@ -246,7 +245,7 @@ Applied by the Android build (passed to Gradle as `-P` properties, read by the g
 | `android.target_sdk` | `winiaTargetSdk` | `targetSdkVersion` |
 | `android.compile_sdk` | `winiaCompileSdk` | `compileSdk` |
 | `android.label` (falls back to `app.name`) | `winiaAppLabel` | `app_name` string resource behind `android:label="@string/app_name"` |
-| `android.permissions` | written by `android sync` | `<uses-permission>` entries inside the `winia:permissions` marker block of the manifest |
+| `android.permissions` | removed from the schema | Declare `<uses-permission>` in `AndroidManifest.xml`; the template ships `INTERNET` |
 
 `android.label` reaches the manifest through a generated string resource, so projects created
 before this change keep their literal `android:label` until they adopt `@string/app_name`.
