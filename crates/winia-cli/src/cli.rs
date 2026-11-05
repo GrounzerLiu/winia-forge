@@ -48,14 +48,12 @@ pub enum Command {
     Add(AddArgs),
     /// Remove a dependency from the project.
     Remove(RemoveArgs),
-    /// Update Winia and project dependencies.
+    /// Update dependencies in the lockfile through cargo.
     Update(UpdateArgs),
     /// Generate and manage application assets.
     Assets(AssetsArgs),
     /// Generate CI configuration.
     Ci(CiArgs),
-    /// Upgrade the project to a newer Winia release.
-    Upgrade(UpgradeArgs),
     /// Remove build artifacts.
     Clean(CleanArgs),
     /// Print environment and project information.
@@ -70,7 +68,7 @@ pub enum Command {
     Emulators(EmulatorsArgs),
     /// Stream Android logcat output.
     Logcat(LogcatArgs),
-    /// Capture a screenshot from a running application.
+    /// Capture the device screen through adb.
     Screenshot(ScreenshotArgs),
     /// Add or manage platform support.
     Platform(PlatformArgs),
@@ -480,13 +478,6 @@ pub struct CiInitArgs {
     /// Overwrite an existing workflow file.
     #[arg(long)]
     pub force: bool,
-}
-
-#[derive(Debug, Args)]
-pub struct UpgradeArgs {
-    /// Only check whether a newer Winia is available.
-    #[arg(long)]
-    pub check: bool,
 }
 
 #[derive(Debug, Args)]

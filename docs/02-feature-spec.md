@@ -22,7 +22,6 @@
 | `winia add` / `remove` / `update` | Dependency management | Implemented: delegate to cargo in the project root |
 | `winia assets` | Icon and asset generation | Implemented: icon sets from PNG/SVG; automatic via `app.icon` |
 | `winia ci` | Generate CI configuration | Implemented: `ci init` for GitHub Actions and GitLab CI |
-| `winia upgrade` | Framework upgrade and code migration | Planned |
 | `winia clean` | Remove build artifacts | Implemented: target/dist/Android build outputs, `--all` Gradle caches, `--dry-run`, `--json` |
 | `winia info` | Environment and project information | Implemented |
 | `winia targets` | Supported/installed target platforms | Implemented |
@@ -148,7 +147,7 @@ Behaviour:
 
 - Template versions follow the CLI version; the Winia version declared by a template must match the range
   supported by the CLI.
-- Upgrade templates with `winia upgrade`; never overwrite user files directly.
+- Regenerating a template's files is a manual decision; nothing overwrites user files silently.
 - Remote templates need signature or checksum verification to avoid supply-chain risk.
 
 ## 2. Configuration: `winia.toml`
@@ -682,7 +681,6 @@ for everything that must be done manually.
 - `winia targets`: list supported/installed targets.
 - `winia setup`: first-run installation wizard (planned).
 - `winia info`: version, OS, architecture, configuration path.
-- `winia upgrade`: upgrade the Winia dependency and run codemods.
 
 ## 8. Assets and icons
 
@@ -799,16 +797,18 @@ winia template update
 
 ## 11. Upgrades and migration
 
-```bash
-winia upgrade --check
-winia upgrade
-```
+There is no `winia upgrade` command, deliberately. Winia is not published yet, so projects depend
+on it through a path or git source: updating means changing that source and letting cargo resolve
+it (`cargo update`, `winia add`/`remove`). The part a command would add — codemods for breaking
+API changes — needs versioned migration data and a compatibility policy that do not exist yet, and
+a half-working upgrade is worse than none.
 
-- Checks the latest Winia version and the `winia.toml` schema.
-- Updates the `Cargo.toml` dependency.
-- Runs codemods for breaking API changes.
-- Creates a git branch or backup before migrating.
-- Prints the change list and the items that need manual confirmation.
+When the framework starts shipping versioned releases, the intended shape is:
+
+- Check the project's `winia` dependency against the CLI version and the `winia.toml` schema.
+- Update the dependency declaration in `Cargo.toml`.
+- Run codemods for breaking changes, with a backup or branch first.
+- Print what changed and what still needs manual work.
 
 ## 12. Current scaffold implementation status
 

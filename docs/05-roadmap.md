@@ -19,7 +19,7 @@
 Done:
 
 - [x] Cargo workspace: `winia-cli`, `winia-build`, `winia-pack`.
-- [x] clap command surface: new/init/build/run/dev/test/package/sign/release/doctor/add/remove/update/assets/ci/upgrade/clean/info/targets/config/devices/emulators/logcat/screenshot/platform/android/completions.
+- [x] clap command surface: new/init/build/run/dev/test/package/sign/release/doctor/add/remove/update/assets/ci/clean/info/targets/config/devices/emulators/logcat/screenshot/platform/android/completions.
 - [x] `winia.toml` configuration model and defaults.
 - [x] Minimal `winia new` template.
 - [x] Basic `winia doctor` environment checks.

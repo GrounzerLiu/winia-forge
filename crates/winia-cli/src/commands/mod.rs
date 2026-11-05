@@ -66,7 +66,6 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         Command::Screenshot(args) => screenshot::run(args),
         Command::Devices(args) => devices::run(args),
         Command::Android(args) => android::run(args),
-        other => planned(command_name(&other)),
     }
 }
 
@@ -75,39 +74,6 @@ fn planned(name: &str) -> Result<()> {
         "winia {name} is not implemented in this scaffold; the intended contract is \
          documented in docs/02-feature-spec.md"
     )
-}
-
-fn command_name(command: &Command) -> &'static str {
-    match command {
-        Command::New(_) => "new",
-        Command::Init(_) => "init",
-        Command::Build(_) => "build",
-        Command::Run(_) => "run",
-        Command::Dev(_) => "dev",
-        Command::Inspect(_) => "inspect",
-        Command::Test(_) => "test",
-        Command::Package(_) => "package",
-        Command::Sign(_) => "sign",
-        Command::Release(_) => "release",
-        Command::Doctor(_) => "doctor",
-        Command::Add(_) => "add",
-        Command::Remove(_) => "remove",
-        Command::Update(_) => "update",
-        Command::Assets(_) => "assets",
-        Command::Ci(_) => "ci",
-        Command::Upgrade(_) => "upgrade",
-        Command::Clean(_) => "clean",
-        Command::Info(_) => "info",
-        Command::Targets(_) => "targets",
-        Command::Config(_) => "config",
-        Command::Devices(_) => "devices",
-        Command::Emulators(_) => "emulators",
-        Command::Logcat(_) => "logcat",
-        Command::Screenshot(_) => "screenshot",
-        Command::Platform(_) => "platform",
-        Command::Android(_) => "android",
-        Command::Completions(_) => "completions",
-    }
 }
 
 fn info(args: InfoArgs) -> Result<()> {
