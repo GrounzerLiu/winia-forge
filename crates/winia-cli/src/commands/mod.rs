@@ -1,8 +1,8 @@
 //! Command dispatch.
 //!
-//! Only the project-creation and environment-inspection commands are
-//! implemented in this scaffold; every other command fails with an explicit
-//! "not implemented yet" message that points at the written contract.
+//! Every command in the CLI is implemented; commands that cannot work in the
+//! current situation (iOS, release tracks other than GitHub, desktop entries in
+//! 'platform add') explain why instead of failing silently.
 
 pub mod android;
 pub mod assets;
@@ -67,13 +67,6 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         Command::Devices(args) => devices::run(args),
         Command::Android(args) => android::run(args),
     }
-}
-
-fn planned(name: &str) -> Result<()> {
-    bail!(
-        "winia {name} is not implemented in this scaffold; the intended contract is \
-         documented in docs/02-feature-spec.md"
-    )
 }
 
 fn info(args: InfoArgs) -> Result<()> {
@@ -164,7 +157,11 @@ fn platform(args: PlatformArgs) -> Result<()> {
             // Adding the platform and initialising the Android project are the same operation.
             crate::cli::Platform::Android => crate::commands::android::android_init(false),
             crate::cli::Platform::Ios => bail!("iOS support is not designed yet"),
-            other => planned(&format!("platform add {other:?}")),
+            crate::cli::Platform::Windows
+            | crate::cli::Platform::Macos
+            | crate::cli::Platform::Linux => {
+                bail!("desktop platforms need no setup; run 'winia build' on that host instead")
+            }
         },
     }
 }
