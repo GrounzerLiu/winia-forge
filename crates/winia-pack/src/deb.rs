@@ -41,7 +41,8 @@ pub fn build(spec: &DebSpec<'_>) -> Result<PathBuf> {
     let package = debian_name(spec.app_id);
     let version = debian_version(spec.app_version)?;
     let arch = debian_arch(spec.arch)?;
-    let files = collect(spec.payload, spec.executable)?;
+    let payload = collect(spec.payload, spec.executable)?;
+    let files = &payload.files;
     if files.is_empty() {
         bail!("payload directory is empty: {}", spec.payload.display());
     }
@@ -71,7 +72,10 @@ pub fn build(spec: &DebSpec<'_>) -> Result<PathBuf> {
         ] {
             append_dir(&mut tar, directory)?;
         }
-        for file in &files {
+        for directory in &payload.directories {
+            append_dir(&mut tar, &format!("{install_dir}/{directory}"))?;
+        }
+        for file in files {
             let path = format!("{install_dir}/{}", file.relative);
             append_file(&mut tar, &path, &file.bytes, file.executable)?;
         }
@@ -182,12 +186,13 @@ fn desktop_entry(spec: &DebSpec<'_>, stem: &str) -> String {
     )
 }
 
-fn collect(payload: &Path, executable: &str) -> Result<Vec<PayloadFile>> {
+fn collect(payload: &Path, executable: &str) -> Result<Payload> {
     fn walk(
         root: &Path,
         dir: &Path,
         executable_name: &str,
         out: &mut Vec<PayloadFile>,
+        directories: &mut Vec<String>,
     ) -> Result<()> {
         for entry in std::fs::read_dir(dir).with_context(|| format!("reading {}", dir.display()))? {
             let entry = entry?;
@@ -197,7 +202,10 @@ fn collect(payload: &Path, executable: &str) -> Result<Vec<PayloadFile>> {
                 continue;
             }
             if file_type.is_dir() {
-                walk(root, &path, executable_name, out)?;
+                if let Ok(relative) = path.strip_prefix(root) {
+                    directories.push(relative.to_string_lossy().replace('\\', "/"));
+                }
+                walk(root, &path, executable_name, out, directories)?;
             } else if file_type.is_file() {
                 let bytes =
                     std::fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
@@ -219,9 +227,18 @@ fn collect(payload: &Path, executable: &str) -> Result<Vec<PayloadFile>> {
         Ok(())
     }
     let mut files = Vec::new();
-    walk(payload, payload, executable, &mut files)?;
+    let mut directories = Vec::new();
+    walk(payload, payload, executable, &mut files, &mut directories)?;
     files.sort_by(|a, b| a.relative.cmp(&b.relative));
-    Ok(files)
+    directories.sort_by_key(|dir| dir.matches('/').count());
+    Ok(Payload { files, directories })
+}
+
+/// The payload split into files and the directories dpkg must create first.
+struct Payload {
+    files: Vec<PayloadFile>,
+    /// Relative directories, shallow first.
+    directories: Vec<String>,
 }
 
 fn append_dir<W: Write>(tar: &mut tar::Builder<W>, path: &str) -> Result<()> {
