@@ -651,15 +651,10 @@ fn find_ndk() -> Result<PathBuf> {
                 })
                 .unwrap_or_default();
             versions.sort();
-            if versions.iter().any(|path| {
+            if let Some(preferred) = versions.iter().find(|path| {
                 path.file_name().and_then(|name| name.to_str()) == Some("27.0.12077973")
             }) {
-                return Ok(versions
-                    .into_iter()
-                    .find(|path| {
-                        path.file_name().and_then(|name| name.to_str()) == Some("27.0.12077973")
-                    })
-                    .expect("just checked"));
+                return Ok(preferred.clone());
             }
             if let Some(latest) = versions.pop() {
                 return Ok(latest);
