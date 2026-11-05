@@ -17,6 +17,7 @@ pub mod package;
 pub mod release;
 pub mod run;
 pub mod sign;
+pub mod sign_macos;
 pub mod sign_windows;
 pub mod test;
 

@@ -156,12 +156,55 @@ pub fn run(args: ReleaseArgs) -> Result<()> {
 
     for target in &targets {
         let formats = available_formats(&formats_for(&config, target));
+        // A dmg built before signing would carry an unsigned bundle, so defer it.
+        let deferred_dmg = target == "macos"
+            && macos_identity_configured()
+            && formats.iter().any(|format| format == "dmg");
+        let first: Vec<String> = if deferred_dmg {
+            formats
+                .iter()
+                .filter(|format| format.as_str() != "dmg")
+                .cloned()
+                .collect()
+        } else {
+            formats.clone()
+        };
         if args.json {
-            run_package_json(&root, target, &formats, &out_dir)?;
+            run_package_json(&root, target, &first, &out_dir)?;
         } else {
             package::run(PackageArgs {
                 target: vec![target.clone()],
-                format: formats,
+                format: first,
+                release: true,
+                out_dir: Some(out_dir.clone()),
+                split: None,
+                json: false,
+                dry_run: false,
+                clean: false,
+            })?;
+        }
+        if deferred_dmg {
+            let bundle = out_dir.join(format!("{stem}-{version}-macos-{arch}.app"));
+            if bundle.exists() {
+                super::sign_macos::run(
+                    &root,
+                    &root,
+                    &SignArgs {
+                        target: vec!["macos".to_owned()],
+                        keystore: None,
+                        apk: None,
+                        file: vec![bundle],
+                        alias: None,
+                        in_place: true,
+                        dry_run: false,
+                        release: true,
+                        json: false,
+                    },
+                )?;
+            }
+            package::run(PackageArgs {
+                target: vec![target.clone()],
+                format: vec!["dmg".to_owned()],
                 release: true,
                 out_dir: Some(out_dir.clone()),
                 split: None,
@@ -659,6 +702,13 @@ fn write_release_checksums(dist: &Path, artifacts: &[PathBuf]) -> Result<Option<
     std::fs::write(&destination, text)
         .with_context(|| format!("writing {}", destination.display()))?;
     Ok(Some(destination))
+}
+
+/// A macOS signing identity is configured (an ad-hoc "-" counts).
+fn macos_identity_configured() -> bool {
+    std::env::var_os("WINIA_MACOS_IDENTITY")
+        .filter(|value| !value.is_empty())
+        .is_some()
 }
 
 /// A Windows certificate is available for Authenticode signing.

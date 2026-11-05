@@ -33,13 +33,17 @@ pub fn run(args: SignArgs) -> Result<()> {
     };
     let windows = targets.iter().any(|target| target == "windows");
     let android = targets.iter().any(|target| target == "android");
+    let macos = targets.iter().any(|target| target == "macos");
     if let Some(unsupported) = targets
         .iter()
-        .find(|target| target.as_str() != "android" && target.as_str() != "windows")
+        .find(|target| !matches!(target.as_str(), "android" | "windows" | "macos"))
     {
         bail!(
-            "signing for {unsupported} is not implemented yet; only android and windows are supported"
+            "signing for {unsupported} is not implemented yet; only android, windows and macos are supported"
         );
+    }
+    if macos && !android && !windows {
+        return super::sign_macos::run(&root, &cwd, &args);
     }
     if windows && !android {
         return super::sign_windows::run(&root, &cwd, &args);

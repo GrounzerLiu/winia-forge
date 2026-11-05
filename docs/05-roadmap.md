@@ -55,11 +55,13 @@ Acceptance:
 - [x] Windows NSIS installer (`winia package --target windows --format nsis`).
 - [x] Windows MSI (WiX).
 - [ ] Optional MSIX.
-- [ ] macOS DMG, PKG, universal binary.
+- [x] macOS dmg (hdiutil, UDZO).
+- [ ] macOS PKG and universal binary.
 - [x] Linux deb (payload in /usr/lib, /usr/bin symlink, desktop entry).
 - [ ] Linux rpm, AppImage, AppStream metadata.
 - [x] Authenticode signing (`winia sign --target windows`, signtool).
-- [ ] macOS codesign/notarize.
+- [x] macOS codesign (`winia sign --target macos`).
+- [ ] macOS notarisation (notarytool + stapler).
 - [x] `winia release`: version bump, package (Android and desktop), sign Android APKs, tag, checksums, GitHub Releases.
 - [x] CI workflow generator (`winia ci init`: GitHub Actions, GitLab CI).
 

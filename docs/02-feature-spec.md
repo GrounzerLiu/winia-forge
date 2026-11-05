@@ -16,7 +16,7 @@
 | `winia inspect` | Debug-server client | Implemented: info, tree, click, drag, key, scroll, screenshot, registry/port discovery |
 | `winia test` | Unit, UI, and device smoke tests | Implemented: host cargo tests, Android install/launch/logcat/screenshot smoke |
 | `winia package` | Package installers/archives/APK/AAB | Implemented: desktop portable zip/tar.gz/app, Windows NSIS and MSI, Linux deb, Android APK/AAB; DMG/PKG/rpm/AppImage pending |
-| `winia sign` | Code signing | Implemented: Android APKs (apksigner), Windows Authenticode (signtool) |
+| `winia sign` | Code signing | Implemented: Android APKs (apksigner), Windows Authenticode (signtool), macOS codesign |
 | `winia release` | Version, tag, publish | Implemented for Android and desktop targets (local artifacts + GitHub upload) |
 | `winia doctor` | Environment diagnostics | Implemented (Rust/MSRV, platform toolchains, Android SDK/NDK, `--fix`) |
 | `winia add` / `remove` / `update` | Dependency management | Planned |
@@ -395,9 +395,9 @@ winia package --target linux --format tar.gz
 winia package --target macos --format app,zip
 winia package --target android --format apk,aab --split per-abi
 
-Implemented formats: Windows `zip`, `nsis`, `msi`; Linux `tar.gz`, `deb`; macOS `app`, `zip`;
-Android `apk`, `aab`.
-Installer formats still pending: MSIX, DMG, PKG, rpm, AppImage.
+Implemented formats: Windows `zip`, `nsis`, `msi`; Linux `tar.gz`, `deb`; macOS `app`, `zip`,
+`dmg`; Android `apk`, `aab`.
+Installer formats still pending: MSIX, PKG, rpm, AppImage.
 ```
 
 ### 5.2 General requirements
@@ -443,7 +443,9 @@ installer (`{app}-{version}-windows-{arch}-setup.exe`) and an `msi` package
 
 ### 5.4 macOS packaging
 
-Implemented: basic `.app` bundle (`Contents/MacOS`, `Contents/Resources`, `Info.plist`) and `zip`. Signing, notarisation, DMG, and PKG are pending.
+Implemented: `.app` bundle (`Contents/MacOS`, `Contents/Resources`, `Info.plist`), `zip`, and
+`dmg` (hdiutil, UDZO). `dmg` reuses an existing bundle when there is one, so signing the app
+before packaging keeps the disk image signed. Notarisation and PKG are pending.
 
 - `.app`: `Info.plist`, bundle id, minimum system version, LSUIElement (tray applications).
 - Icons: `.icns`.
@@ -516,9 +518,19 @@ Implemented:
 
 ### 6.2 macOS
 
-- `codesign`: Developer ID, entitlements, hardened runtime.
-- `notarytool` notarisation, `stapler` stapling.
-- `spctl --assess` verification.
+Implemented:
+
+- `winia sign --target macos` signs every `.app` in `dist/` (or `--file` entries) with
+  `codesign --force --deep`.
+- Identity comes from `WINIA_MACOS_IDENTITY`; the default is an ad-hoc signature (`-`), which
+  passes `codesign --verify --deep --strict` but is not distributable.
+- With a real identity the command adds `--options runtime` and `--timestamp`; entitlements are
+  read from `WINIA_MACOS_ENTITLEMENTS` when set.
+- `release` signs the bundle before building the dmg when an identity is configured, so the image
+  never contains an unsigned app.
+- The command refuses to run off macOS with an explicit message.
+
+Pending: `notarytool` notarisation, `stapler` stapling, `spctl --assess` verification, and PKG.
 
 ### 6.3 Android
 
@@ -752,8 +764,8 @@ winia upgrade
 | `winia platform add android` | Placeholder directory |
 | `winia build` | Implemented: host executable and Android APK |
 | `winia run` | Implemented: host and Android |
-| `winia package` | Implemented: desktop portable zip/tar.gz/app, Windows NSIS and MSI, Linux deb; Android APK/AAB with alignment/ABI/signature checks; DMG/PKG/rpm/AppImage pending |
-| `winia sign` | Implemented: Android APK signing with apksigner, Windows Authenticode via signtool |
+| `winia package` | Implemented: desktop portable zip/tar.gz/app, Windows NSIS and MSI, Linux deb, macOS dmg; Android APK/AAB with alignment/ABI/signature checks; PKG/rpm/AppImage pending |
+| `winia sign` | Implemented: Android APK signing with apksigner, Windows Authenticode via signtool, macOS codesign |
 | `winia release` | Implemented: multi-target bump/package/sign/tag/SHA256SUMS/latest.json and optional GitHub upload |
 | Project hooks | Implemented: `before_build`/`after_build` per target, `before_package`/`after_package` per run |
 | Template system, hooks, plugins | Planned |

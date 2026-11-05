@@ -177,6 +177,13 @@ fn package_desktop(
                 icons.as_ref(),
                 &executable.path,
             )?,
+            "dmg" => {
+                let bundle = out_dir.join(format!("{stem}-{version}-{target}-{arch}.app"));
+                if !bundle.exists() {
+                    build_macos_app(&stage, &bundle, config, icons.as_ref(), &executable.path)?;
+                }
+                build_macos_dmg(&bundle, &destination, config)?;
+            }
             "deb" => {
                 let spec = winia_pack::deb::DebSpec {
                     app_name: &config.app.name,
@@ -274,7 +281,7 @@ fn desktop_formats(target: &str, config: &WiniaConfig, args: &PackageArgs) -> Re
     };
     let supported: &[&str] = match target {
         "windows" => &["zip", "nsis", "msi"],
-        "macos" => &["app", "zip"],
+        "macos" => &["app", "zip", "dmg"],
         "linux" => &["tar.gz", "deb"],
         _ => &[],
     };
@@ -337,7 +344,7 @@ pub(crate) fn release_artifact_path(
 ) -> Option<PathBuf> {
     let supported: &[&str] = match target {
         "windows" => &["zip", "nsis", "msi"],
-        "macos" => &["app", "zip"],
+        "macos" => &["app", "zip", "dmg"],
         "linux" => &["tar.gz", "deb"],
         _ => return None,
     };
@@ -480,6 +487,34 @@ fn tar_gz_directory(stage: &Path, archive: &Path) -> Result<()> {
         .context("adding project directory to tar")?;
     let encoder = builder.into_inner().context("finishing tar")?;
     encoder.finish().context("finishing gzip")?;
+    Ok(())
+}
+
+/// Wrap the .app bundle in a compressed disk image. hdiutil only exists on macOS.
+fn build_macos_dmg(bundle: &Path, destination: &Path, config: &WiniaConfig) -> Result<()> {
+    if !cfg!(target_os = "macos") {
+        bail!("dmg creation needs hdiutil, which only exists on macOS; run this on a Mac");
+    }
+    if destination.exists() {
+        std::fs::remove_file(destination)
+            .with_context(|| format!("removing {}", destination.display()))?;
+    }
+    let status = Command::new("hdiutil")
+        .arg("create")
+        .arg("-volname")
+        .arg(&config.app.name)
+        .arg("-srcfolder")
+        .arg(bundle)
+        .arg("-ov")
+        .arg("-format")
+        .arg("UDZO")
+        .arg(destination)
+        .stdout(Stdio::null())
+        .status()
+        .context("running hdiutil (macOS only)")?;
+    if !status.success() {
+        bail!("hdiutil failed with {status}");
+    }
     Ok(())
 }
 

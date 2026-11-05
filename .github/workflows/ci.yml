@@ -139,6 +139,31 @@ jobs:
           test -f "$APP/Contents/Resources/assets/winia/window-icon.png"
           test -f "$APP/Contents/Info.plist"
 
+      - name: Sign macOS bundle
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          export WINIA_MACOS_IDENTITY="-"
+          WINIA="$GITHUB_WORKSPACE/target/release/winia"
+          cd .github/fixtures/ci-app
+          "$WINIA" sign --target macos
+          APP=$(ls -d dist/ci-smoke-*-macos-*.app)
+          codesign --verify --deep --strict "$APP"
+          codesign -dv "$APP" 2>&1 | grep -q "Signature=adhoc"
+
+      - name: Package macOS disk image
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          WINIA="$GITHUB_WORKSPACE/target/release/winia"
+          cd .github/fixtures/ci-app
+          "$WINIA" package --target macos --format dmg --out-dir dist
+          DMG=$(ls dist/ci-smoke-*-macos-*.dmg)
+          test -s "$DMG"
+          hdiutil imageinfo "$DMG" | grep -q "Format: UDZO"
+
       - name: Verify Linux tar.gz
         if: runner.os == 'Linux'
         shell: bash
