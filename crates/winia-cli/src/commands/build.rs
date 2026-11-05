@@ -73,6 +73,8 @@ pub(crate) fn build_all(
     args: &BuildArgs,
 ) -> Result<Vec<(String, Vec<Artifact>)>> {
     crate::icons::ensure(root, config)?;
+    // The app reads window values from the generated module, so refresh it before compiling.
+    crate::generated::write(root, config)?;
     let metadata = cargo_metadata(root)?;
     let features = effective_features(config, args);
     let targets = resolve_targets(&args.target)?;

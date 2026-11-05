@@ -245,6 +245,7 @@ Applied by the Android build (passed to Gradle as `-P` properties, read by the g
 | `android.target_sdk` | `winiaTargetSdk` | `targetSdkVersion` |
 | `android.compile_sdk` | `winiaCompileSdk` | `compileSdk` |
 | `android.label` (falls back to `app.name`) | `winiaAppLabel` | `app_name` string resource behind `android:label="@string/app_name"` |
+| `[window]` title/width/height | generated `src/winia_config.rs` | Written by `winia new`, `init` and every `build`; the template UI reads `WINDOW_TITLE`/`WINDOW_WIDTH`/`WINDOW_HEIGHT` |
 | `android.activity` | scaffold-time choice | `game` generates a `MainActivity extends GameActivity` subclass; `native` declares `android.app.NativeActivity` and ships no Java source. Switching requires `winia android init --force`, which also flips the `winia`/`winia-winit` backend feature |
 | `android.permissions` | removed from the schema | Declare `<uses-permission>` in `AndroidManifest.xml`; the template ships `INTERNET` |
 
@@ -256,7 +257,7 @@ packaging. They are kept in the schema so projects can declare intent without br
 
 | Field | Current reality |
 | --- | --- |
-| `[window]` title/width/height/resizable/decorations | The template app creates its window through `winia::run_app!` and never reads `winia.toml` |
+| `[window]` resizable/decorations | Exported as `WINDOW_RESIZABLE`/`WINDOW_DECORATIONS`, but `Window::new()` has no builder methods for them yet, so the framework ignores them |
 | `android.orientation` | The manifest omits `screenOrientation` |
 | `build.backend` | The backend comes from the `winia` dependency's features |
 | `app.authors`, `app.license` | Not used in any package metadata yet |

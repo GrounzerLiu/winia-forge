@@ -104,6 +104,7 @@ pub fn run(args: InitArgs) -> Result<()> {
     config.window.width = 1000.0;
     config.window.height = 700.0;
     config.save(&root.join("winia.toml"))?;
+    crate::generated::write(&root, &config)?;
     println!("Wrote winia.toml");
 
     std::fs::create_dir_all(root.join("assets"))

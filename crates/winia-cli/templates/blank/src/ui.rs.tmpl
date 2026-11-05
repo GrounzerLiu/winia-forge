@@ -4,8 +4,11 @@ use winia::prelude::*;
 pub fn app(ctx: &mut ComposeCtx) {
     WiniaTheme::auto(ctx, |ctx| {
         Window::new()
-            .title("__APP_NAME__")
-            .size(1000.0, 700.0)
+            .title(crate::winia_config::WINDOW_TITLE)
+            .size(
+                crate::winia_config::WINDOW_WIDTH,
+                crate::winia_config::WINDOW_HEIGHT,
+            )
             .build(ctx, |ctx| {
                 Column::new()
                     .modifier(Modifier::new().fill_max_size().padding(24.0))

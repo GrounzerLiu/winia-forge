@@ -218,6 +218,7 @@ pub fn run(args: NewArgs) -> Result<()> {
     config.window.width = 1000.0;
     config.window.height = 700.0;
     config.save(&root.join("winia.toml"))?;
+    crate::generated::write(&root, &config)?;
 
     if platforms.contains(&Platform::Android) {
         for file in android_files(config.android.activity) {
