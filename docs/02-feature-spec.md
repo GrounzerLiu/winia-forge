@@ -27,9 +27,9 @@
 | `winia info` | Environment and project information | Implemented |
 | `winia targets` | Supported/installed target platforms | Implemented |
 | `winia config` | View/read `winia.toml` | show/get implemented |
-| `winia devices` | List adb devices | Planned |
+| `winia devices` | List adb devices | Implemented (`--json`) |
 | `winia emulators` | Android emulator management | Planned |
-| `winia logcat` | Android log filtering | Planned |
+| `winia logcat` | Android log filtering | Implemented: device, tag/package/pid, level, `--clear` |
 | `winia screenshot` | Screenshots | Planned |
 | `winia platform` | Add platform support | Planned (android placeholder) |
 | `winia android` | Android-specific operations | Planned |
@@ -353,7 +353,26 @@ winia test --json
 - `--update-snapshots` sets `WINIA_UPDATE_SNAPSHOTS=1`; snapshot diff/baseline handling is still
   owned by the project's test suite, not this command.
 
-### 4.4 Debugging tools
+### 4.4 Device tools
+
+```bash
+winia devices
+winia devices --json
+winia logcat --device 192.0.0.172:5555 --level W
+winia logcat --filter Winia
+winia logcat --filter com.example.app --clear
+```
+
+- `winia devices` runs `adb devices -l` and prints SERIAL/STATE/MODEL/PRODUCT; `--json` emits
+  `{ "devices": [{ "serial", "state", "model", "product", "transport_id" }] }`. Offline devices are
+  listed, not hidden.
+- `winia logcat` streams `adb logcat -v time` for the selected device (the only online device when
+  `--device` is omitted). `--filter` is a tag, or a package name when it contains a dot, in which
+  case the pid is resolved once through `adb shell pidof`; `--pid` takes precedence.
+  `--level` accepts V/D/I/W/E/F/S, `--clear` empties the buffer first.
+- Ctrl+C (exit 130/143 or a signalled child) ends the stream without an error.
+
+### 4.5 Debugging tools
 
 ```bash
 winia inspect info

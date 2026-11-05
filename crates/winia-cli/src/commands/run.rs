@@ -111,7 +111,7 @@ pub(crate) fn extension(path: &Path) -> Option<&str> {
     path.extension().and_then(|extension| extension.to_str())
 }
 
-fn adb(args: &[&str]) -> Result<String> {
+pub(crate) fn adb(args: &[&str]) -> Result<String> {
     let mut command = Command::new(adb_program());
     command.args(args);
     let output = output_with_timeout(command, Duration::from_secs(15))?;
@@ -125,7 +125,14 @@ fn adb(args: &[&str]) -> Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
-fn adb_program() -> PathBuf {
+/// Run adb against one device and return its stdout.
+pub(crate) fn adb_on(device: &str, args: &[&str]) -> Result<String> {
+    let mut full: Vec<&str> = vec!["-s", device];
+    full.extend_from_slice(args);
+    adb(&full)
+}
+
+pub(crate) fn adb_program() -> PathBuf {
     if Command::new("adb")
         .arg("version")
         .stdout(Stdio::null())

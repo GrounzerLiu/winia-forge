@@ -65,7 +65,7 @@ pub enum Command {
     /// Read or inspect winia.toml.
     Config(ConfigArgs),
     /// List connected Android devices.
-    Devices,
+    Devices(DevicesArgs),
     /// Manage Android emulators.
     Emulators(EmulatorsArgs),
     /// Stream Android logcat output.
@@ -543,13 +543,26 @@ pub enum EmulatorsCommand {
 }
 
 #[derive(Debug, Args)]
+pub struct DevicesArgs {
+    /// Emit machine-readable output.
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Args)]
 pub struct LogcatArgs {
-    /// Filter by package name or tag.
+    /// Device serial; defaults to the only connected device.
+    #[arg(long)]
+    pub device: Option<String>,
+    /// Filter by tag, or by package name when it contains a dot.
     #[arg(long)]
     pub filter: Option<String>,
     /// Filter by process id.
     #[arg(long)]
     pub pid: Option<u32>,
+    /// Minimum level: V, D, I, W, E, F or S.
+    #[arg(long)]
+    pub level: Option<String>,
     /// Clear the log buffer before streaming.
     #[arg(long)]
     pub clear: bool,

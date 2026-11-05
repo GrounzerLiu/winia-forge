@@ -9,9 +9,11 @@ pub mod build;
 pub mod ci;
 pub mod clean;
 pub mod dev;
+pub mod devices;
 pub mod doctor;
 pub mod init;
 pub mod inspect;
+pub mod logcat;
 pub mod new;
 pub mod package;
 pub mod release;
@@ -22,7 +24,7 @@ pub mod sign_windows;
 pub mod test;
 
 use crate::cli::{
-    Cli, Command, CompletionShell, ConfigArgs, ConfigCommand, EmulatorsArgs, InfoArgs, LogcatArgs,
+    Cli, Command, CompletionShell, ConfigArgs, ConfigCommand, EmulatorsArgs, InfoArgs,
     PlatformArgs, PlatformCommand, ScreenshotArgs, TargetsArgs,
 };
 use crate::config::{WiniaConfig, find_config};
@@ -52,9 +54,9 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         Command::Ci(args) => ci::run(args),
         Command::Init(args) => init::run(args),
         Command::Emulators(args) => emulators(args),
-        Command::Logcat(args) => logcat(args),
+        Command::Logcat(args) => logcat::run(args),
         Command::Screenshot(args) => screenshot(args),
-        Command::Devices => planned("devices"),
+        Command::Devices(args) => devices::run(args),
         Command::Android(_) => planned("android"),
         other => planned(command_name(&other)),
     }
@@ -90,7 +92,7 @@ fn command_name(command: &Command) -> &'static str {
         Command::Info(_) => "info",
         Command::Targets(_) => "targets",
         Command::Config(_) => "config",
-        Command::Devices => "devices",
+        Command::Devices(_) => "devices",
         Command::Emulators(_) => "emulators",
         Command::Logcat(_) => "logcat",
         Command::Screenshot(_) => "screenshot",
@@ -206,10 +208,6 @@ fn platform(args: PlatformArgs) -> Result<()> {
 
 fn emulators(_args: EmulatorsArgs) -> Result<()> {
     planned("emulators")
-}
-
-fn logcat(_args: LogcatArgs) -> Result<()> {
-    planned("logcat")
 }
 
 fn screenshot(_args: ScreenshotArgs) -> Result<()> {
