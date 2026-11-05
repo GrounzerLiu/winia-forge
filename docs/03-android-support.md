@@ -65,6 +65,10 @@ GameActivity corresponds to winit's `android-game-activity` feature; NativeActiv
 ### 2.2 Project file management
 
 - `android/` is a generated directory, but users may add Kotlin/Java code and third-party SDKs.
+- `winia android init` adds that directory to an app created without Android: it writes the Gradle
+  project and wrapper, adds the Android dependency plus the cdylib crate type, creates
+  `src/lib.rs` when it is missing, and refuses to overwrite an existing `android/` without
+  `--force`.
 - `winia android sync` (implemented) regenerates exactly six files from `winia.toml`:
   `settings.gradle.kts`, `build.gradle.kts`, `gradle.properties`, `gradle/libs.versions.toml`,
   `gradle/wrapper/gradle-wrapper.properties` and `app/build.gradle.kts`. Each carries a

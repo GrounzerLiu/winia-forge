@@ -8,7 +8,7 @@ use crate::cli::{InitArgs, Platform};
 use crate::commands::new;
 use crate::config::WiniaConfig;
 use anyhow::{Context, Result, bail};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use toml_edit::{Array, DocumentMut, Item, Table};
 
 /// Written only when the project has no src/lib.rs. The blank template starts from a real UI;
@@ -110,27 +110,7 @@ pub fn run(args: InitArgs) -> Result<()> {
         .with_context(|| format!("creating {}", root.join("assets").display()))?;
 
     if android {
-        let package_path = app_id.replace('.', "/");
-        let vars: Vec<(&str, &str)> = vec![
-            ("__APP_NAME__", config.app.name.as_str()),
-            ("__PACKAGE_NAME__", package.as_str()),
-            ("__LIB_NAME__", lib_name.as_str()),
-            ("__APP_ID__", app_id.as_str()),
-            ("__PACKAGE_PATH__", package_path.as_str()),
-            ("__VERSION__", config.app.version.as_str()),
-            ("__WINIA_DEP_ANDROID__", winia_android.as_str()),
-            ("__WINIA_DEP_DESKTOP__", winia_desktop.as_str()),
-        ];
-        if !root.join("src/lib.rs").is_file() {
-            std::fs::write(root.join("src/lib.rs"), ANDROID_ENTRY)
-                .with_context(|| format!("writing {}", root.join("src/lib.rs").display()))?;
-            println!("Wrote src/lib.rs (android_main entry point)");
-        }
-        for file in new::android_files() {
-            new::write_rendered(&root, file, &vars)?;
-        }
-        new::write_android_binaries(&root)?;
-        println!("Wrote android/ Gradle project");
+        scaffold_android(&root, &config)?;
     }
 
     println!("Platforms: {}", platform_list(&platforms).join(", "));
@@ -138,6 +118,78 @@ pub fn run(args: InitArgs) -> Result<()> {
     println!("  winia doctor");
     println!("  winia run");
     Ok(())
+}
+
+/// Write the Android project (Gradle files, wrapper, entry point) for a project that already has
+/// winia.toml. Shared by 'winia init --platforms android' and 'winia android init'.
+pub(crate) fn scaffold_android(root: &Path, config: &WiniaConfig) -> Result<()> {
+    let package = cargo_package_name(root, config);
+    let lib_name = package.replace('-', "_");
+    let app_id = if config.android.package.trim().is_empty() {
+        config.app.id.clone()
+    } else {
+        config.android.package.clone()
+    };
+    let package_path = app_id.replace('.', "/");
+    let vars: Vec<(&str, &str)> = vec![
+        ("__APP_NAME__", config.app.name.as_str()),
+        ("__PACKAGE_NAME__", package.as_str()),
+        ("__LIB_NAME__", lib_name.as_str()),
+        ("__APP_ID__", app_id.as_str()),
+        ("__PACKAGE_PATH__", package_path.as_str()),
+        ("__VERSION__", config.app.version.as_str()),
+    ];
+    if !root.join("src/lib.rs").is_file() {
+        std::fs::write(root.join("src/lib.rs"), ANDROID_ENTRY)
+            .with_context(|| format!("writing {}", root.join("src/lib.rs").display()))?;
+        println!("Wrote src/lib.rs (android_main entry point)");
+    }
+    for file in new::android_files() {
+        new::write_rendered(root, file, &vars)?;
+    }
+    new::write_android_binaries(root)?;
+    println!("Wrote android/ Gradle project");
+    Ok(())
+}
+
+/// Add the Android dependency and the cdylib crate type to Cargo.toml, leaving an existing entry
+/// alone so a hand-written dependency spec survives.
+pub(crate) fn ensure_android_cargo(root: &Path, winia_path: Option<PathBuf>) -> Result<()> {
+    let path = root.join("Cargo.toml");
+    let text =
+        std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+    let mut doc: DocumentMut = text
+        .parse()
+        .with_context(|| format!("parsing {}", path.display()))?;
+    let cfg = "cfg(target_os = \"android\")";
+    let present = doc
+        .get("target")
+        .and_then(|target| target.get(cfg))
+        .and_then(|target| target.get("dependencies"))
+        .and_then(|dependencies| dependencies.get("winia"))
+        .is_some();
+    if !present {
+        let spec = new::winia_dependency(winia_path, &["android-game-activity", "vulkan"])?;
+        set_target_dependency(&mut doc, cfg, &spec)?;
+    }
+    ensure_crate_types(&mut doc)?;
+    std::fs::write(&path, doc.to_string())
+        .with_context(|| format!("writing {}", path.display()))?;
+    Ok(())
+}
+
+/// The Cargo package name; falls back to the last segment of the app id.
+fn cargo_package_name(root: &Path, config: &WiniaConfig) -> String {
+    let parsed = std::fs::read_to_string(root.join("Cargo.toml"))
+        .ok()
+        .and_then(|text| text.parse::<toml::Value>().ok());
+    parsed
+        .as_ref()
+        .and_then(|value| value.get("package"))
+        .and_then(|package| package.get("name"))
+        .and_then(|name| name.as_str())
+        .map(str::to_owned)
+        .unwrap_or_else(|| config.app.id.rsplit('.').next().unwrap_or("app").to_owned())
 }
 
 fn platform_list(platforms: &[Platform]) -> Vec<String> {

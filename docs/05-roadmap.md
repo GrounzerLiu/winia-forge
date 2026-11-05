@@ -85,7 +85,8 @@ Acceptance:
 
 ### 5.2 Toolchain layer
 
-- [ ] `winia platform add android` / `winia android init`: generate the Gradle project.
+- [x] `winia android init`: add the Android project to an existing app.
+- [ ] `winia platform add android`: the same thing from the platform command.
 - [ ] `winia android sync`: rewrite managed files from `winia.toml`.
 - [ ] `winia doctor --target android`: SDK/NDK/JDK/adb checks.
 - [ ] `winia build --target android`: cargo ndk + Gradle assembleDebug.

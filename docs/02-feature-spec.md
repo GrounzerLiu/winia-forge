@@ -32,7 +32,7 @@
 | `winia logcat` | Android log filtering | Implemented: device, tag/package/pid, level, `--clear` |
 | `winia screenshot` | Screenshots | Implemented: adb screencap to a PNG (`--device`, `--output`, `--json`) |
 | `winia platform` | Add platform support | Planned (android placeholder) |
-| `winia android` | Android-specific operations | Implemented: `sync` (managed Gradle files), `studio`; `init` pending |
+| `winia android` | Android-specific operations | Implemented: `init`, `sync` (managed Gradle files), `studio` |
 | `winia completions` | Shell completions | Implemented |
 
 ## 1. Project creation and templates

@@ -618,7 +618,11 @@ pub struct AndroidArgs {
 #[derive(Debug, Subcommand)]
 pub enum AndroidCommand {
     /// Generate the Android project for an existing Winia app.
-    Init,
+    Init {
+        /// Regenerate even when android/ already exists.
+        #[arg(long)]
+        force: bool,
+    },
     /// Regenerate the Gradle files Winia owns from winia.toml.
     Sync {
         /// Report what would change without writing (exits 1 when something would change).
