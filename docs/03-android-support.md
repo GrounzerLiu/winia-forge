@@ -99,7 +99,6 @@ compile_sdk = 36
 activity = "game"              # game | native
 version_code = 1
 abis = ["arm64-v8a", "x86_64"]
-orientation = "unspecified"    # portrait | landscape | unspecified
 ```
 
 Notes:

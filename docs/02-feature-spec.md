@@ -196,7 +196,6 @@ compile_sdk = 36
 activity = "game"          # game | native
 version_code = 1
 abis = ["arm64-v8a", "x86_64"]
-orientation = "unspecified" # portrait | landscape | unspecified
 
 [assets]
 include = ["assets/**"]
@@ -258,7 +257,6 @@ packaging. They are kept in the schema so projects can declare intent without br
 | Field | Current reality |
 | --- | --- |
 | `[window]` resizable/decorations | Exported as `WINDOW_RESIZABLE`/`WINDOW_DECORATIONS`, but `Window::new()` has no builder methods for them yet, so the framework ignores them |
-| `android.orientation` | The manifest omits `screenOrientation` |
 | `build.backend` | The backend comes from the `winia` dependency's features |
 | `app.authors`, `app.license` | Not used in any package metadata yet |
 

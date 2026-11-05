@@ -141,8 +141,6 @@ pub struct AndroidConfig {
     pub version_code: u32,
     /// Android ABI names, e.g. arm64-v8a, x86_64.
     pub abis: Vec<String>,
-    /// portrait, landscape, or unspecified.
-    pub orientation: String,
 }
 
 impl Default for AndroidConfig {
@@ -156,7 +154,6 @@ impl Default for AndroidConfig {
             activity: AndroidActivity::Game,
             version_code: 1,
             abis: vec!["arm64-v8a".to_owned(), "x86_64".to_owned()],
-            orientation: "unspecified".to_owned(),
         }
     }
 }
