@@ -18,6 +18,8 @@ pub struct DebSpec<'a> {
     /// Reverse-DNS application id; becomes the Debian package name.
     pub app_id: &'a str,
     pub publisher: &'a str,
+    /// SPDX licence name; written to the package's copyright file when present.
+    pub license: Option<&'a str>,
     pub executable: &'a str,
     /// Staged directory to install (executable, assets, manifest).
     pub payload: &'a Path,
@@ -102,6 +104,19 @@ pub fn build(spec: &DebSpec<'_>) -> Result<PathBuf> {
             &mut tar,
             &format!("usr/share/applications/{stem}.desktop"),
             desktop_entry(spec, &stem, icon.as_deref()).as_bytes(),
+            false,
+        )?;
+        // Debian keeps the licence in /usr/share/doc/<package>/copyright, not in control.
+        let doc_dir = format!("usr/share/doc/{stem}");
+        for directory in ["usr/share/doc".to_owned(), doc_dir.clone()] {
+            if !ordered.contains(&directory) {
+                append_dir(&mut tar, &directory)?;
+            }
+        }
+        append_file(
+            &mut tar,
+            &format!("{doc_dir}/copyright"),
+            copyright_file(spec).as_bytes(),
             false,
         )?;
         let encoder = tar.into_inner().context("finishing data.tar.gz")?;
@@ -267,6 +282,21 @@ fn append_dir<W: Write>(tar: &mut tar::Builder<W>, path: &str) -> Result<()> {
     Ok(())
 }
 
+/// The Debian copyright file: who packaged it and under which licence.
+fn copyright_file(spec: &DebSpec<'_>) -> String {
+    let license = spec
+        .license
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("unspecified");
+    format!(
+        "Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/\n\
+         Upstream-Name: {}\n\
+         Upstream-Contact: {}\n\
+         License: {}\n",
+        spec.app_name, spec.publisher, license
+    )
+}
+
 fn append_file<W: Write>(
     tar: &mut tar::Builder<W>,
     path: &str,
@@ -332,6 +362,33 @@ fn append_ar_member(out: &mut Vec<u8>, name: &str, data: &[u8]) -> Result<()> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn copyright_file_names_author_and_licence() {
+        let payload = Path::new("payload");
+        let output = Path::new("out.deb");
+        let spec = DebSpec {
+            app_name: "Winia Blank",
+            app_version: "0.1.3",
+            app_id: "com.example.winia_blank",
+            publisher: "Winia contributors",
+            license: Some("Apache-2.0"),
+            executable: "app",
+            payload,
+            output,
+            arch: "x86_64",
+        };
+        let text = copyright_file(&spec);
+        assert!(text.contains("Upstream-Name: Winia Blank"));
+        assert!(text.contains("Upstream-Contact: Winia contributors"));
+        assert!(text.contains("License: Apache-2.0"));
+
+        let unlicensed = DebSpec {
+            license: None,
+            ..spec
+        };
+        assert!(copyright_file(&unlicensed).contains("License: unspecified"));
+    }
+
     fn fixture(name: &str) -> PathBuf {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../target")
@@ -350,6 +407,7 @@ mod tests {
             app_version: "0.1.3",
             app_id: "com.example.winia_blank",
             publisher: "Winia contributors",
+            license: Some("Apache-2.0"),
             executable: "app",
             payload,
             output,
@@ -378,6 +436,7 @@ mod tests {
             app_version: "0.1.3",
             app_id: "com.example.winia_blank",
             publisher: "Winia contributors",
+            license: Some("Apache-2.0"),
             executable: "app",
             payload: Path::new("."),
             output: Path::new("out.deb"),
@@ -406,6 +465,7 @@ mod tests {
             app_version: "0.1.3",
             app_id: "com.example.winia_blank",
             publisher: "Winia contributors",
+            license: Some("Apache-2.0"),
             executable: "app",
             payload: Path::new("."),
             output: Path::new("out.deb"),

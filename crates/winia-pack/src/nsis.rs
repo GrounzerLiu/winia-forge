@@ -22,6 +22,8 @@ pub struct InstallerSpec<'a> {
     /// Reverse-DNS application id; also names the uninstall registry key.
     pub app_id: &'a str,
     pub publisher: &'a str,
+    /// SPDX licence name; written to the installer's version information when present.
+    pub license: Option<&'a str>,
     /// File name of the main executable inside the payload.
     pub executable: &'a str,
     /// Staged directory to install (executable, assets, manifest).
@@ -130,6 +132,26 @@ pub fn generate(spec: &InstallerSpec<'_>) -> Result<String> {
     s.push_str(&format!(
         "InstallDirRegKey HKLM \"{key}\" \"InstallLocation\"\n\n"
     ));
+    // Explorer's Properties dialog reads these keys.
+    s.push_str(&format!(
+        "VIProductVersion \"{}\"\n",
+        product_version(spec.app_version)
+    ));
+    s.push_str(&format!("VIAddVersionKey \"ProductName\" \"{name}\"\n"));
+    s.push_str(&format!(
+        "VIAddVersionKey \"CompanyName\" \"{publisher}\"\n"
+    ));
+    s.push_str(&format!(
+        "VIAddVersionKey \"FileDescription\" \"{name} installer\"\n"
+    ));
+    s.push_str(&format!("VIAddVersionKey \"FileVersion\" \"{version}\"\n"));
+    if let Some(license) = spec.license.filter(|value| !value.trim().is_empty()) {
+        s.push_str(&format!(
+            "VIAddVersionKey \"LegalCopyright\" \"{}\"\n",
+            escape(license)
+        ));
+    }
+    s.push('\n');
 
     s.push_str("!include \"MUI2.nsh\"\n\n");
     s.push_str(&format!("!define MUI_FINISHPAGE_RUN \"$INSTDIR\\{exe}\"\n"));
@@ -305,6 +327,22 @@ fn tail(text: &str, lines: usize) -> String {
 
 /// Locate makensis: explicit environment override, PATH, the install directory, then the
 /// uninstall registry entry the official installer writes.
+/// NSIS wants a four-part numeric version; a semver pre-release suffix is dropped.
+fn product_version(version: &str) -> String {
+    let core = version.split(['-', '+']).next().unwrap_or("0.0.0");
+    let mut parts: Vec<u32> = core
+        .split('.')
+        .map(|part| part.parse().unwrap_or(0))
+        .collect();
+    parts.resize(4, 0);
+    parts.truncate(4);
+    parts
+        .iter()
+        .map(u32::to_string)
+        .collect::<Vec<_>>()
+        .join(".")
+}
+
 pub fn find_makensis() -> Result<PathBuf> {
     let exe = if cfg!(windows) {
         "makensis.exe"
@@ -397,6 +435,7 @@ mod tests {
             app_version: "0.1.3",
             app_id: "com.example.winia_blank",
             publisher: "Winia contributors",
+            license: Some("Apache-2.0"),
             executable: "winia-blank.exe",
             payload,
             output,
@@ -442,6 +481,9 @@ mod tests {
         assert!(script.contains("Delete \"$INSTDIR\\assets\\logo.png\""));
         assert!(script.contains("RMDir \"$INSTDIR\\assets\""));
         assert!(script.contains("DeleteRegKey HKLM"));
+        assert!(script.contains("VIProductVersion \"0.1.3.0\""));
+        assert!(script.contains("VIAddVersionKey \"CompanyName\" \"Winia contributors\""));
+        assert!(script.contains("VIAddVersionKey \"LegalCopyright\" \"Apache-2.0\""));
         assert_eq!(script.matches("taskkill /F /IM").count(), 2);
         std::fs::remove_dir_all(root).unwrap();
     }

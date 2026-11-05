@@ -161,7 +161,14 @@ fn package_desktop(
         }
     }
 
-    let publisher = config.app.authors.join(", ");
+    // Installers need a single publisher; the first author is the closest thing to a vendor.
+    let publisher = config
+        .app
+        .authors
+        .first()
+        .cloned()
+        .unwrap_or_else(|| config.app.name.clone());
+    let license = config.app.license.as_deref();
     let explicit = !args.format.is_empty();
     let mut produced = Vec::new();
     let mut built_formats = Vec::new();
@@ -190,6 +197,7 @@ fn package_desktop(
                     app_version: &version,
                     app_id: &config.app.id,
                     publisher: &publisher,
+                    license,
                     executable: executable_name
                         .to_str()
                         .ok_or_else(|| anyhow::anyhow!("the executable name is not valid UTF-8"))?,
@@ -232,6 +240,7 @@ fn package_desktop(
                     app_version: &version,
                     app_id: &config.app.id,
                     publisher: &publisher,
+                    license,
                     executable: executable_name
                         .to_str()
                         .ok_or_else(|| anyhow::anyhow!("the executable name is not valid UTF-8"))?,
@@ -549,6 +558,17 @@ fn build_macos_app(
     if manifest.is_file() {
         std::fs::copy(&manifest, resources.join("assets.manifest.json"))?;
     }
+    let copyright_entry = match (config.app.license.as_deref(), config.app.authors.first()) {
+        (Some(license), _) => format!(
+            "  <key>NSHumanReadableCopyright</key><string>{}</string>\n",
+            xml_escape(license)
+        ),
+        (None, Some(author)) => format!(
+            "  <key>NSHumanReadableCopyright</key><string>{}</string>\n",
+            xml_escape(author)
+        ),
+        (None, None) => String::new(),
+    };
     let icon_entry = if let Some(icons) = icons {
         std::fs::copy(&icons.macos_icns, resources.join("AppIcon.icns"))?;
         "  <key>CFBundleIconFile</key><string>AppIcon</string>\n"
@@ -567,12 +587,13 @@ fn build_macos_app(
   <key>CFBundleShortVersionString</key><string>{}</string>\n\
   <key>CFBundleVersion</key><string>{}</string>\n\
   <key>LSMinimumSystemVersion</key><string>11.0</string>\n\
-{} </dict></plist>\n",
+{}{} </dict></plist>\n",
         xml_escape(&config.app.name),
         xml_escape(&config.app.id),
         xml_escape(&executable_name.to_string_lossy()),
         xml_escape(&config.app.version),
         xml_escape(&config.app.version),
+        copyright_entry,
         icon_entry,
     );
     std::fs::write(contents.join("Info.plist"), plist)?;
