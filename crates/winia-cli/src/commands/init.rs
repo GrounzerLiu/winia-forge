@@ -1,0 +1,240 @@
+//! 'winia init' — add Winia to an existing Cargo project.
+//!
+//! Unlike 'winia new', this never rewrites the user's sources: it adds the framework dependency
+//! to Cargo.toml, writes winia.toml when absent, creates assets/, and — when Android is requested —
+//! generates the Gradle project and src/lib.rs only if they do not exist yet.
+
+use crate::cli::{InitArgs, Platform};
+use crate::commands::new;
+use crate::config::WiniaConfig;
+use anyhow::{Context, Result, bail};
+use std::path::PathBuf;
+use toml_edit::{Array, DocumentMut, Item, Table};
+
+/// Written only when the project has no src/lib.rs. The blank template starts from a real UI;
+/// an existing project usually already has one, so the entry point is left empty.
+const ANDROID_ENTRY: &str = r#"//! Android entry point added by winia init.
+
+#[cfg(target_os = "android")]
+#[unsafe(no_mangle)]
+fn android_main(android_app: winit::platform::android::activity::AndroidApp) {
+    winia::app::run_app_android(android_app, |_ctx| {
+        // Build the application UI here.
+    });
+}
+"#;
+
+pub fn run(args: InitArgs) -> Result<()> {
+    let cwd = std::env::current_dir().context("reading the current directory")?;
+    let root: PathBuf = args.path.clone().unwrap_or(cwd);
+    let cargo_toml = root.join("Cargo.toml");
+    if !cargo_toml.is_file() {
+        bail!(
+            "no Cargo.toml in {}; create a Rust project first or use winia new",
+            root.display()
+        );
+    }
+    if root.join("winia.toml").is_file() {
+        bail!(
+            "{} already contains winia.toml; this project is already initialized",
+            root.display()
+        );
+    }
+
+    let text = std::fs::read_to_string(&cargo_toml)
+        .with_context(|| format!("reading {}", cargo_toml.display()))?;
+    let mut doc: DocumentMut = text
+        .parse()
+        .with_context(|| format!("parsing {}", cargo_toml.display()))?;
+    let package_name = doc["package"]["name"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("Cargo.toml has no [package] name"))?
+        .to_owned();
+    let package_version = doc["package"]["version"]
+        .as_str()
+        .unwrap_or("0.1.0")
+        .to_owned();
+
+    let package = new::package_name(&package_name)?;
+    let lib_name = package.replace('-', "_");
+    let app_id = format!("com.example.{lib_name}");
+    let app_name = args
+        .name
+        .clone()
+        .unwrap_or_else(|| title_case(&package_name));
+
+    let platforms = if args.platforms.is_empty() {
+        vec![Platform::Windows, Platform::Macos, Platform::Linux]
+    } else {
+        args.platforms.clone()
+    };
+    if platforms.contains(&Platform::Ios) {
+        bail!("ios support is not implemented yet; choose windows, macos, linux, or android");
+    }
+    let android = platforms.contains(&Platform::Android);
+
+    let winia_android = new::winia_dependency(
+        args.winia_path.clone(),
+        &["android-game-activity", "vulkan"],
+    )?;
+    let winia_desktop = new::winia_dependency(args.winia_path.clone(), &["gl"])?;
+
+    set_target_dependency(
+        &mut doc,
+        "cfg(not(target_os = \"android\"))",
+        &winia_desktop,
+    )?;
+    set_target_dependency(&mut doc, "cfg(target_os = \"android\")", &winia_android)?;
+    if android {
+        ensure_crate_types(&mut doc)?;
+    }
+    std::fs::write(&cargo_toml, doc.to_string())
+        .with_context(|| format!("writing {}", cargo_toml.display()))?;
+    println!(
+        "Updated Cargo.toml (winia dependency{})",
+        if android { " + lib crate types" } else { "" }
+    );
+
+    let mut config = WiniaConfig::default();
+    config.app.name = app_name.clone();
+    config.app.id = app_id.clone();
+    config.app.version = package_version;
+    config.android.package = app_id.clone();
+    config.window.title = app_name;
+    config.window.width = 1000.0;
+    config.window.height = 700.0;
+    config.save(&root.join("winia.toml"))?;
+    println!("Wrote winia.toml");
+
+    std::fs::create_dir_all(root.join("assets"))
+        .with_context(|| format!("creating {}", root.join("assets").display()))?;
+
+    if android {
+        let package_path = app_id.replace('.', "/");
+        let vars: Vec<(&str, &str)> = vec![
+            ("__APP_NAME__", config.app.name.as_str()),
+            ("__PACKAGE_NAME__", package.as_str()),
+            ("__LIB_NAME__", lib_name.as_str()),
+            ("__APP_ID__", app_id.as_str()),
+            ("__PACKAGE_PATH__", package_path.as_str()),
+            ("__VERSION__", config.app.version.as_str()),
+            ("__WINIA_DEP_ANDROID__", winia_android.as_str()),
+            ("__WINIA_DEP_DESKTOP__", winia_desktop.as_str()),
+        ];
+        if !root.join("src/lib.rs").is_file() {
+            std::fs::write(root.join("src/lib.rs"), ANDROID_ENTRY)
+                .with_context(|| format!("writing {}", root.join("src/lib.rs").display()))?;
+            println!("Wrote src/lib.rs (android_main entry point)");
+        }
+        for file in new::android_files() {
+            new::write_rendered(&root, file, &vars)?;
+        }
+        new::write_android_binaries(&root)?;
+        println!("Wrote android/ Gradle project");
+    }
+
+    println!("Platforms: {}", platform_list(&platforms).join(", "));
+    println!("Next:");
+    println!("  winia doctor");
+    println!("  winia run");
+    Ok(())
+}
+
+fn platform_list(platforms: &[Platform]) -> Vec<String> {
+    platforms
+        .iter()
+        .map(|platform| match platform {
+            Platform::Windows => "windows".to_owned(),
+            Platform::Macos => "macos".to_owned(),
+            Platform::Linux => "linux".to_owned(),
+            Platform::Android => "android".to_owned(),
+            Platform::Ios => "ios".to_owned(),
+        })
+        .collect()
+}
+
+/// "my-app" becomes "My App"; existing capitalisation is preserved.
+fn title_case(package: &str) -> String {
+    package
+        .split(['-', '_'])
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// A parent table that renders only when it has to, so the file shows just the leaf headers.
+fn implicit_table() -> Item {
+    let mut table = Table::new();
+    table.set_implicit(true);
+    Item::Table(table)
+}
+
+fn set_target_dependency(doc: &mut DocumentMut, cfg: &str, spec: &str) -> Result<()> {
+    let target = doc.entry("target").or_insert_with(implicit_table);
+    let target = target
+        .as_table_mut()
+        .ok_or_else(|| anyhow::anyhow!("Cargo.toml [target] is not a table"))?;
+    let entry = target.entry(cfg).or_insert_with(implicit_table);
+    let entry = entry
+        .as_table_mut()
+        .ok_or_else(|| anyhow::anyhow!("Cargo.toml target.{cfg} is not a table"))?;
+    let dependencies = entry
+        .entry("dependencies")
+        .or_insert(Item::Table(Table::new()));
+    let dependencies = dependencies
+        .as_table_mut()
+        .ok_or_else(|| anyhow::anyhow!("Cargo.toml target.{cfg}.dependencies is not a table"))?;
+    dependencies.insert("winia", dependency_item(spec)?);
+    Ok(())
+}
+
+fn dependency_item(spec: &str) -> Result<Item> {
+    let parsed: DocumentMut = format!("[dependencies]\nwinia = {spec}\n")
+        .parse()
+        .with_context(|| format!("building the winia dependency from {spec}"))?;
+    Ok(parsed["dependencies"]["winia"].clone())
+}
+
+fn ensure_crate_types(doc: &mut DocumentMut) -> Result<()> {
+    let lib = doc.entry("lib").or_insert(Item::Table(Table::new()));
+    let lib = lib
+        .as_table_mut()
+        .ok_or_else(|| anyhow::anyhow!("Cargo.toml [lib] is not a table"))?;
+    let mut crate_types = Array::new();
+    crate_types.push("rlib");
+    crate_types.push("cdylib");
+    lib.insert("crate-type", Item::Value(crate_types.into()));
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn title_cases_package_names() {
+        assert_eq!(title_case("my-app"), "My App");
+        assert_eq!(title_case("winia_blank"), "Winia Blank");
+        assert_eq!(title_case("simple"), "Simple");
+    }
+
+    #[test]
+    fn adds_target_dependencies_without_clobbering_others() {
+        let mut doc: DocumentMut = "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n"
+            .parse()
+            .unwrap();
+        set_target_dependency(&mut doc, "cfg(unix)", "{ version = \"0.1\" }").unwrap();
+        set_target_dependency(&mut doc, "cfg(unix)", "{ version = \"0.2\" }").unwrap();
+        let text = doc.to_string();
+        assert!(text.contains("[target.\"cfg(unix)\".dependencies]"));
+        assert!(text.contains("version = \"0.2\""));
+        assert!(!text.contains("version = \"0.1\""));
+    }
+}

@@ -9,7 +9,7 @@
 | Command | Purpose | Current status |
 | --- | --- | --- |
 | `winia new` | Create a new project from a template | Implemented (blank template, desktop + Android) |
-| `winia init` | Add Winia to an existing Rust project | Planned |
+| `winia init` | Add Winia to an existing Rust project | Implemented: Cargo dependency, `winia.toml`, optional Android scaffolding |
 | `winia build` | Build the application | Implemented: host executable and Android APK (NDK driver + Gradle) |
 | `winia run` | Build and run | Implemented: host launch, Android install/start |
 | `winia dev` | Development mode: file watching + restart | Implemented (desktop restart, Android reinstall/restart, automatic debug-server) |
@@ -95,6 +95,26 @@ Also generated:
 - `.cargo/config.toml`: optional settings such as sccache.
 - CI workflow (optional).
 - Recommended VSCode settings (optional).
+
+### 1.4 Adding Winia to an existing project
+
+```bash
+winia init
+winia init --path ../my-app --platforms windows,android --winia-path D:\Projects\winia\winia
+```
+
+Implemented: `winia init` never rewrites the user's sources.
+
+- Adds the `winia` dependency under `[target.'cfg(not(target_os = "android"))'.dependencies]`
+  (desktop) and `[target.'cfg(target_os = "android")'.dependencies]` (Android), editing
+  `Cargo.toml` with `toml_edit` so comments and formatting survive.
+- Writes `winia.toml` from the Cargo package name and version, and creates `assets/`.
+- With `--platforms ...,android`: adds `[lib] crate-type = ["rlib", "cdylib"]`, writes
+  `src/lib.rs` with an `android_main` entry point (only when the file does not exist yet), and
+  generates the Gradle project plus the wrapper.
+- Refuses to run twice (`winia.toml` already present) or when `Cargo.toml` is missing, and
+  rejects a `--winia-path` that points at a workspace manifest instead of the crate.
+- `ios` is rejected explicitly.
 
 ### 1.4 Adopting an existing project
 
@@ -680,6 +700,7 @@ winia upgrade
 | --- | --- |
 | clap command surface | Implemented; covers every command in this document |
 | `winia new` blank template | Implemented; desktop + Android GameActivity scaffold |
+| `winia init` | Implemented; Cargo dependency, `winia.toml`, optional Android scaffold |
 | `winia doctor` environment checks | Implemented; covers MSRV, host platform toolchains, Android SDK/NDK/licenses, `winia.toml` validation, `--strict` and `--fix` |
 | `winia info` / `targets` | Implemented |
 | `winia config show/get` | Implemented |

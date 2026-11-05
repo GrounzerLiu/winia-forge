@@ -10,6 +10,7 @@ pub mod ci;
 pub mod clean;
 pub mod dev;
 pub mod doctor;
+pub mod init;
 pub mod inspect;
 pub mod new;
 pub mod package;
@@ -47,6 +48,7 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         Command::Platform(args) => platform(args),
         Command::Assets(args) => assets::run(args),
         Command::Ci(args) => ci::run(args),
+        Command::Init(args) => init::run(args),
         Command::Emulators(args) => emulators(args),
         Command::Logcat(args) => logcat(args),
         Command::Screenshot(args) => screenshot(args),

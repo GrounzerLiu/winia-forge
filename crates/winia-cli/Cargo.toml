@@ -31,5 +31,6 @@ icns.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true
+toml_edit.workspace = true
 winia-build = { path = "../winia-build" }
 winia-pack = { path = "../winia-pack" }

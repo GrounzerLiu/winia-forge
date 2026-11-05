@@ -45,9 +45,9 @@ const ANDROID_GRADLEW_BAT: &[u8] = include_bytes!("../../templates/blank/android
 const ANDROID_WRAPPER_JAR: &[u8] =
     include_bytes!("../../templates/blank/android/gradle/wrapper/gradle-wrapper.jar");
 
-struct TemplateFile {
-    template: &'static str,
-    destination: &'static str,
+pub(crate) struct TemplateFile {
+    pub(crate) template: &'static str,
+    pub(crate) destination: &'static str,
 }
 
 const COMMON_FILES: &[TemplateFile] = &[
@@ -220,7 +220,7 @@ fn effective_platforms(requested: &[Platform]) -> Vec<Platform> {
     }
 }
 
-fn package_name(name: &str) -> Result<String> {
+pub(crate) fn package_name(name: &str) -> Result<String> {
     let package = name.trim().to_lowercase().replace(' ', "-");
     if package.is_empty() {
         bail!("application name must not be empty");
@@ -236,7 +236,7 @@ fn package_name(name: &str) -> Result<String> {
 
 /// Render the Cargo dependency value for winia. The crate is not published yet, so
 /// a local checkout passed through `--winia-path` or `WINIA_PATH` is required.
-fn winia_dependency(explicit: Option<PathBuf>, features: &[&str]) -> Result<String> {
+pub(crate) fn winia_dependency(explicit: Option<PathBuf>, features: &[&str]) -> Result<String> {
     let path = explicit.or_else(|| std::env::var_os("WINIA_PATH").map(PathBuf::from));
     let features = features
         .iter()
@@ -244,11 +244,27 @@ fn winia_dependency(explicit: Option<PathBuf>, features: &[&str]) -> Result<Stri
         .collect::<Vec<_>>()
         .join(", ");
     match path {
-        Some(path) => Ok(format!(
-            "{{ path = \"{}\", default-features = false, features = [{}] }}",
-            path.display().to_string().replace('\\', "/"),
-            features
-        )),
+        Some(path) => {
+            let manifest = path.join("Cargo.toml");
+            let text = std::fs::read_to_string(&manifest).map_err(|error| {
+                anyhow::anyhow!(
+                    "winia path '{}' has no readable Cargo.toml: {error}",
+                    path.display()
+                )
+            })?;
+            if !text.contains("[package]") {
+                bail!(
+                    "{} is a workspace manifest, not the winia crate; pass the crate directory instead (for example {})",
+                    manifest.display(),
+                    path.join("winia").display()
+                );
+            }
+            Ok(format!(
+                "{{ path = \"{}\", default-features = false, features = [{}] }}",
+                path.display().to_string().replace('\\', "/"),
+                features
+            ))
+        }
         None => bail!(
             "winia is not published on crates.io yet; pass --winia-path <path-to-winia-crate> or set WINIA_PATH"
         ),
@@ -263,7 +279,11 @@ fn render(template: &str, vars: &[(&str, &str)]) -> String {
     rendered
 }
 
-fn write_rendered(root: &Path, file: &TemplateFile, vars: &[(&str, &str)]) -> Result<()> {
+pub(crate) fn write_rendered(
+    root: &Path,
+    file: &TemplateFile,
+    vars: &[(&str, &str)],
+) -> Result<()> {
     let destination = render(file.destination, vars);
     let path = root.join(&destination);
     if let Some(parent) = path.parent() {
@@ -283,6 +303,27 @@ fn make_executable(path: &Path) -> Result<()> {
     permissions.set_mode(0o755);
     std::fs::set_permissions(path, permissions)
         .with_context(|| format!("marking {} executable", path.display()))
+}
+
+/// The Android project files the blank template installs, for 'winia init' to reuse.
+pub(crate) fn android_files() -> &'static [TemplateFile] {
+    ANDROID_FILES
+}
+
+/// Write the Gradle wrapper binaries and the jniLibs directories.
+pub(crate) fn write_android_binaries(root: &Path) -> Result<()> {
+    write_bytes(root, "android/gradlew", ANDROID_GRADLEW)?;
+    #[cfg(unix)]
+    make_executable(&root.join("android/gradlew"))?;
+    write_bytes(root, "android/gradlew.bat", ANDROID_GRADLEW_BAT)?;
+    write_bytes(
+        root,
+        "android/gradle/wrapper/gradle-wrapper.jar",
+        ANDROID_WRAPPER_JAR,
+    )?;
+    std::fs::create_dir_all(root.join("android/app/src/main/jniLibs/arm64-v8a"))?;
+    std::fs::create_dir_all(root.join("android/app/src/main/jniLibs/x86_64"))?;
+    Ok(())
 }
 
 fn write_bytes(root: &Path, destination: &str, bytes: &[u8]) -> Result<()> {
