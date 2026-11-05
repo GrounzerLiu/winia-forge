@@ -340,6 +340,10 @@ struct WixTools {
 }
 
 /// Locate candle and light: WIX environment variable, PATH, then the default install.
+pub fn wix_available() -> bool {
+    find_wix().is_ok()
+}
+
 fn find_wix() -> Result<WixTools> {
     let names = if cfg!(windows) {
         ("candle.exe", "light.exe")

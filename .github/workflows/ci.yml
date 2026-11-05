@@ -58,6 +58,15 @@ jobs:
           cd .github/fixtures/ci-app
           "$WINIA" package --target "${{ matrix.target }}" --format "${{ matrix.format }}" --out-dir dist --clean
 
+      - name: Verify checksums
+        if: runner.os != 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd .github/fixtures/ci-app/dist
+          test -s SHA256SUMS
+          sha256sum -c SHA256SUMS
+
       - name: Verify Windows zip
         if: runner.os == 'Windows'
         shell: bash

@@ -407,7 +407,10 @@ Installer formats still pending: MSIX, DMG, PKG, rpm, AppImage.
 - The output directory defaults to `dist/`; `--out-dir` overrides it.
 - Portable desktop artifacts include the executable and the project `assets/` directory when present.
 - The build report includes each artifact's size, so accidental bloat is easy to spot.
-- SHA256 checksums and a JSON manifest are not generated yet.
+- Every run writes `dist/SHA256SUMS` in the `sha256sum -c` format and includes each file
+  artifact's `sha256` in `--json`. Directory artifacts (the macOS `.app` bundle) are not hashed
+  yet. Installer formats whose external tool is missing (NSIS, WiX) are skipped with a note unless
+  they were requested explicitly with `--format`, in which case they fail.
 
 ### 5.3 Windows packaging
 

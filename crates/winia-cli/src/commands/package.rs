@@ -14,6 +14,7 @@ use crate::platform::tools::{apksigner_command, build_tools_dir, executable};
 use anyhow::{Context, Result, bail};
 use flate2::Compression;
 use flate2::write::GzEncoder;
+use sha2::{Digest, Sha256};
 use std::fs::File;
 use std::io::copy;
 use std::path::{Path, PathBuf};
@@ -154,7 +155,9 @@ fn package_desktop(
     }
 
     let publisher = config.app.authors.join(", ");
+    let explicit = !args.format.is_empty();
     let mut produced = Vec::new();
+    let mut built_formats = Vec::new();
     for format in &formats {
         let destination = desktop_artifact_path(&stem, &version, target, arch, format, &out_dir);
         match format.as_str() {
@@ -181,6 +184,14 @@ fn package_desktop(
                     arch,
                 };
                 winia_pack::deb::build(&spec)?;
+            }
+            "msi" if !explicit && !winia_pack::msi::wix_available() => {
+                eprintln!("note: the WiX toolset was not found; skipped msi");
+                continue;
+            }
+            "nsis" if !explicit && winia_pack::nsis::find_makensis().is_err() => {
+                eprintln!("note: makensis was not found; skipped nsis");
+                continue;
             }
             "msi" => {
                 let spec = winia_pack::msi::MsiSpec {
@@ -220,6 +231,7 @@ fn package_desktop(
             other => bail!("unsupported desktop format '{other}'"),
         }
         produced.push(destination);
+        built_formats.push(format.clone());
     }
 
     report(
@@ -230,7 +242,7 @@ fn package_desktop(
         started.elapsed(),
         ReportMeta {
             target,
-            formats: &formats,
+            formats: &built_formats,
             split: None,
             version: &version,
         },
@@ -1005,10 +1017,21 @@ fn report(
     elapsed: Duration,
     meta: ReportMeta<'_>,
 ) -> Result<()> {
+    let hashes: Vec<Option<String>> = if dry_run {
+        vec![None; artifacts.len()]
+    } else {
+        artifacts.iter().map(|path| sha256_of(path)).collect()
+    };
+    if !dry_run {
+        if let Some(directory) = artifacts.first().and_then(|path| path.parent()) {
+            write_checksums(directory, artifacts, &hashes)?;
+        }
+    }
     if json {
         let values: Vec<_> = artifacts
             .iter()
-            .map(|path| {
+            .zip(hashes.iter())
+            .map(|(path, hash)| {
                 let bytes = if dry_run {
                     0
                 } else {
@@ -1016,10 +1039,14 @@ fn report(
                         .map(|metadata| metadata.len())
                         .unwrap_or(0)
                 };
-                serde_json::json!({
+                let mut entry = serde_json::json!({
                     "path": display_relative(root, path),
                     "bytes": bytes,
-                })
+                });
+                if let Some(hash) = hash {
+                    entry["sha256"] = serde_json::json!(hash);
+                }
+                entry
             })
             .collect();
         let split = meta.split.map(|split| match split {
@@ -1065,6 +1092,39 @@ fn report(
     Ok(())
 }
 
+/// SHA-256 of a produced artifact, or None when it cannot be read.
+fn sha256_of(path: &Path) -> Option<String> {
+    let bytes = std::fs::read(path).ok()?;
+    Some(format!("{:x}", Sha256::digest(&bytes)))
+}
+
+/// Write SHA256SUMS next to the artifacts, in the format sha256sum -c expects.
+fn write_checksums(
+    directory: &Path,
+    artifacts: &[PathBuf],
+    hashes: &[Option<String>],
+) -> Result<()> {
+    let mut text = String::new();
+    for (path, hash) in artifacts.iter().zip(hashes.iter()) {
+        let (Some(hash), Some(name)) = (hash, path.file_name().and_then(|name| name.to_str()))
+        else {
+            continue;
+        };
+        text.push_str(&checksum_line(hash, name));
+    }
+    if text.is_empty() {
+        return Ok(());
+    }
+    let destination = directory.join("SHA256SUMS");
+    std::fs::write(&destination, text)
+        .with_context(|| format!("writing {}", destination.display()))?;
+    Ok(())
+}
+
+fn checksum_line(hash: &str, name: &str) -> String {
+    format!("{hash}  {name}\n")
+}
+
 fn display_relative(root: &Path, path: &Path) -> String {
     path.strip_prefix(root)
         .map(|relative| relative.display().to_string())
@@ -1075,6 +1135,14 @@ fn display_relative(root: &Path, path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn checksum_lines_match_the_sha256sum_format() {
+        assert_eq!(
+            checksum_line("abc123", "app-1.0.0.zip"),
+            "abc123  app-1.0.0.zip\n"
+        );
+    }
 
     #[test]
     fn artifact_names_are_lowercase_and_safe() {
