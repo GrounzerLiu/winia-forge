@@ -9,6 +9,8 @@ pub fn app(ctx: &mut ComposeCtx) {
                 crate::winia_config::WINDOW_WIDTH,
                 crate::winia_config::WINDOW_HEIGHT,
             )
+            .resizable(crate::winia_config::WINDOW_RESIZABLE)
+            .decorations(crate::winia_config::WINDOW_DECORATIONS)
             .build(ctx, |ctx| {
                 Column::new()
                     .modifier(Modifier::new().fill_max_size().padding(24.0))

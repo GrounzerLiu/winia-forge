@@ -388,7 +388,7 @@ The paths below are all in the `D:\Projects\winia` repository.
 | `run_app!` macro | Implemented by the template | The generated `src/lib.rs` writes `#[no_mangle] fn android_main`; the macro itself is unchanged |
 | Skia build | Implemented | Android uses the prebuilt Skia archives for the Vulkan feature set; a source build needs `ANDROID_NDK` and API 26 |
 | Clipboard | Pending | Reads still go through `arboard`, which has no Android backend; writes use `winit::set_clipboard`. A JNI ClipboardManager bridge is still missing |
-| Window API | Partial | Title/size/icon work; fullscreen, orientation and status-bar control do not |
+| Window API | Partial | Title, size, icon, resizable and decorations work; fullscreen, orientation and status-bar control do not |
 | Insets | Pending | `winia/src/window/insets.rs` has no Android data source; `AndroidApp::content_rect` is not wired |
 | IME | Implemented (fork) | `winia-winit` forwards `TextEvent`/`Commit`/`DeleteSurrounding` in GameActivity mode; on-device verification steps stay in 06-android-ime-and-apk.md |
 | Lifecycle | Pending | No `SaveableStateRegistry` → Bundle mapping; Activity recreation loses UI state |
