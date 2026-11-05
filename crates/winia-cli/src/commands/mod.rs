@@ -11,6 +11,7 @@ pub mod clean;
 pub mod dev;
 pub mod devices;
 pub mod doctor;
+pub mod emulators;
 pub mod init;
 pub mod inspect;
 pub mod logcat;
@@ -24,8 +25,8 @@ pub mod sign_windows;
 pub mod test;
 
 use crate::cli::{
-    Cli, Command, CompletionShell, ConfigArgs, ConfigCommand, EmulatorsArgs, InfoArgs,
-    PlatformArgs, PlatformCommand, ScreenshotArgs, TargetsArgs,
+    Cli, Command, CompletionShell, ConfigArgs, ConfigCommand, InfoArgs, PlatformArgs,
+    PlatformCommand, ScreenshotArgs, TargetsArgs,
 };
 use crate::config::{WiniaConfig, find_config};
 use anyhow::{Context, Result, bail};
@@ -53,7 +54,7 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         Command::Assets(args) => assets::run(args),
         Command::Ci(args) => ci::run(args),
         Command::Init(args) => init::run(args),
-        Command::Emulators(args) => emulators(args),
+        Command::Emulators(args) => emulators::run(args),
         Command::Logcat(args) => logcat::run(args),
         Command::Screenshot(args) => screenshot(args),
         Command::Devices(args) => devices::run(args),
@@ -204,10 +205,6 @@ fn platform(args: PlatformArgs) -> Result<()> {
             Ok(())
         }
     }
-}
-
-fn emulators(_args: EmulatorsArgs) -> Result<()> {
-    planned("emulators")
 }
 
 fn screenshot(_args: ScreenshotArgs) -> Result<()> {

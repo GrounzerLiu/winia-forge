@@ -537,8 +537,16 @@ pub struct EmulatorsArgs {
 
 #[derive(Debug, Subcommand)]
 pub enum EmulatorsCommand {
+    /// List the available AVDs and the serial of any that is running.
     List,
-    Start { name: String },
+    /// Start an AVD in a new process.
+    Start {
+        name: String,
+        /// Start without a window (useful on CI).
+        #[arg(long)]
+        headless: bool,
+    },
+    /// Stop a running AVD.
     Stop { name: String },
 }
 

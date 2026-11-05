@@ -28,7 +28,7 @@
 | `winia targets` | Supported/installed target platforms | Implemented |
 | `winia config` | View/read `winia.toml` | show/get implemented |
 | `winia devices` | List adb devices | Implemented (`--json`) |
-| `winia emulators` | Android emulator management | Planned |
+| `winia emulators` | Android emulator management | Implemented: list/start/stop (headless start) |
 | `winia logcat` | Android log filtering | Implemented: device, tag/package/pid, level, `--clear` |
 | `winia screenshot` | Screenshots | Planned |
 | `winia platform` | Add platform support | Planned (android placeholder) |
@@ -371,6 +371,19 @@ winia logcat --filter com.example.app --clear
   case the pid is resolved once through `adb shell pidof`; `--pid` takes precedence.
   `--level` accepts V/D/I/W/E/F/S, `--clear` empties the buffer first.
 - Ctrl+C (exit 130/143 or a signalled child) ends the stream without an error.
+
+```bash
+winia emulators list
+winia emulators start Pixel_7_API_34
+winia emulators start Pixel_7_API_34 --headless
+winia emulators stop Pixel_7_API_34
+```
+
+- `list` reads `emulator -list-avds` and cross-checks adb, so a running AVD shows its serial.
+- `start` spawns the emulator detached and prints its pid; `--headless` adds
+  `-no-window -no-audio -no-boot-anim` for CI.
+- `stop` maps the AVD name to its emulator serial through `adb emu avd name` and sends
+  `emu kill`. An AVD that is not running is an explicit error.
 
 ### 4.5 Debugging tools
 
