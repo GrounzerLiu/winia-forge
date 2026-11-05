@@ -15,7 +15,7 @@
 | `winia dev` | Development mode: file watching + restart | Implemented (desktop restart, Android reinstall/restart, automatic debug-server) |
 | `winia inspect` | Debug-server client | Implemented: info, tree, click, drag, key, scroll, screenshot, registry/port discovery |
 | `winia test` | Unit, UI, and device smoke tests | Implemented: host cargo tests, Android install/launch/logcat/screenshot smoke |
-| `winia package` | Package installers/archives/APK/AAB | Implemented: desktop portable zip/tar.gz/app, Windows NSIS installer, Android APK/AAB; MSI/DMG/deb pending |
+| `winia package` | Package installers/archives/APK/AAB | Implemented: desktop portable zip/tar.gz/app, Windows NSIS and MSI, Linux deb, Android APK/AAB; DMG/PKG/rpm/AppImage pending |
 | `winia sign` | Code signing | Implemented for Android APKs |
 | `winia release` | Version, tag, publish | Implemented for Android (local artifacts + GitHub upload) |
 | `winia doctor` | Environment diagnostics | Implemented (Rust/MSRV, platform toolchains, Android SDK/NDK, `--fix`) |
@@ -395,8 +395,9 @@ winia package --target linux --format tar.gz
 winia package --target macos --format app,zip
 winia package --target android --format apk,aab --split per-abi
 
-Implemented formats: Windows `zip`, `nsis`; Linux `tar.gz`; macOS `app`, `zip`; Android `apk`, `aab`.
-Installer formats still pending: MSI, MSIX, DMG, PKG, deb, rpm, AppImage.
+Implemented formats: Windows `zip`, `nsis`, `msi`; Linux `tar.gz`, `deb`; macOS `app`, `zip`;
+Android `apk`, `aab`.
+Installer formats still pending: MSIX, DMG, PKG, rpm, AppImage.
 ```
 
 ### 5.2 General requirements
@@ -410,9 +411,16 @@ Installer formats still pending: MSI, MSIX, DMG, PKG, deb, rpm, AppImage.
 
 ### 5.3 Windows packaging
 
-Implemented: `zip` portable archive containing the executable and `assets/`, plus an `nsis`
-installer (`{app}-{version}-windows-{arch}-setup.exe`). The executable embeds the generated
-`.ico` through `build.rs`/`winres`.
+Implemented: `zip` portable archive containing the executable and `assets/`, an `nsis`
+installer (`{app}-{version}-windows-{arch}-setup.exe`) and an `msi` package
+(`{app}-{version}-windows-{arch}.msi`). The executable embeds the generated `.ico` through
+`build.rs`/`winres`.
+
+- MSI: generated with the WiX 3 toolset (`candle` + `light`, found through `WIX`, `PATH`, or
+  `%ProgramFiles(x86)%\WiX Toolset v3.14\bin`). The package installs per machine into
+  `ProgramFiles64Folder`, ships one component per payload file with an auto-generated GUID, a
+  Start Menu shortcut, and a MajorUpgrade rule. `ProductCode` is derived from the app id plus
+  version; `UpgradeCode` is derived from the app id so upgrades chain correctly.
 
 - Icons: multi-size `.ico` (16–256).
 - Version resources: product name, company name, copyright, file version.
@@ -443,10 +451,16 @@ Implemented: basic `.app` bundle (`Contents/MacOS`, `Contents/Resources`, `Info.
 
 ### 5.5 Linux packaging
 
-Implemented: `tar.gz` portable directory. Installers are pending.
+Implemented: `tar.gz` portable directory and a `deb` package
+(`{app}-{version}-linux-{arch}.deb`).
 
 - `tar.gz`: portable directory.
-- `deb`: control file, dependencies, maintainer scripts, desktop file, icons.
+- `deb`: assembled directly as an ar archive (`debian-binary`, `control.tar.gz`, `data.tar.gz`),
+  without dpkg-deb. The payload installs under `/usr/lib/<exe stem>`, with a
+  `/usr/bin/<exe stem>` symlink and a desktop entry in `/usr/share/applications`. The control
+  file carries `Package` (from `app.id`), `Version`, `Architecture` (`amd64`/`arm64`),
+  `Maintainer`, `Installed-Size`, `Section` and `Priority`. CI installs the package with
+  `dpkg -i`, runs the binary, and removes it with `dpkg -r`.
 - `rpm`: spec file, suitable for Fedora/RHEL.
 - `AppImage`: single file with bundled dependencies.
 - `.desktop` and AppStream metadata.
@@ -708,7 +722,7 @@ winia upgrade
 | `winia platform add android` | Placeholder directory |
 | `winia build` | Implemented: host executable and Android APK |
 | `winia run` | Implemented: host and Android |
-| `winia package` | Implemented: desktop portable zip/tar.gz/app, Windows NSIS installer; Android APK/AAB with alignment/ABI/signature checks; MSI/DMG/deb pending |
+| `winia package` | Implemented: desktop portable zip/tar.gz/app, Windows NSIS and MSI, Linux deb; Android APK/AAB with alignment/ABI/signature checks; DMG/PKG/rpm/AppImage pending |
 | `winia sign` | Implemented: Android APK signing with apksigner |
 | `winia release` | Implemented: Android bump/package/sign/tag/latest.json and optional GitHub upload |
 | Template system, hooks, plugins | Planned |

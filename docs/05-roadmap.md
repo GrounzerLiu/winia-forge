@@ -53,9 +53,11 @@ Acceptance:
 
 - [x] Icon generation (.ico, .icns, PNG, Android mipmaps) and Windows exe icon embedding.
 - [x] Windows NSIS installer (`winia package --target windows --format nsis`).
-- [ ] Windows MSI (WiX), optional MSIX.
+- [x] Windows MSI (WiX).
+- [ ] Optional MSIX.
 - [ ] macOS DMG, PKG, universal binary.
-- [ ] Linux deb, rpm, AppImage, .desktop, AppStream.
+- [x] Linux deb (payload in /usr/lib, /usr/bin symlink, desktop entry).
+- [ ] Linux rpm, AppImage, AppStream metadata.
 - [ ] Authenticode signing, macOS codesign/notarize.
 - [x] `winia release`: version bump, package, sign, tag, GitHub Releases (Android; desktop pending).
 - [x] CI workflow generator (`winia ci init`: GitHub Actions, GitLab CI).

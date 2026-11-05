@@ -81,7 +81,15 @@ pub fn build(spec: &MsiSpec<'_>) -> Result<PathBuf> {
         bail!(
             "candle failed ({}): {}",
             candle.status,
-            tail(&String::from_utf8_lossy(&candle.stdout), 20)
+            tail(
+                &format!(
+                    "{}
+{}",
+                    String::from_utf8_lossy(&candle.stdout),
+                    String::from_utf8_lossy(&candle.stderr)
+                ),
+                20
+            )
         );
     }
     let light = Command::new(&tools.light)
@@ -94,7 +102,15 @@ pub fn build(spec: &MsiSpec<'_>) -> Result<PathBuf> {
         bail!(
             "light failed ({}): {}",
             light.status,
-            tail(&String::from_utf8_lossy(&light.stdout), 20)
+            tail(
+                &format!(
+                    "{}
+{}",
+                    String::from_utf8_lossy(&light.stdout),
+                    String::from_utf8_lossy(&light.stderr)
+                ),
+                20
+            )
         );
     }
     if !spec.output.is_file() {
@@ -115,13 +131,19 @@ fn generate(
 ) -> Result<String> {
     let product_code = guid(&format!("{}:{}", spec.app_id, version));
     let upgrade_code = guid(&format!("{}:upgrade", spec.app_id));
+    // WiX rejects an empty Manufacturer, and many projects do not set one.
+    let publisher = if spec.publisher.trim().is_empty() {
+        spec.app_name
+    } else {
+        spec.publisher
+    };
     let mut s = String::new();
     s.push_str("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n");
     s.push_str("<Wix xmlns=\"http://schemas.microsoft.com/wix/2006/wi\">\n");
     s.push_str(&format!(
         "  <Product Id=\"{product_code}\" Name=\"{}\" Language=\"1033\" Version=\"{version}\" Manufacturer=\"{}\" UpgradeCode=\"{upgrade_code}\">\n",
         xml(spec.app_name),
-        xml(spec.publisher)
+        xml(publisher)
     ));
     s.push_str(&format!(
         "    <Package InstallerVersion=\"500\" Compressed=\"yes\" InstallScope=\"perMachine\" Platform=\"{platform}\" />\n"
@@ -332,6 +354,26 @@ mod tests {
         assert!(wxs.contains("<Component Id=\"cmp_1\" Guid=\"*\">"));
         assert!(wxs.contains("<ComponentRef Id=\"cmp_shortcut\" />"));
         assert!(wxs.contains("ProgramFiles64Folder"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn falls_back_to_the_app_name_when_no_publisher_is_set() {
+        let root = fixture("publisher");
+        let payload = root.join("payload");
+        let files = collect(&payload).unwrap();
+        let spec = MsiSpec {
+            app_name: "Winia Blank",
+            app_version: "0.1.3",
+            app_id: "com.example.winia_blank",
+            publisher: "",
+            executable: "app.exe",
+            payload: &payload,
+            output: &root.join("app.msi"),
+            arch: "x86_64",
+        };
+        let wxs = generate(&spec, &files, "0.1.3", "x64").unwrap();
+        assert!(wxs.contains("Manufacturer=\"Winia Blank\""));
         std::fs::remove_dir_all(root).unwrap();
     }
 

@@ -106,6 +106,7 @@ jobs:
           $winia = Join-Path $env:GITHUB_WORKSPACE 'target\release\winia.exe'
           Set-Location .github/fixtures/ci-app
           & $winia package --target windows --format msi --out-dir dist --clean
+          if ($LASTEXITCODE -ne 0) { throw "winia package failed with exit code $LASTEXITCODE" }
           $msi = (Get-ChildItem dist -Filter *-setup.msi).FullName
           if (-not $msi) { $msi = (Get-ChildItem dist -Filter *.msi | Select-Object -First 1).FullName }
           if (-not $msi) { throw 'no MSI produced' }
