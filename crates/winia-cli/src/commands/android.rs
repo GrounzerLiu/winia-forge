@@ -23,7 +23,8 @@ pub fn run(args: AndroidArgs) -> Result<()> {
     }
 }
 
-fn android_init(force: bool) -> Result<()> {
+/// Shared by 'winia android init' and 'winia platform add android'.
+pub(crate) fn android_init(force: bool) -> Result<()> {
     let root = project_root()?;
     if root.join("android").exists() && !force {
         bail!("android/ already exists; pass --force to regenerate it");

@@ -31,7 +31,7 @@
 | `winia emulators` | Android emulator management | Implemented: list/start/stop (headless start) |
 | `winia logcat` | Android log filtering | Implemented: device, tag/package/pid, level, `--clear` |
 | `winia screenshot` | Screenshots | Implemented: adb screencap to a PNG (`--device`, `--output`, `--json`) |
-| `winia platform` | Add platform support | Planned (android placeholder) |
+| `winia platform` | Add platform support | Implemented: `platform add android` (same as `android init`); iOS not designed |
 | `winia android` | Android-specific operations | Implemented: `init`, `sync` (managed Gradle files), `studio` |
 | `winia completions` | Shell completions | Implemented |
 
@@ -821,7 +821,7 @@ winia upgrade
 | `winia info` / `targets` | Implemented |
 | `winia config show/get` | Implemented |
 | Shell completions | Implemented |
-| `winia platform add android` | Placeholder directory |
+| `winia platform add android` | Implemented; generates the Android project like `android init` |
 | `winia build` | Implemented: host executable and Android APK |
 | `winia run` | Implemented: host and Android |
 | `winia package` | Implemented: desktop portable zip/tar.gz/app, Windows NSIS and MSI, Linux deb, macOS dmg; Android APK/AAB with alignment/ABI/signature checks; PKG/rpm/AppImage pending |

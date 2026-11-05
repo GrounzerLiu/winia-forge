@@ -156,8 +156,9 @@ Either implement the flag or mark those architectures as planned.
 - `--force` is documented but missing.
 - The generated project lacks `assets/`, `src/lib.rs`, `rust-toolchain.toml`, and
   `.cargo/config.toml`.
-- `winia platform add android` writes into the current directory instead of the project root found
-  through `winia.toml`.
+- ~~`winia platform add android` writes into the current directory instead of the project root
+  found through `winia.toml`.~~ Fixed: it now delegates to `android init`, which resolves the
+  project root and refuses to run outside one.
 
 ## 4. P3 — documentation and tests
 

@@ -194,22 +194,11 @@ fn completions(args: crate::cli::CompletionsArgs) -> Result<()> {
 
 fn platform(args: PlatformArgs) -> Result<()> {
     match args.command {
-        PlatformCommand::Add(add) => {
-            let (dir, note) = match add.platform {
-                crate::cli::Platform::Android => (
-                    "android",
-                    "Android scaffold placeholder; see docs/03-android-support.md",
-                ),
-                crate::cli::Platform::Ios => ("ios", "iOS support is not designed yet"),
-                other => return planned(&format!("platform add {other:?}")),
-            };
-            std::fs::create_dir_all(dir)?;
-            std::fs::write(
-                PathBuf::from(dir).join("README.md"),
-                format!("# {dir}\n\n{note}\n"),
-            )?;
-            println!("created {dir}/README.md");
-            Ok(())
-        }
+        PlatformCommand::Add(add) => match add.platform {
+            // Adding the platform and initialising the Android project are the same operation.
+            crate::cli::Platform::Android => crate::commands::android::android_init(false),
+            crate::cli::Platform::Ios => bail!("iOS support is not designed yet"),
+            other => planned(&format!("platform add {other:?}")),
+        },
     }
 }
