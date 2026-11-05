@@ -33,7 +33,8 @@ pub(crate) fn android_init(force: bool) -> Result<()> {
     let mut config = WiniaConfig::load(&config_path)?;
     config.validate()?;
     if config.android.package.trim().is_empty() {
-        config.android.package = config.app.id.clone();
+        // A bundle id may contain hyphens; an Android applicationId may not.
+        config.android.package = config.app.id.replace('-', "_");
         config.save(&config_path)?;
     }
     crate::commands::init::ensure_android_cargo(&root, None)?;

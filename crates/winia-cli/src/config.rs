@@ -225,6 +225,12 @@ impl WiniaConfig {
                 self.app.id
             );
         }
+        if !self.android.package.trim().is_empty() && !is_java_package(&self.android.package) {
+            anyhow::bail!(
+                "android.package must be a Java package name (letters, digits, underscores), got '{}'",
+                self.android.package
+            );
+        }
         if semver::Version::parse(&self.app.version).is_err() {
             anyhow::bail!(
                 "app.version must be semver such as 0.1.0, got '{}'",
@@ -251,6 +257,20 @@ impl WiniaConfig {
 /// and underscores. Deliberately strict about the first character so an id cannot become a label
 /// fragment when it reaches the Android manifest.
 fn is_reverse_dns(value: &str) -> bool {
+    let segments: Vec<&str> = value.split('.').collect();
+    if segments.len() < 2 {
+        return false;
+    }
+    segments.iter().all(|segment| {
+        let mut chars = segment.chars();
+        matches!(chars.next(), Some(first) if first.is_ascii_alphabetic())
+            && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    })
+}
+
+/// Java package segments: letters/digits/underscores only. Hyphens are legal in a bundle id but not
+/// in an Android applicationId, so the two are validated separately.
+fn is_java_package(value: &str) -> bool {
     let segments: Vec<&str> = value.split('.').collect();
     if segments.len() < 2 {
         return false;
@@ -287,11 +307,29 @@ mod tests {
     #[test]
     fn rejects_ids_that_are_not_reverse_dns() {
         let mut config = WiniaConfig::default();
-        for id in ["myapp", "com..app", "com.1app", "com.example.app-2"] {
+        for id in ["myapp", "com..app", "com.1app"] {
             config.app.id = id.to_owned();
             assert!(config.validate().is_err(), "{id} should be rejected");
         }
-        config.app.id = "com.example.my_app".to_owned();
+        // Hyphens are fine in a bundle id; the Android package is checked separately.
+        for id in ["com.example.my_app", "com.example.ci-smoke"] {
+            config.app.id = id.to_owned();
+            assert!(config.validate().is_ok(), "{id} should be accepted");
+        }
+    }
+
+    #[test]
+    fn rejects_android_packages_that_are_not_java_identifiers() {
+        let mut config = WiniaConfig::default();
+        config.app.id = "com.example.app".to_owned();
+        for package in ["com.example.ci-smoke", "myapp", "com.1example"] {
+            config.android.package = package.to_owned();
+            assert!(
+                config.validate().is_err(),
+                "{package} should be rejected as an applicationId"
+            );
+        }
+        config.android.package = "com.example.ci_smoke".to_owned();
         assert!(config.validate().is_ok());
     }
 
