@@ -7,6 +7,7 @@
 use anyhow::{Context, Result, bail};
 use flate2::Compression;
 use flate2::write::GzEncoder;
+use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -41,8 +42,7 @@ pub fn build(spec: &DebSpec<'_>) -> Result<PathBuf> {
     let package = debian_name(spec.app_id);
     let version = debian_version(spec.app_version)?;
     let arch = debian_arch(spec.arch)?;
-    let payload = collect(spec.payload, spec.executable)?;
-    let files = &payload.files;
+    let files = collect(spec.payload, spec.executable)?;
     if files.is_empty() {
         bail!("payload directory is empty: {}", spec.payload.display());
     }
@@ -51,6 +51,14 @@ pub fn build(spec: &DebSpec<'_>) -> Result<PathBuf> {
         .map(|value| value.to_string_lossy().into_owned())
         .unwrap_or_else(|| package.clone());
     let install_dir = format!("usr/lib/{stem}");
+    // Icons staged under share/icons/hicolor/... are named after the app id.
+    let icon = files.iter().find_map(|file| {
+        let rest = file.relative.strip_prefix("share/icons/")?;
+        let name = rest.rsplit('/').next()?;
+        Path::new(name)
+            .file_stem()
+            .map(|value| value.to_string_lossy().into_owned())
+    });
     let install_size_kib: u64 = files
         .iter()
         .map(|file| file.bytes.len() as u64)
@@ -62,22 +70,28 @@ pub fn build(spec: &DebSpec<'_>) -> Result<PathBuf> {
     {
         let encoder = GzEncoder::new(&mut data, Compression::default());
         let mut tar = tar::Builder::new(encoder);
-        for directory in [
-            "usr",
-            "usr/lib",
-            &install_dir,
-            "usr/bin",
-            "usr/share",
-            "usr/share/applications",
-        ] {
+        // Icons the staging step wrote under share/icons belong in the hicolor theme, not inside
+        // the application directory: that is where desktop environments look them up.
+        let mut placements: Vec<(String, &PayloadFile)> = Vec::new();
+        let mut directories: BTreeSet<String> = BTreeSet::new();
+        for file in &files {
+            let path = target_path(&install_dir, &file.relative);
+            let mut parent = path.rsplit_once('/').map(|(dir, _)| dir.to_owned());
+            while let Some(dir) = parent {
+                if !dir.is_empty() {
+                    directories.insert(dir.clone());
+                }
+                parent = dir.rsplit_once('/').map(|(head, _)| head.to_owned());
+            }
+            placements.push((path, file));
+        }
+        let mut ordered: Vec<String> = directories.into_iter().collect();
+        ordered.sort_by_key(|dir| (dir.matches('/').count(), dir.clone()));
+        for directory in &ordered {
             append_dir(&mut tar, directory)?;
         }
-        for directory in &payload.directories {
-            append_dir(&mut tar, &format!("{install_dir}/{directory}"))?;
-        }
-        for file in files {
-            let path = format!("{install_dir}/{}", file.relative);
-            append_file(&mut tar, &path, &file.bytes, file.executable)?;
+        for (path, file) in &placements {
+            append_file(&mut tar, path, &file.bytes, file.executable)?;
         }
         append_symlink(
             &mut tar,
@@ -87,7 +101,7 @@ pub fn build(spec: &DebSpec<'_>) -> Result<PathBuf> {
         append_file(
             &mut tar,
             &format!("usr/share/applications/{stem}.desktop"),
-            desktop_entry(spec, &stem).as_bytes(),
+            desktop_entry(spec, &stem, icon.as_deref()).as_bytes(),
             false,
         )?;
         let encoder = tar.into_inner().context("finishing data.tar.gz")?;
@@ -178,21 +192,23 @@ fn control_file(
     )
 }
 
-fn desktop_entry(spec: &DebSpec<'_>, stem: &str) -> String {
-    let executable = stem;
+fn desktop_entry(spec: &DebSpec<'_>, stem: &str, icon: Option<&str>) -> String {
+    let icon_line = match icon {
+        Some(name) => format!("Icon={name}\n"),
+        None => String::new(),
+    };
     format!(
-        "[Desktop Entry]\nType=Application\nName={}\nComment={}\nExec={}\nTerminal=false\nCategories=Utility;\n",
-        spec.app_name, spec.app_name, executable
+        "[Desktop Entry]\nType=Application\nName={}\nComment={}\nExec={}\n{icon_line}Terminal=false\nCategories=Utility;\n",
+        spec.app_name, spec.app_name, stem
     )
 }
 
-fn collect(payload: &Path, executable: &str) -> Result<Payload> {
+fn collect(payload: &Path, executable: &str) -> Result<Vec<PayloadFile>> {
     fn walk(
         root: &Path,
         dir: &Path,
         executable_name: &str,
         out: &mut Vec<PayloadFile>,
-        directories: &mut Vec<String>,
     ) -> Result<()> {
         for entry in std::fs::read_dir(dir).with_context(|| format!("reading {}", dir.display()))? {
             let entry = entry?;
@@ -202,10 +218,7 @@ fn collect(payload: &Path, executable: &str) -> Result<Payload> {
                 continue;
             }
             if file_type.is_dir() {
-                if let Ok(relative) = path.strip_prefix(root) {
-                    directories.push(relative.to_string_lossy().replace('\\', "/"));
-                }
-                walk(root, &path, executable_name, out, directories)?;
+                walk(root, &path, executable_name, out)?;
             } else if file_type.is_file() {
                 let bytes =
                     std::fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
@@ -227,18 +240,17 @@ fn collect(payload: &Path, executable: &str) -> Result<Payload> {
         Ok(())
     }
     let mut files = Vec::new();
-    let mut directories = Vec::new();
-    walk(payload, payload, executable, &mut files, &mut directories)?;
+    walk(payload, payload, executable, &mut files)?;
     files.sort_by(|a, b| a.relative.cmp(&b.relative));
-    directories.sort_by_key(|dir| dir.matches('/').count());
-    Ok(Payload { files, directories })
+    Ok(files)
 }
 
-/// The payload split into files and the directories dpkg must create first.
-struct Payload {
-    files: Vec<PayloadFile>,
-    /// Relative directories, shallow first.
-    directories: Vec<String>,
+/// The staging tree keeps shared files under share/; the package moves them to /usr/share.
+fn target_path(install_dir: &str, relative: &str) -> String {
+    match relative.strip_prefix("share/") {
+        Some(rest) => format!("usr/share/{rest}"),
+        None => format!("{install_dir}/{relative}"),
+    }
 }
 
 fn append_dir<W: Write>(tar: &mut tar::Builder<W>, path: &str) -> Result<()> {
@@ -376,6 +388,33 @@ mod tests {
         assert!(control.contains("Version: 0.1.3"));
         assert!(control.contains("Architecture: amd64"));
         assert!(control.contains("Installed-Size: 42"));
+    }
+
+    #[test]
+    fn routes_shared_files_to_usr_share() {
+        assert_eq!(
+            target_path("usr/lib/demo", "share/icons/hicolor/48x48/apps/x.png"),
+            "usr/share/icons/hicolor/48x48/apps/x.png"
+        );
+        assert_eq!(target_path("usr/lib/demo", "demo"), "usr/lib/demo/demo");
+    }
+
+    #[test]
+    fn desktop_entry_references_the_theme_icon() {
+        let spec = DebSpec {
+            app_name: "Winia Blank",
+            app_version: "0.1.3",
+            app_id: "com.example.winia_blank",
+            publisher: "Winia contributors",
+            executable: "app",
+            payload: Path::new("."),
+            output: Path::new("out.deb"),
+            arch: "x86_64",
+        };
+        let with_icon = desktop_entry(&spec, "app", Some("com.example.winia_blank"));
+        assert!(with_icon.contains("Icon=com.example.winia_blank"));
+        let without = desktop_entry(&spec, "app", None);
+        assert!(!without.contains("Icon="));
     }
 
     #[test]

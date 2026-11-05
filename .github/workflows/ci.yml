@@ -154,6 +154,10 @@ jobs:
           cat listing.txt
           grep -q "usr/bin/ci-smoke" listing.txt
           grep -q "usr/lib/ci-smoke/ci-smoke" listing.txt
+          grep -q "usr/share/applications/ci-smoke.desktop" listing.txt
+          grep -q "usr/share/icons/hicolor" listing.txt
           sudo dpkg -i "$DEB"
           ci-smoke
+          test -f /usr/share/applications/ci-smoke.desktop
+          grep -q "^Icon=" /usr/share/applications/ci-smoke.desktop
           sudo dpkg -r com.example.ci-smoke
