@@ -151,11 +151,14 @@ Either implement the flag or mark those architectures as planned.
 
 ### 3.4 Scaffold debts
 
-- `winia new --template` is accepted and silently ignored; `--template counter` still produces the
-  blank template.
-- `--force` is documented but missing.
-- The generated project lacks `assets/`, `src/lib.rs`, `rust-toolchain.toml`, and
-  `.cargo/config.toml`.
+- ~~`winia new --template` is accepted and silently ignored.~~ Fixed: an unknown template is now an
+  error (`unknown template '<name>'; the only built-in template is 'blank'`). Remote templates are
+  still unimplemented.
+- `winia new --force` is still documented in the roadmap but missing from the CLI.
+- ~~The generated project lacks `assets/` and `src/lib.rs`.~~ Fixed: `new` creates `assets/` and
+  writes `src/lib.rs` (the Android entry point; also present for desktop builds so `cargo test`
+  sees the shared UI).
+- The generated project still has no `rust-toolchain.toml` or `.cargo/config.toml`.
 - ~~`winia platform add android` writes into the current directory instead of the project root
   found through `winia.toml`.~~ Fixed: it now delegates to `android init`, which resolves the
   project root and refuses to run outside one.
@@ -165,7 +168,7 @@ Either implement the flag or mark those architectures as planned.
 | Area | Work |
 | --- | --- |
 | `02-feature-spec.md` | §1.3 template contents (Gradle files, `lib.rs`), §3.3 two-stage build without a mandatory cargo-ndk, §7.1 doctor checks (LLVM, JDK, Gradle) |
-| `03-android-support.md` | §8 rewrite: at least five rows are resolved (winit feature, `run_app_android`, Skia Android configuration, stdin channel, arboard dependency); keep the remaining gaps (`TextAction`, `set_ime_cursor_area`, insets, saveable lifecycle, clipboard, accessibility). Remove the §10 claim about `.cargo/config.toml` |
+| `03-android-support.md` | Done: §8 is now a status table (implemented / partial / pending) covering winit, entry point, Skia, clipboard, insets, IME, lifecycle, input, debug channel, assets, accessibility |
 | `05-roadmap.md` | Update P3/P4 status, replace the "winit Android IME missing" risk with AGP/Gradle cache poisoning, libclang/NDK mismatch, and silently ignored 16 KB flags |
 | `06-android-ime-and-apk.md` | Use ``` fences for consistency with the other documents |
 | Tests | `Abi` parsing and mapping unit tests; doctor scenarios with fake NDK/LLVM/Gradle layouts; an integration test for `winia new`; help snapshot tests |

@@ -1,7 +1,7 @@
 # 04 · Architecture design
 
-> Status: the CLI scaffold is in place; this document describes the target architecture and the parts that
-> have already landed.
+> Status: every command in the CLI is implemented. This document describes what the code does today
+> and marks the parts that remain placeholders.
 
 ## 1. Workspace structure
 
@@ -15,10 +15,16 @@ winia-forge/
 │   │   │   ├── lib.rs
 │   │   │   ├── cli.rs         # clap command surface
 │   │   │   ├── config.rs      # winia.toml model
-│   │   │   └── commands/      # one module per command
+│   │   │   ├── icons.rs       # per-platform icon sets
+│   │   │   ├── assets.rs      # asset collection, hashing, staging
+│   │   │   ├── hooks.rs       # project hooks
+│   │   │   ├── platform/      # ABI table, build-tools discovery
+│   │   │   ├── commands/      # one module per command
+│   │   │   └── templates/     # embedded blank template
+│   │   ├── tests/help.rs      # command-surface guard
 │   │   └── Cargo.toml
-│   ├── winia-build/           # build.rs resource generation
-│   └── winia-pack/            # cross-platform packaging
+│   ├── winia-build/           # placeholder; resource generation lives in winia-cli
+│   └── winia-pack/            # NSIS, MSI (WiX), deb
 └── docs/
 ```
 
@@ -26,9 +32,9 @@ winia-forge/
 
 | crate | Responsibility | Current state |
 | --- | --- | --- |
-| `winia-cli` | Command parsing, flow orchestration, invoking Cargo/Gradle/adb/signing tools | Skeleton |
-| `winia-build` | Windows .rc, macOS Info.plist/.icns, Linux .desktop, Android manifest metadata | Placeholder |
-| `winia-pack` | Per-platform packaging logic (Windows/macOS/Linux/Android modules) | Placeholder |
+| `winia-cli` | Command parsing, orchestration, Cargo/Gradle/adb/signing invocation, icons, assets, hooks | Every command implemented |
+| `winia-build` | Intended home for build-script resource generation | Placeholder: desktop resources are produced in `winia-cli` (`package.rs`, `icons.rs`) |
+| `winia-pack` | Installer formats: NSIS script, WiX MSI, deb | Implemented for NSIS/MSI/deb; DMG/app/zip/tar.gz are built in `winia-cli` |
 
 If Android's JNI and platform-bridge code grows large, split out a `winia-android` crate:
 
@@ -47,12 +53,14 @@ It would only be depended on by the Android target and would never enter desktop
 
 ### 2.1 Dependencies
 
-- `clap`: command parsing and help/completions.
-- `serde` + `toml`: `winia.toml`.
-- `serde_json`: `--json` output.
+- `clap` / `clap_complete`: command parsing, help and shell completions.
+- `serde` + `toml` + `toml_edit`: read `winia.toml`; edit `Cargo.toml` without reformatting it.
+- `serde_json`: `--json` output and the asset manifest.
 - `anyhow`: error context.
-- Possible future additions: `cargo_metadata` (project metadata), `camino` (UTF-8 paths),
-  `dialoguer` (interactive wizard), `indicatif` (progress bars).
+- `sha2`: asset and installer checksums, icon cache markers.
+- `image`, `resvg`, `ico`, `icns`: icon rendering and per-platform encoding.
+- `notify` + `ctrlc`: `winia dev` file watching and clean shutdown.
+- `semver`: config validation and release version bumps.
 
 ### 2.2 Principles
 
@@ -60,10 +68,12 @@ It would only be depended on by the Android target and would never enter desktop
 2. **Do not reimplement Gradle**: Android resources, the Manifest, and the AAB are all left to Gradle.
 3. **Do not reimplement packaging formats**: Windows calls WiX/NSIS, macOS calls hdiutil/codesign/notarytool,
    Linux calls dpkg-deb/rpmbuild/AppImage tooling.
-4. **Every command supports `--json` and `--dry-run`**; this is the foundation for IDE and CI integration.
+4. **Machine-readable output where it matters**: `build`, `package`, `sign`, `release`, `doctor`,
+   `test`, `clean`, `android sync`, `devices`, `screenshot` and `config show` support `--json`;
+   `--dry-run` exists on `build`, `package`, `sign`, `release`, `clean` and `android sync --check`.
 5. **Errors must be actionable**: say what is missing, how to install it, and which phase failed.
-6. **Version checks**: on startup the CLI reads the project's `winia.toml` and `Cargo.toml` and gives a clear
-   warning when the Winia version does not match the range the CLI supports.
+6. **Version checks**: `winia doctor` reports the project's `winia` dependency (declared per target,
+   path validity, version drift). There is no automatic check on every command.
 
 ### 2.3 Command dispatch
 
@@ -71,12 +81,11 @@ It would only be depended on by the Android target and would never enter desktop
 main.rs
   → cli::Cli::parse()
   → commands::dispatch()
-      → new / doctor / info / config / completions
-      → other commands: return a readable error while unimplemented
+      → one arm per command; every arm is implemented
 ```
 
-One module per command keeps the CLI layer thin; the real build/package logic belongs in `winia-build` /
-`winia-pack`.
+One module per command keeps the CLI layer thin. Installer script generation lives in `winia-pack`
+(NSIS/MSI/deb); everything else — build, packaging, icons, assets, signing — is in `winia-cli`.
 
 ## 3. Configuration model
 
@@ -100,23 +109,25 @@ Design points:
 
 - Every field has a default; a missing section is not an error.
 - `#[serde(default)]` guarantees backward compatibility.
-- `validate()` performs cross-field checks (app id, Android min_sdk, ABI).
+- `validate()` checks the app id (reverse-DNS), `app.version` (semver), `android.package`
+  (non-empty), `android.min_sdk >= 26` and every ABI name.
 - A `schema_version` will be added later, with migration functions for older versions.
-- The same model is shared by the CLI and `winia-build`, so there is only one configuration parser.
+- Only `winia-cli` parses the file; `winia-build` is a placeholder and has no configuration model.
 
 ## 4. Template system
 
-Recommended implementation, in priority order:
+Implemented state:
 
-1. Built-in templates are compiled into the binary with `include_str!` / `include_dir!`, guaranteeing
-   offline availability.
-2. Template variables use simple placeholder substitution (`__APP_NAME__`, `__APP_ID__`, `__VERSION__`)
-   rather than a full template engine.
-3. Introduce `minijinja` or `handlebars` only when conditional sections are needed.
-4. Remote templates are downloaded into a cache directory, checksum-verified, and then copied.
+1. One built-in template (`blank`) is compiled into the binary, so `winia new` works offline.
+2. Variables use literal placeholder substitution (`__APP_NAME__`, `__APP_ID__`, `__VERSION__`,
+   `__WINIA_DEP_*`); there is no template engine.
+3. `--template` accepts only `blank`; remote templates are not implemented and the flag documents the
+   future git-URL form.
+4. `winia android sync` regenerates the managed Gradle subset from `winia.toml`; other template files
+   are written once and then belong to the project.
 
-Template versions are tied to the CLI version; a template declares `min_winia_version`, which the CLI checks
-at startup.
+Not implemented: additional built-in templates, remote templates with checksum verification, and a
+template-declared `min_winia_version`.
 
 ## 5. Process orchestration
 
@@ -124,22 +135,24 @@ at startup.
 
 ```text
 winia build
-  → read winia.toml
-  → select target/profile
-  → cargo build (desktop) or cargo ndk (Android)
-  → winia-build generates platform resources
-  → collect artifacts, produce the report
+  → read and validate winia.toml
+  → run before_build hooks
+  → desktop: cargo build (host) with WINIA_ASSET_ROOT/TARGET/PROFILE/VERSION
+  → android: NDK toolchain → cargo build --lib per ABI → copy jniLibs → gradlew assemble*
+  → stage assets (desktop dir or Android asset dir) and icons
+  → run after_build hooks
+  → collect artifacts and sizes, print the report
 ```
 
 ### 5.2 Android
 
 ```text
 winia build --target android
-  → check SDK/NDK/JDK
-  → cargo ndk -t <abi> -o android/app/src/main/jniLibs build --release --lib
-  → gradle assembleDebug / assembleRelease / bundleRelease
-  → collect APK/AAB
-  → optional apksigner/zipalign verification
+  → locate the SDK/NDK (prefers 27.0.12077973), validate the clang wrapper API level
+  → per ABI: cargo build --lib with the NDK linker/CC/AR and RUSTFLAGS max-page-size=16384
+  → copy <lib>.so into android/app/src/main/jniLibs/<abi>/
+  → llvm-readelf check that every LOAD segment is 0x4000-aligned
+  → gradlew assembleDebug / assembleRelease / bundleRelease with winiaVersionCode/Name
 ```
 
 ### 5.3 Run
@@ -157,15 +170,23 @@ Process-management notes:
 
 ## 6. Testing strategy
 
-- Unit tests: configuration parsing, command argument combinations, path computation.
-- Snapshot tests: the output of `winia --help` and subcommand help.
-- Integration tests: run `winia new` in a temporary directory and inspect the generated files.
-- Later: fixture projects to test build/package argument assembly (without actually compiling).
+- Unit tests: configuration parsing and validation, command argument assembly, path computation,
+  icon/asset rules, installer script generation (`cargo test --workspace`).
+- Command-surface test (`crates/winia-cli/tests/help.rs`): every command is registered and has a
+  description, and `upgrade` stays absent.
+- CI (GitHub Actions, three platforms) builds the CLI, then packages a fixture app
+  (`.github/fixtures/ci-app`) with zip, NSIS, MSI, dmg/codesign and deb/dpkg to prove the packaging
+  paths end to end without compiling Skia.
+- Not covered: a fixture that builds the framework itself (too slow), and Gradle/AGP upgrade tests.
 
 ## 7. Release and versioning
 
-- The compatible range between the CLI version and the Winia framework version is recorded in `Cargo.toml`
-  and the `winia.toml` schema.
-- `winia-cli` is published to crates.io; binaries may also be distributed through GitHub Releases.
-- Before releasing, run `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test --workspace`.
+- `winia-cli` is not published to crates.io yet; CI and `winia ci init` install it from the git
+  repository (`--winia-source`).
+- The project's `winia` dependency is a path or git source; `winia doctor` reports drift between the
+  declared dependency and this CLI.
+- Before releasing, run `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`
+  and `cargo test --workspace`; CI does the same on Windows, macOS and Linux.
+- `winia release` bumps `winia.toml`, packages/signs, tags, writes `dist/SHA256SUMS` and
+  `dist/latest.json`, and can create a GitHub release (`--track github`).
 - Commit messages follow conventional commits.

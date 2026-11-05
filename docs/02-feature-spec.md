@@ -15,10 +15,10 @@
 | `winia dev` | Development mode: file watching + restart | Implemented (desktop restart, Android reinstall/restart, automatic debug-server) |
 | `winia inspect` | Debug-server client | Implemented: info, tree, click, drag, key, scroll, screenshot, registry/port discovery |
 | `winia test` | Unit, UI, and device smoke tests | Implemented: host cargo tests, Android install/launch/logcat/screenshot smoke |
-| `winia package` | Package installers/archives/APK/AAB | Implemented: desktop portable zip/tar.gz/app, Windows NSIS and MSI, Linux deb, Android APK/AAB; DMG/PKG/rpm/AppImage pending |
+| `winia package` | Package installers/archives/APK/AAB | Implemented: desktop portable zip/tar.gz/app, Windows NSIS and MSI, macOS dmg (on macOS), Linux deb, Android APK/AAB; PKG/rpm/AppImage/MSIX pending |
 | `winia sign` | Code signing | Implemented: Android APKs (apksigner), Windows Authenticode (signtool), macOS codesign |
 | `winia release` | Version, tag, publish | Implemented for Android and desktop targets (local artifacts + GitHub upload) |
-| `winia doctor` | Environment diagnostics | Implemented (Rust/MSRV, platform toolchains, Android SDK/NDK, `--fix`) |
+| `winia doctor` | Environment diagnostics | Implemented (Rust/MSRV, platform toolchains, packaging tools, Android SDK/NDK, the project's `winia` dependency, `--fix`) |
 | `winia add` / `remove` / `update` | Dependency management | Implemented: delegate to cargo in the project root |
 | `winia assets` | Icon and asset generation | Implemented: icon sets from PNG/SVG; automatic via `app.icon` |
 | `winia ci` | Generate CI configuration | Implemented: `ci init` for GitHub Actions and GitLab CI |
@@ -199,6 +199,10 @@ abis = ["arm64-v8a", "x86_64"]
 orientation = "unspecified" # portrait | landscape | unspecified
 permissions = ["INTERNET"]
 
+[assets]
+include = ["assets/**"]
+exclude = ["**/*.psd"]
+
 [hooks]
 before_build = []
 after_build = []
@@ -218,11 +222,32 @@ after_package = []
 
 ### 2.3 Validation rules
 
-- `app.id` must be reverse-DNS.
+`WiniaConfig::validate` runs before every build, package, release and doctor pass:
+
+- `app.id` must be reverse-DNS: at least two dot-separated segments, each starting with a letter
+  and containing only letters, digits or underscores.
+- `app.version` must be semver (`major.minor.patch`, optional pre-release/build).
+- `android.package` must not be empty.
 - `android.min_sdk >= 26` (the Skia Android build baseline).
 - Android ABIs may only be `arm64-v8a`, `armeabi-v7a`, `x86_64`, `x86`.
-- `app.version` must be semver.
-- The icon file must exist and be readable.
+- `app.icon`, when set, is checked by the icon generator rather than by validation: a missing file
+  fails the build with `app.icon not found: <path>`.
+
+### 2.4 Fields that are not applied yet
+
+These are parsed and round-tripped by `winia config`, but nothing reads them when building or
+packaging. They are kept in the schema so projects can declare intent without breaking:
+
+| Field | Current reality |
+| --- | --- |
+| `[window]` title/width/height/resizable/decorations | The template app creates its window through `winia::run_app!` and never reads `winia.toml` |
+| `android.target_sdk`, `android.compile_sdk` | Gradle hardcodes 36; only `min_sdk` reaches the NDK wrapper |
+| `android.label` | The manifest uses `app.name` |
+| `android.orientation` | The manifest omits `screenOrientation` |
+| `android.permissions` | The manifest ships `INTERNET` regardless; no injection |
+| `android.activity` | The template is always GameActivity |
+| `build.backend` | The backend comes from the `winia` dependency's features |
+| `app.authors`, `app.license` | Not used in any package metadata yet |
 
 ## 3. Building
 

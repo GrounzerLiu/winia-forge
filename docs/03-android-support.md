@@ -19,7 +19,7 @@
 | `winia devices` / `winia emulators` | Devices / emulators |
 | `winia logcat` / `winia screenshot` | Logs and screenshots |
 | `winia android init` / `sync` / `studio` | Android project initialisation / sync / open Android Studio |
-| `winia ci init --platform android` | Generate Android CI |
+| `winia ci init --platforms android` | Generate Android CI |
 
 Naming principle: a platform is `--target`, an artifact is `--format`; do not put Android in the tool name,
 and do not put an artifact in a command name.
@@ -192,7 +192,7 @@ InputConnection or validate IME input. See [06-android-ime-and-apk.md](06-androi
 
 ```bash
 winia devices
-winia emulators start --name Pixel_8_API_36
+winia emulators start Pixel_8_API_36
 winia run --target android --device emulator-5554
 winia logcat --filter com.example.myapp
 winia screenshot --target android --output shot.png
@@ -351,21 +351,21 @@ This is the most critical blocker for Android support:
 
 The paths below are all in the `D:\Projects\winia` repository.
 
-| Item | Current state | What is needed |
+| Item | Status | Notes |
 | --- | --- | --- |
-| winit Android backend | `winia/Cargo.toml` only has `winit = { workspace = true }`; the Android feature is not enabled | Pass through `android-game-activity` / `android-native-activity` |
-| Application entry | `winia/src/app.rs`'s `run_app` calls `EventLoop::new()` directly | Add `run_app_android(app: AndroidApp, ...)` using `EventLoopBuilderExtAndroid::with_android_app` |
-| `run_app!` macro | `winia-macros/src/lib.rs` expands to a plain `app::run_app` expression | Add `android_main!` or have the template generate `#[no_mangle] fn android_main` |
-| Skia build | The Windows target explicitly enables `textlayout/svg/gl/vulkan`; the Android target has no equivalent | Add Android `skia-safe` feature configuration; `skia-bindings` requires `ANDROID_NDK` and API level 26 |
-| Clipboard | `arboard` has no Android platform module | Conditional compilation + a JNI ClipboardManager |
-| Window API | `winia/src/app/window.rs`'s builder only has `title/size/on_close` | Add fullscreen, orientation, status bar, icon, and other mobile attributes; restrict to a single window |
-| Insets | `winia/src/window/insets.rs` describes itself as desktop-shaped and has no Android data source | Wire up `AndroidApp::content_rect`, IME insets, status bar, and navigation bar |
-| IME | The Winia winit fork forwards `TextEvent` / `Commit` / `DeleteSurrounding`; published as `winia-winit` + `winia-winit-android` | Use GameActivity; the native library entry and lifecycle hooks are documented in 06-android-ime-and-apk.md |
-| Lifecycle | No handling for Android Activity recreation | Map `suspended/resumed`; write `SaveableStateRegistry` into the Bundle |
-| Input | winit has touch events, but gestures need verification | Test the `PointerEvent` touch path; add long-press/swipe/double-tap |
-| Debug channel | `winia/src/app.rs` starts `start_stdin_channel()` | Android has no stdin; skip it under cfg and keep only the WebSocket |
-| Assets | winia mostly uses file paths today | Add AssetManager reads |
-| Accessibility | Windows UIA only | Implement the Android semantics bridge later |
+| winit Android backend | Implemented | `winia` depends on `winia-winit` with `android-game-activity`; the Android target also enables `skia-safe` `textlayout/svg/webp` |
+| Application entry | Implemented | `winia::app::run_app_android(app, ...)` drives the event loop through `EventLoopBuilderExtAndroid` |
+| `run_app!` macro | Implemented by the template | The generated `src/lib.rs` writes `#[no_mangle] fn android_main`; the macro itself is unchanged |
+| Skia build | Implemented | Android uses the prebuilt Skia archives for the Vulkan feature set; a source build needs `ANDROID_NDK` and API 26 |
+| Clipboard | Pending | Reads still go through `arboard`, which has no Android backend; writes use `winit::set_clipboard`. A JNI ClipboardManager bridge is still missing |
+| Window API | Partial | Title/size/icon work; fullscreen, orientation and status-bar control do not |
+| Insets | Pending | `winia/src/window/insets.rs` has no Android data source; `AndroidApp::content_rect` is not wired |
+| IME | Implemented (fork) | `winia-winit` forwards `TextEvent`/`Commit`/`DeleteSurrounding` in GameActivity mode; on-device verification steps stay in 06-android-ime-and-apk.md |
+| Lifecycle | Pending | No `SaveableStateRegistry` → Bundle mapping; Activity recreation loses UI state |
+| Input | Partial | Touch events reach the framework; gestures (long-press, swipe, double-tap) are unverified |
+| Debug channel | Implemented | `start_stdin_channel()` is skipped under `cfg(target_os = "android")`; the WebSocket server stays |
+| Assets | Implemented | `AssetManager` bundle in `winia/src/assets.rs`, staged as `winia-assets/` in the APK |
+| Accessibility | Pending | Windows UIA only; no Android semantics bridge |
 
 ### 8.1 Rendering feasibility
 
@@ -386,7 +386,7 @@ Detailed acceptance criteria are in [05-roadmap.md](05-roadmap.md). The Android 
 
 1. **P0 feasibility check**: winit Android entry point, single window, touch, GL/softbuffer rendering,
    a manually produced hello-world APK.
-2. **P1 CLI MVP**: `winia new --platform android`, `doctor`, `build/run`, `devices/logcat`, debug APK.
+2. **P1 CLI MVP**: `winia new --platforms android`, `doctor`, `build/run`, `devices/logcat`, debug APK.
 3. **P2 release pipeline**: icons, insets, basic lifecycle, `package --format apk,aab`, signing, 16 KB
    alignment, CI templates.
 4. **P3 full capability**: IME (winit fork), clipboard, assets, saveable, permissions,

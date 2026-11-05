@@ -219,6 +219,18 @@ impl WiniaConfig {
 
     /// Basic cross-field validation used by `winia doctor`.
     pub fn validate(&self) -> anyhow::Result<()> {
+        if !is_reverse_dns(&self.app.id) {
+            anyhow::bail!(
+                "app.id must be reverse-DNS such as com.example.app, got '{}'",
+                self.app.id
+            );
+        }
+        if semver::Version::parse(&self.app.version).is_err() {
+            anyhow::bail!(
+                "app.version must be semver such as 0.1.0, got '{}'",
+                self.app.version
+            );
+        }
         if self.android.package.trim().is_empty() {
             anyhow::bail!("android.package must not be empty");
         }
@@ -233,6 +245,21 @@ impl WiniaConfig {
         }
         Ok(())
     }
+}
+
+/// Reverse-DNS: at least two segments, each starting with a letter and limited to letters, digits
+/// and underscores. Deliberately strict about the first character so an id cannot become a label
+/// fragment when it reaches the Android manifest.
+fn is_reverse_dns(value: &str) -> bool {
+    let segments: Vec<&str> = value.split('.').collect();
+    if segments.len() < 2 {
+        return false;
+    }
+    segments.iter().all(|segment| {
+        let mut chars = segment.chars();
+        matches!(chars.next(), Some(first) if first.is_ascii_alphabetic())
+            && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+    })
 }
 
 /// Search upwards from `start` for a `winia.toml`.
@@ -256,6 +283,27 @@ pub fn find_config(start: &Path) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rejects_ids_that_are_not_reverse_dns() {
+        let mut config = WiniaConfig::default();
+        for id in ["myapp", "com..app", "com.1app", "com.example.app-2"] {
+            config.app.id = id.to_owned();
+            assert!(config.validate().is_err(), "{id} should be rejected");
+        }
+        config.app.id = "com.example.my_app".to_owned();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_versions_that_are_not_semver() {
+        let mut config = WiniaConfig::default();
+        config.app.id = "com.example.app".to_owned();
+        config.app.version = "0.1".to_owned();
+        assert!(config.validate().is_err());
+        config.app.version = "0.1.0-beta.1".to_owned();
+        assert!(config.validate().is_ok());
+    }
 
     #[test]
     fn defaults_match_the_documented_android_baseline() {

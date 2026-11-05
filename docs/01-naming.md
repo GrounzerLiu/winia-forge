@@ -102,7 +102,7 @@ Device operations stay generic:
 
 ```bash
 winia devices
-winia emulators start --name Pixel_8_API_36
+winia emulators start Pixel_8_API_36
 winia logcat --filter com.example.myapp
 winia screenshot --target android
 ```

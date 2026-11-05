@@ -36,8 +36,8 @@ Remaining:
 
 ## 3. P1: desktop MVP
 
-- [ ] `winia build`: call Cargo, support target/profile/features, produce a build report.
-- [ ] `winia run`: build and run, forwarding arguments.
+- [x] `winia build`: call Cargo, support target/profile/features, produce a build report.
+- [x] `winia run`: build and run, forwarding arguments.
 - [x] `winia dev`: file watching, process restart, and automatic debug-server.
 - [x] `winia test`: host cargo tests + Android install/launch/logcat/screenshot smoke.
 - [x] `winia clean`.
@@ -87,13 +87,12 @@ Acceptance:
 
 - [x] `winia android init`: add the Android project to an existing app.
 - [x] `winia platform add android`: delegates to `android init`.
-- [ ] `winia android sync`: rewrite managed files from `winia.toml`.
-- [ ] `winia doctor --target android`: SDK/NDK/JDK/adb checks.
-- [ ] `winia build --target android`: cargo ndk + Gradle assembleDebug.
-- [ ] `winia run --target android`: adb install/start/logcat.
+- [x] `winia doctor --target android`: SDK/NDK/JDK/adb checks.
+- [x] `winia build --target android`: NDK driver + Gradle assembleDebug.
+- [x] `winia run --target android`: adb install/start/logcat.
 - [x] `winia devices` / `logcat` / `emulators` / `screenshot`.
 - [x] `winia android sync` / `winia android studio`.
-- [ ] Debug APK generation and installation.
+- [x] Debug APK generation and installation.
 
 Acceptance:
 
@@ -106,7 +105,7 @@ Acceptance:
 - [ ] winit Android IME fork: GameActivity's TextEvent/TextAction → WindowEvent::Ime.
 - [ ] TextField can input, select, and copy/paste on Android.
 - [ ] Clipboard JNI bridge.
-- [ ] AssetManager asset loading.
+- [x] AssetManager asset loading.
 - [ ] SaveableStateRegistry writes to the Bundle; state is restored after Activity recreation.
 - [ ] Permission declarations + runtime requests.
 - [ ] AAB, Play App Signing, internal test track upload.

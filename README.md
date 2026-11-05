@@ -4,10 +4,10 @@
 
 The official project toolchain for Winia: create, build, run, and package Winia applications.
 
-> Status: active development. Project creation, build/run/dev/test/clean, Android APK/AAB
-> packaging and signing, Android/GitHub releases, desktop portable archives, doctor, inspect, and
-> asset/icon generation, and a Windows NSIS installer are implemented. MSI/DMG/deb installers and
-> Play Store uploads are pending.
+> Status: the command surface is complete. Project creation, build/run/dev/test/clean, Android and
+> desktop packaging (zip/tar.gz/app/dmg/NSIS/MSI/deb/APK/AAB), signing on all three desktop platforms
+> and Android, releases, doctor, inspect, and asset/icon generation are implemented. Still pending:
+> Play Store uploads, macOS notarisation, and the MSIX/PKG/rpm/AppImage formats.
 > See [docs/05-roadmap.md](docs/05-roadmap.md) for progress.
 
 ## Quick start
@@ -36,8 +36,8 @@ winia new my-app --winia-path D:\Projects\winia\winia
 winia-forge/
 ├── crates/
 │   ├── winia-cli/      # CLI entry point, binary `winia`
-│   ├── winia-build/    # build.rs resource generation (placeholder, not implemented)
-│   └── winia-pack/     # cross-platform packaging (placeholder, not implemented)
+│   ├── winia-build/    # placeholder; resource generation lives in winia-cli
+│   └── winia-pack/     # NSIS, MSI (WiX) and deb generation
 └── docs/
     ├── 01-naming.md
     ├── 02-feature-spec.md
@@ -87,10 +87,13 @@ Implemented:
 - `winia info` / `winia targets`: environment and target platform information
 - `winia config show/get`: read `winia.toml`
 - `winia completions`: generate shell completions
-- `winia platform add android`: create the Android scaffold placeholder directory
+- `winia platform add android`: same as `android init` (the desktop platforms need no setup)
+- `winia android init`: add the Gradle project, Android dependency, crate type and entry point to an existing app
+- `winia android studio`: open the generated Android project in Android Studio
+- `winia screenshot`: capture the device screen through adb, without the debug server
 
-The remaining commands already have a complete clap surface and a documented contract; implementation
-follows the roadmap.
+There is no `winia upgrade`: Winia is not published yet, so updating a project means changing the
+dependency source and letting cargo resolve it. See [docs/02-feature-spec.md](docs/02-feature-spec.md) §11.
 
 ## License
 
