@@ -69,19 +69,17 @@ fn sync(check: bool, force: bool, json: bool) -> Result<()> {
         .collect();
     let mut entries = Vec::new();
     let mut pending = 0usize;
+    let mut skipped = 0usize;
     for file in new::managed_android_files() {
         let destination = new::render(file.destination, &vars);
         let contents = new::render(file.template, &vars);
         let path = root.join(&destination);
         let existing = std::fs::read_to_string(&path).ok();
-        let status = match &existing {
-            None => "created",
-            Some(current) if *current == contents => "unchanged",
-            Some(current) if current.contains(MARKER) || force => "updated",
-            Some(_) => "skipped",
-        };
-        if status != "unchanged" {
-            pending += 1;
+        let status = classify(existing.as_deref(), &contents, force);
+        match status {
+            "created" | "updated" => pending += 1,
+            "skipped" => skipped += 1,
+            _ => {}
         }
         if !check && matches!(status, "created" | "updated") {
             if let Some(parent) = path.parent() {
@@ -104,6 +102,7 @@ fn sync(check: bool, force: bool, json: bool) -> Result<()> {
             serde_json::to_string_pretty(&serde_json::json!({
                 "dry_run": check,
                 "changed": pending,
+                "skipped": skipped,
                 "files": values,
             }))?
         );
@@ -117,7 +116,12 @@ fn sync(check: bool, force: bool, json: bool) -> Result<()> {
             println!("{status:<10} {path}{note}");
         }
         if check {
-            println!("{pending} file(s) would change");
+            let kept = if skipped > 0 {
+                format!(" ({skipped} kept without a generated header)")
+            } else {
+                String::new()
+            };
+            println!("{pending} file(s) would change{kept}");
         }
     }
 
@@ -125,6 +129,17 @@ fn sync(check: bool, force: bool, json: bool) -> Result<()> {
         std::process::exit(1);
     }
     Ok(())
+}
+
+/// What 'sync' would do to one managed file. Files without the generated header are only
+/// rewritten when forced, so they never count as pending drift.
+fn classify(existing: Option<&str>, contents: &str, force: bool) -> &'static str {
+    match existing {
+        None => "created",
+        Some(current) if current == contents => "unchanged",
+        Some(current) if current.contains(MARKER) || force => "updated",
+        Some(_) => "skipped",
+    }
 }
 
 fn render_vars(root: &Path, config: &WiniaConfig) -> [(&'static str, String); 4] {
@@ -164,6 +179,16 @@ mod tests {
                 file.destination
             );
         }
+    }
+
+    #[test]
+    fn classifies_managed_files() {
+        assert_eq!(classify(None, "body", false), "created");
+        assert_eq!(classify(Some("body"), "body", false), "unchanged");
+        assert_eq!(classify(Some("stale"), "body", true), "updated");
+        let generated = format!("// {MARKER}\nstale");
+        assert_eq!(classify(Some(&generated), "body", false), "updated");
+        assert_eq!(classify(Some("hand written"), "body", false), "skipped");
     }
 
     #[test]

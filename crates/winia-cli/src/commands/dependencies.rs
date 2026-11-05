@@ -72,22 +72,13 @@ fn run_cargo(root: &Path, arguments: &[String]) -> Result<()> {
     Ok(())
 }
 
+/// Whether a program is reachable on PATH, using the platform's executable suffix.
 fn which(program: &str) -> Option<PathBuf> {
+    let name = crate::platform::tools::executable(program);
     let paths = std::env::var_os("PATH")?;
-    for directory in std::env::split_paths(&paths) {
-        let candidate = directory.join(program);
-        if candidate.is_file() {
-            return Some(candidate);
-        }
-        #[cfg(windows)]
-        {
-            let with_exe = directory.join(format!("{program}.exe"));
-            if with_exe.is_file() {
-                return Some(with_exe);
-            }
-        }
-    }
-    None
+    std::env::split_paths(&paths)
+        .map(|directory| directory.join(&name))
+        .find(|candidate| candidate.is_file())
 }
 
 #[cfg(test)]

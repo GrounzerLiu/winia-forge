@@ -262,6 +262,23 @@ fn winia_dependency_check() -> Option<Check> {
 
 /// Inspect Cargo.toml for the winia dependency: present at all, path still valid, and whether the
 /// platform split (desktop / android) matches what the project contains.
+/// Find the winia entry under a `cfg(...)` target table. Keys are matched by meaning rather than
+/// by exact text, because toml allows different quoting and spacing inside the cfg string.
+fn target_dependency(value: &toml::Value, android: bool) -> Option<&toml::Value> {
+    let targets = value.get("target")?.as_table()?;
+    for (key, entry) in targets {
+        let mentions_android = key.contains("android");
+        let is_desktop = mentions_android && key.contains("not(");
+        let is_android = mentions_android && !key.contains("not(");
+        if (android && is_android) || (!android && is_desktop) {
+            if let Some(dependency) = entry.get("dependencies").and_then(|deps| deps.get("winia")) {
+                return Some(dependency);
+            }
+        }
+    }
+    None
+}
+
 fn dependency_check(root: &Path) -> Check {
     const NAME: &str = "winia dependency";
     let manifest = root.join("Cargo.toml");
@@ -271,15 +288,8 @@ fn dependency_check(root: &Path) -> Check {
     let Ok(value) = text.parse::<toml::Value>() else {
         return Check::missing(NAME, "Cargo.toml is not valid TOML", true);
     };
-    let table = |filter: &str| -> Option<&toml::Value> {
-        value
-            .get("target")?
-            .get(filter)?
-            .get("dependencies")?
-            .get("winia")
-    };
-    let desktop = table("cfg(not(target_os = \"android\"))");
-    let android = table("cfg(target_os = \"android\")");
+    let desktop = target_dependency(&value, false);
+    let android = target_dependency(&value, true);
     let plain = value.get("dependencies").and_then(|deps| deps.get("winia"));
 
     let mut declared: Vec<&'static str> = Vec::new();
@@ -1238,6 +1248,30 @@ mod tests {
         let check = dependency_check(&root);
         assert_eq!(check.status, Status::Missing);
         assert!(check.detail.contains("does not exist"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn finds_target_tables_whatever_the_cfg_spelling() {
+        let root = dependency_fixture("spelling");
+        let crate_dir = root.join("winia");
+        std::fs::create_dir_all(&crate_dir).unwrap();
+        std::fs::write(
+            crate_dir.join("Cargo.toml"),
+            "[package]\nname = \"winia\"\n",
+        )
+        .unwrap();
+        write_cargo(
+            &root,
+            "[package]\nname = \"demo\"\n\n[target.'cfg( target_os = \"android\" )'.dependencies]\nwinia = { path = \"winia\" }\n\n[target.'cfg( not( target_os = \"android\" ) )'.dependencies]\nwinia = { path = \"winia\" }\n",
+        );
+        let check = dependency_check(&root);
+        assert_eq!(check.status, Status::Ok, "{}", check.detail);
+        assert!(
+            check.detail.contains("desktop + android"),
+            "{}",
+            check.detail
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 

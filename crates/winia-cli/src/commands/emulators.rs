@@ -18,7 +18,7 @@ pub fn run(args: EmulatorsArgs) -> Result<()> {
     }
 }
 
-fn list() -> Result<()> {
+fn avd_names() -> Result<Vec<String>> {
     let output = Command::new(emulator_program())
         .arg("-list-avds")
         .output()
@@ -29,7 +29,11 @@ fn list() -> Result<()> {
             String::from_utf8_lossy(&output.stderr).trim()
         );
     }
-    let names = parse_avds(&String::from_utf8_lossy(&output.stdout));
+    Ok(parse_avds(&String::from_utf8_lossy(&output.stdout)))
+}
+
+fn list() -> Result<()> {
+    let names = avd_names()?;
     if names.is_empty() {
         println!("No AVDs found. Create one with the Android Studio device manager.");
         return Ok(());
@@ -48,6 +52,13 @@ fn list() -> Result<()> {
 }
 
 fn start(name: &str, headless: bool) -> Result<()> {
+    let known = avd_names()?;
+    if !known.iter().any(|avd| avd == name) {
+        if known.is_empty() {
+            bail!("no AVDs found; create one with the Android Studio device manager");
+        }
+        bail!("unknown AVD '{name}'; available: {}", known.join(", "));
+    }
     let mut command = Command::new(emulator_program());
     command.arg("-avd").arg(name);
     if headless {
