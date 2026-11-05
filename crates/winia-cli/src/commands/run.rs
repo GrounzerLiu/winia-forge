@@ -125,6 +125,21 @@ pub(crate) fn adb(args: &[&str]) -> Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
+/// Run adb and return raw stdout, for binary payloads such as screencap PNGs.
+pub(crate) fn adb_binary(args: &[&str]) -> Result<Vec<u8>> {
+    let mut command = Command::new(adb_program());
+    command.args(args);
+    let output = output_with_timeout(command, Duration::from_secs(60))?;
+    if !output.status.success() {
+        bail!(
+            "adb {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(output.stdout)
+}
+
 /// Run adb against one device and return its stdout.
 pub(crate) fn adb_on(device: &str, args: &[&str]) -> Result<String> {
     let mut full: Vec<&str> = vec!["-s", device];
@@ -162,18 +177,37 @@ fn output_with_timeout(mut command: Command, timeout: Duration) -> Result<Output
         .stderr(Stdio::piped())
         .spawn()
         .context("starting adb")?;
+    // Drain both pipes from reader threads: a large payload (a screenshot is several hundred KB)
+    // fills the pipe buffer and would otherwise block the child before it can exit.
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    let stdout_reader = std::thread::spawn(move || read_all(stdout));
+    let stderr_reader = std::thread::spawn(move || read_all(stderr));
     let started = Instant::now();
-    loop {
-        if child.try_wait()?.is_some() {
-            break;
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
         }
         if started.elapsed() > timeout {
             let _ = child.kill();
+            let _ = child.wait();
             bail!("adb command timed out after {}s", timeout.as_secs());
         }
-        std::thread::sleep(Duration::from_millis(100));
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    Ok(Output {
+        status,
+        stdout: stdout_reader.join().unwrap_or_default(),
+        stderr: stderr_reader.join().unwrap_or_default(),
+    })
+}
+
+fn read_all(pipe: Option<impl std::io::Read>) -> Vec<u8> {
+    let mut buffer = Vec::new();
+    if let Some(mut pipe) = pipe {
+        let _ = std::io::Read::read_to_end(&mut pipe, &mut buffer);
     }
-    child.wait_with_output().context("collecting adb output")
+    buffer
 }
 
 pub(crate) fn select_device(requested: Option<&str>) -> Result<String> {

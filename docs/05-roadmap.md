@@ -90,8 +90,8 @@ Acceptance:
 - [ ] `winia doctor --target android`: SDK/NDK/JDK/adb checks.
 - [ ] `winia build --target android`: cargo ndk + Gradle assembleDebug.
 - [ ] `winia run --target android`: adb install/start/logcat.
-- [x] `winia devices` / `logcat` / `emulators`.
-- [ ] Standalone `screenshot` (covered by `winia inspect screenshot`).
+- [x] `winia devices` / `logcat` / `emulators` / `screenshot`.
+- [x] `winia android sync` / `winia android studio`.
 - [ ] Debug APK generation and installation.
 
 Acceptance:

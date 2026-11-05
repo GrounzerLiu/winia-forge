@@ -30,9 +30,9 @@
 | `winia devices` | List adb devices | Implemented (`--json`) |
 | `winia emulators` | Android emulator management | Implemented: list/start/stop (headless start) |
 | `winia logcat` | Android log filtering | Implemented: device, tag/package/pid, level, `--clear` |
-| `winia screenshot` | Screenshots | Planned |
+| `winia screenshot` | Screenshots | Implemented: adb screencap to a PNG (`--device`, `--output`, `--json`) |
 | `winia platform` | Add platform support | Planned (android placeholder) |
-| `winia android` | Android-specific operations | Implemented: `sync` (managed Gradle files); `init`/`studio` pending |
+| `winia android` | Android-specific operations | Implemented: `sync` (managed Gradle files), `studio`; `init` pending |
 | `winia completions` | Shell completions | Implemented |
 
 ## 1. Project creation and templates
@@ -398,6 +398,17 @@ winia emulators stop Pixel_7_API_34
   `-no-window -no-audio -no-boot-anim` for CI.
 - `stop` maps the AVD name to its emulator serial through `adb emu avd name` and sends
   `emu kill`. An AVD that is not running is an explicit error.
+
+```bash
+winia screenshot --output shot.png
+winia screenshot --device 192.0.0.172:5555 --json
+```
+
+- `winia screenshot` captures `adb exec-out screencap -p` for the selected device, validates the
+  PNG header, and reports the image size. It needs no debug server, so it works for any installed
+  build; `winia inspect screenshot` stays the choice when the frame should come from the renderer.
+- Adb output is drained from reader threads, so binary payloads larger than the pipe buffer do not
+  deadlock.
 
 ### 4.5 Debugging tools
 

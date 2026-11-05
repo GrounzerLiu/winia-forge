@@ -68,8 +68,8 @@ Implemented:
 - `winia build`: build a host executable, or an Android APK through the built-in NDK driver and the project's Gradle wrapper (16 KB alignment is verified)
 - `winia run`: launch the host executable, or install and start the APK on the connected Android device
 - `winia dev`: watch sources and assets, rebuild and restart the host app or reinstall/restart the Android activity, and auto-start the debug server
-- `winia devices` / `winia logcat` / `winia emulators`: list adb devices, stream or filter the
-  device log, and start/stop Android emulators
+- `winia devices` / `winia logcat` / `winia emulators` / `winia screenshot`: list adb devices,
+  stream or filter the device log, start/stop emulators, and capture the screen over adb
 - `winia test`: run host cargo tests and an Android install/launch/logcat/screenshot smoke test
 - `winia clean`: remove `target/`, `dist/`, and Android build outputs, with `--dry-run`/`--all`
 - `winia ci init`: write a ready-to-run GitHub Actions or GitLab CI workflow for the project

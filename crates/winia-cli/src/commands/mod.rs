@@ -21,14 +21,16 @@ pub mod new;
 pub mod package;
 pub mod release;
 pub mod run;
+pub mod screenshot;
 pub mod sign;
 pub mod sign_macos;
 pub mod sign_windows;
+pub mod studio;
 pub mod test;
 
 use crate::cli::{
     Cli, Command, CompletionShell, ConfigArgs, ConfigCommand, InfoArgs, PlatformArgs,
-    PlatformCommand, ScreenshotArgs, TargetsArgs,
+    PlatformCommand, TargetsArgs,
 };
 use crate::config::{WiniaConfig, find_config};
 use anyhow::{Context, Result, bail};
@@ -61,7 +63,7 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         Command::Init(args) => init::run(args),
         Command::Emulators(args) => emulators::run(args),
         Command::Logcat(args) => logcat::run(args),
-        Command::Screenshot(args) => screenshot(args),
+        Command::Screenshot(args) => screenshot::run(args),
         Command::Devices(args) => devices::run(args),
         Command::Android(args) => android::run(args),
         other => planned(command_name(&other)),
@@ -210,8 +212,4 @@ fn platform(args: PlatformArgs) -> Result<()> {
             Ok(())
         }
     }
-}
-
-fn screenshot(_args: ScreenshotArgs) -> Result<()> {
-    planned("screenshot")
 }

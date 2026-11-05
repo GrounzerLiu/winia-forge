@@ -578,12 +578,18 @@ pub struct LogcatArgs {
 
 #[derive(Debug, Args)]
 pub struct ScreenshotArgs {
-    /// Target platform. Defaults to android.
+    /// Target platform. Only android is implemented.
     #[arg(long)]
     pub target: Option<String>,
+    /// Device serial; defaults to the only connected device.
+    #[arg(long)]
+    pub device: Option<String>,
     /// Output file. Defaults to screenshot.png.
     #[arg(long)]
     pub output: Option<PathBuf>,
+    /// Emit machine-readable output.
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Debug, Args)]

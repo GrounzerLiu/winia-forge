@@ -18,21 +18,26 @@ pub fn run(args: AndroidArgs) -> Result<()> {
         AndroidCommand::Init => bail!(
             "'winia android init' is not implemented yet; create the project with 'winia new --platforms android'"
         ),
-        AndroidCommand::Studio => bail!(
-            "'winia android studio' is not implemented yet; open the android/ directory in Android Studio"
-        ),
+        AndroidCommand::Studio => {
+            let root = project_root()?;
+            super::studio::open(&root.join("android"))
+        }
     }
 }
 
-fn sync(check: bool, force: bool, json: bool) -> Result<()> {
+fn project_root() -> Result<std::path::PathBuf> {
     let cwd = std::env::current_dir().context("reading the current directory")?;
     let config_path = crate::config::find_config(&cwd)
         .ok_or_else(|| anyhow::anyhow!("winia.toml not found; run this inside a Winia project"))?;
-    let root = config_path
+    Ok(config_path
         .parent()
         .unwrap_or_else(|| Path::new("."))
-        .to_path_buf();
-    let config = WiniaConfig::load(&config_path)?;
+        .to_path_buf())
+}
+
+fn sync(check: bool, force: bool, json: bool) -> Result<()> {
+    let root = project_root()?;
+    let config = WiniaConfig::load(&root.join("winia.toml"))?;
     config.validate()?;
     if !root.join("android").is_dir() {
         bail!("no android/ directory; create the project with 'winia new --platforms android'");
