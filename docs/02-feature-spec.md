@@ -656,6 +656,11 @@ Checks:
 - Rust targets: `rustup target list --installed`.
 - Packaging tools: `makensis` and WiX (Windows), `dpkg-deb` (Linux), `gh`. All are optional
   warnings with the exact install command, because packaging skips a format whose tool is absent.
+- `winia dependency`: reads `Cargo.toml` next to `winia.toml` and reports whether `winia` is
+  declared (all targets, desktop and/or android), whether a `path` dependency still exists and
+  points at the crate rather than a workspace manifest, whether `android/` exists without the
+  Android dependency table, and whether a pinned `version` matches this CLI. Missing declarations
+  and broken paths are failures; the rest are warnings.
 - Windows: MSVC Build Tools, Windows SDK, LLVM (needed by Skia), Vulkan SDK (optional).
 - macOS: Xcode Command Line Tools.
 - Linux: `pkg-config`, `fontconfig`, `libx11`.

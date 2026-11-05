@@ -245,8 +245,121 @@ fn collect_checks(target: Option<Target>, android_required: bool) -> Vec<Check> 
     }
 
     checks.extend(packaging_checks(target));
+    if let Some(check) = winia_dependency_check() {
+        checks.push(check);
+    }
     checks.push(config_check());
     checks
+}
+
+/// Report how the project declares its winia dependency. Only runs inside a Winia project.
+fn winia_dependency_check() -> Option<Check> {
+    let cwd = std::env::current_dir().ok()?;
+    let config_path = crate::config::find_config(&cwd)?;
+    let root = config_path.parent()?.to_path_buf();
+    Some(dependency_check(&root))
+}
+
+/// Inspect Cargo.toml for the winia dependency: present at all, path still valid, and whether the
+/// platform split (desktop / android) matches what the project contains.
+fn dependency_check(root: &Path) -> Check {
+    const NAME: &str = "winia dependency";
+    let manifest = root.join("Cargo.toml");
+    let Ok(text) = std::fs::read_to_string(&manifest) else {
+        return Check::missing(NAME, "no Cargo.toml next to winia.toml", true);
+    };
+    let Ok(value) = text.parse::<toml::Value>() else {
+        return Check::missing(NAME, "Cargo.toml is not valid TOML", true);
+    };
+    let table = |filter: &str| -> Option<&toml::Value> {
+        value
+            .get("target")?
+            .get(filter)?
+            .get("dependencies")?
+            .get("winia")
+    };
+    let desktop = table("cfg(not(target_os = \"android\"))");
+    let android = table("cfg(target_os = \"android\")");
+    let plain = value.get("dependencies").and_then(|deps| deps.get("winia"));
+
+    let mut declared: Vec<&'static str> = Vec::new();
+    if plain.is_some() {
+        declared.push("all targets");
+    }
+    if desktop.is_some() {
+        declared.push("desktop");
+    }
+    if android.is_some() {
+        declared.push("android");
+    }
+    if declared.is_empty() {
+        return Check::missing(
+            NAME,
+            "not declared in Cargo.toml; add it with 'winia add winia' or 'winia init'",
+            true,
+        );
+    }
+
+    for spec in [plain, desktop, android].into_iter().flatten() {
+        let Some(path) = spec.get("path").and_then(|value| value.as_str()) else {
+            continue;
+        };
+        let resolved = if Path::new(path).is_absolute() {
+            PathBuf::from(path)
+        } else {
+            root.join(path)
+        };
+        if !resolved.is_dir() {
+            return Check::missing(
+                NAME,
+                format!("path dependency '{path}' does not exist"),
+                true,
+            );
+        }
+        if let Ok(manifest_text) = std::fs::read_to_string(resolved.join("Cargo.toml")) {
+            if !manifest_text.contains("[package]") {
+                return Check {
+                    name: NAME,
+                    status: Status::Warning,
+                    detail: format!(
+                        "'{path}' is a workspace manifest; point the dependency at the winia crate (for example {path}/winia)"
+                    ),
+                    required: false,
+                };
+            }
+        }
+    }
+
+    if root.join("android").is_dir() && android.is_none() {
+        return Check {
+            name: NAME,
+            status: Status::Warning,
+            detail: "android/ exists but the target_os = android dependency is missing; run 'winia android init'".to_owned(),
+            required: false,
+        };
+    }
+
+    let cli = env!("CARGO_PKG_VERSION");
+    if let Some(version) = [plain, desktop, android]
+        .into_iter()
+        .flatten()
+        .find_map(|spec| spec.get("version").and_then(|value| value.as_str()))
+    {
+        if version != cli {
+            return Check {
+                name: NAME,
+                status: Status::Warning,
+                detail: format!("declares winia {version}; this CLI is {cli}"),
+                required: false,
+            };
+        }
+    }
+
+    Check::ok(
+        NAME,
+        format!("declared for {}", declared.join(" + ")),
+        false,
+    )
 }
 
 /// Installer toolchains. Missing tools are warnings, because packaging skips those formats
@@ -1050,6 +1163,97 @@ fn ndk_env_command(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn dependency_fixture(name: &str) -> PathBuf {
+        let root = std::env::current_dir()
+            .unwrap()
+            .join("target")
+            .join(format!("doctor-dep-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    fn write_cargo(root: &Path, body: &str) {
+        std::fs::write(root.join("Cargo.toml"), body).unwrap();
+    }
+
+    #[test]
+    fn reports_a_project_without_the_winia_dependency() {
+        let root = dependency_fixture("absent");
+        write_cargo(&root, "[package]\nname = \"demo\"\n");
+        let check = dependency_check(&root);
+        assert_eq!(check.status, Status::Missing);
+        assert!(check.detail.contains("not declared"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn accepts_a_valid_path_dependency() {
+        let root = dependency_fixture("valid");
+        let crate_dir = root.join("winia");
+        std::fs::create_dir_all(&crate_dir).unwrap();
+        std::fs::write(
+            crate_dir.join("Cargo.toml"),
+            "[package]\nname = \"winia\"\n",
+        )
+        .unwrap();
+        write_cargo(
+            &root,
+            "[package]\nname = \"demo\"\n\n[target.'cfg(not(target_os = \"android\"))'.dependencies]\nwinia = { path = \"winia\" }\n",
+        );
+        let check = dependency_check(&root);
+        assert_eq!(check.status, Status::Ok);
+        assert!(check.detail.contains("desktop"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn warns_when_the_path_points_at_a_workspace() {
+        let root = dependency_fixture("workspace");
+        let workspace = root.join("winia-repo");
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::write(
+            workspace.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"winia\"]\n",
+        )
+        .unwrap();
+        write_cargo(
+            &root,
+            "[package]\nname = \"demo\"\n\n[dependencies]\nwinia = { path = \"winia-repo\" }\n",
+        );
+        let check = dependency_check(&root);
+        assert_eq!(check.status, Status::Warning);
+        assert!(check.detail.contains("workspace manifest"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn reports_a_path_that_no_longer_exists() {
+        let root = dependency_fixture("missing");
+        write_cargo(
+            &root,
+            "[package]\nname = \"demo\"\n\n[dependencies]\nwinia = { path = \"gone\" }\n",
+        );
+        let check = dependency_check(&root);
+        assert_eq!(check.status, Status::Missing);
+        assert!(check.detail.contains("does not exist"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn warns_when_android_files_have_no_android_dependency() {
+        let root = dependency_fixture("android");
+        std::fs::create_dir_all(root.join("android")).unwrap();
+        write_cargo(
+            &root,
+            "[package]\nname = \"demo\"\n\n[target.'cfg(not(target_os = \"android\"))'.dependencies]\nwinia = { version = \"0.1.0\" }\n",
+        );
+        let check = dependency_check(&root);
+        assert_eq!(check.status, Status::Warning);
+        assert!(check.detail.contains("android"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     fn check(name: &'static str, status: Status, required: bool) -> Check {
         Check {
