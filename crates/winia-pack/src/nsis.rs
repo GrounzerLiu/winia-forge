@@ -394,9 +394,8 @@ mod tests {
     }
 
     fn fixture(name: &str) -> PathBuf {
-        let root = std::env::current_dir()
-            .unwrap()
-            .join("target")
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target")
             .join(format!("nsis-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let payload = root.join("payload");
