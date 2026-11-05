@@ -10,6 +10,7 @@
 //! while the packaging work lands.
 
 pub mod deb;
+pub mod msi;
 pub mod nsis;
 
 /// Artifact formats the packager intends to support.

@@ -93,6 +93,27 @@ jobs:
           test -s "$SETUP"
           grep -a -q "requireAdministrator" "$SETUP"
 
+      - name: Install WiX
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install wixtoolset -y --no-progress
+
+      - name: Install MSI package
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $winia = Join-Path $env:GITHUB_WORKSPACE 'target\release\winia.exe'
+          Set-Location .github/fixtures/ci-app
+          & $winia package --target windows --format msi --out-dir dist --clean
+          $msi = (Get-ChildItem dist -Filter *-setup.msi).FullName
+          if (-not $msi) { $msi = (Get-ChildItem dist -Filter *.msi | Select-Object -First 1).FullName }
+          if (-not $msi) { throw 'no MSI produced' }
+          $target = Join-Path $env:RUNNER_TEMP 'ci-msi'
+          Start-Process msiexec.exe -ArgumentList "/i", """$msi"", "/qn", "/norestart", "INSTALLDIR=$target" -Wait
+          if (-not (Test-Path (Join-Path $target 'ci-smoke.exe'))) { throw 'ci-smoke.exe missing after install' }
+          Start-Process msiexec.exe -ArgumentList "/x", """$msi"", "/qn", "/norestart" -Wait
+
       - name: Verify macOS app bundle
         if: runner.os == 'macOS'
         shell: bash

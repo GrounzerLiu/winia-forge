@@ -182,6 +182,21 @@ fn package_desktop(
                 };
                 winia_pack::deb::build(&spec)?;
             }
+            "msi" => {
+                let spec = winia_pack::msi::MsiSpec {
+                    app_name: &config.app.name,
+                    app_version: &version,
+                    app_id: &config.app.id,
+                    publisher: &publisher,
+                    executable: executable_name
+                        .to_str()
+                        .ok_or_else(|| anyhow::anyhow!("the executable name is not valid UTF-8"))?,
+                    payload: &stage,
+                    output: &destination,
+                    arch,
+                };
+                winia_pack::msi::build(&spec)?;
+            }
             "nsis" => {
                 let icon = icons
                     .as_ref()
@@ -238,7 +253,7 @@ fn desktop_formats(target: &str, config: &WiniaConfig, args: &PackageArgs) -> Re
         other => bail!("unknown desktop target '{other}'"),
     };
     let supported: &[&str] = match target {
-        "windows" => &["zip", "nsis"],
+        "windows" => &["zip", "nsis", "msi"],
         "macos" => &["app", "zip"],
         "linux" => &["tar.gz", "deb"],
         _ => &[],
