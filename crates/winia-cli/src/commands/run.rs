@@ -232,7 +232,27 @@ pub(crate) fn select_device(requested: Option<&str>) -> Result<String> {
     let output = adb(&["devices"])?;
     let devices = parse_devices(&output);
     match devices.len() {
-        0 => bail!("no Android device or emulator connected; start one or pass --device <serial>"),
+        0 => {
+            let unusable: Vec<String> = output
+                .lines()
+                .skip(1)
+                .filter_map(|line| {
+                    let mut fields = line.split_whitespace();
+                    let serial = fields.next()?;
+                    let state = fields.next()?;
+                    (state != "device").then(|| format!("{serial} is {state}"))
+                })
+                .collect();
+            if unusable.is_empty() {
+                bail!(
+                    "no Android device or emulator connected; start one or pass --device <serial>"
+                );
+            }
+            bail!(
+                "no usable Android device: {}; authorize USB debugging or run 'adb reconnect', or pass --device <serial>",
+                unusable.join(", ")
+            );
+        }
         1 => Ok(devices.into_iter().next().expect("length checked")),
         _ => bail!(
             "multiple devices connected: {}; pass --device <serial>",
@@ -269,6 +289,16 @@ pub(crate) fn install_quiet(device: &str, apk: &Path) -> Result<()> {
 }
 
 fn install_impl(device: &str, apk: &Path, quiet: bool) -> Result<()> {
+    if apk
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.ends_with("-unsigned.apk"))
+    {
+        bail!(
+            "{} is unsigned and cannot be installed; configure signing (WINIA_ANDROID_KEYSTORE) or use a debug build",
+            apk.display()
+        );
+    }
     if !quiet {
         println!("Installing {}", apk.display());
     }
@@ -473,12 +503,17 @@ fn launch_impl(
     let mut start = Command::new(adb_program());
     start.args(["-s", device, "shell", "am", "start", "-W", "-n", component]);
     if !args.is_empty() {
-        start.arg("--es").arg("winia.args").arg(args.join(" "));
+        // `adb shell` joins argv and the device shell parses the line again, so values with spaces
+        // or metacharacters must be quoted for that shell, not for adb.
+        start
+            .arg("--es")
+            .arg("winia.args")
+            .arg(shell_quote(&args.join(" ")));
         for (index, value) in args.iter().enumerate() {
             start
                 .arg("--es")
                 .arg(format!("winia.arg{index}"))
-                .arg(value);
+                .arg(shell_quote(value));
         }
     }
     let output = output_with_timeout(start, Duration::from_secs(30))?;
@@ -501,7 +536,7 @@ fn launch_impl(
 pub(crate) fn activity_component(root: &Path, package: &str) -> String {
     let manifest = root.join("android/app/src/main/AndroidManifest.xml");
     if let Ok(text) = std::fs::read_to_string(&manifest)
-        && let Some(name) = first_activity_name(&text)
+        && let Some(name) = launcher_activity_name(&text)
     {
         return if name.starts_with('.') {
             format!("{package}/{name}")
@@ -512,6 +547,33 @@ pub(crate) fn activity_component(root: &Path, package: &str) -> String {
         };
     }
     format!("{package}/.MainActivity")
+}
+
+/// Quote a value for the device shell: single quotes keep spaces and metacharacters literal.
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+/// Prefer the activity with MAIN/LAUNCHER; fall back to the first one.
+fn launcher_activity_name(manifest: &str) -> Option<String> {
+    for block in manifest.split("<activity").skip(1) {
+        let block = block.split("</activity>").next().unwrap_or(block);
+        if block.contains("android.intent.action.MAIN")
+            && block.contains("android.intent.category.LAUNCHER")
+            && let Some(name) = activity_name_in(block)
+        {
+            return Some(name);
+        }
+    }
+    first_activity_name(manifest)
+}
+
+fn activity_name_in(block: &str) -> Option<String> {
+    let marker = "android:name=\"";
+    let start = block.find(marker)? + marker.len();
+    let value = &block[start..];
+    let end = value.find('"')?;
+    Some(value[..end].to_owned())
 }
 
 fn first_activity_name(manifest: &str) -> Option<String> {
@@ -535,6 +597,26 @@ fn first_activity_name(manifest: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn prefers_the_launcher_activity() {
+        let manifest = r#"
+<manifest><application>
+  <activity android:name=".Splash" android:exported="false">
+    <intent-filter><action android:name="android.intent.action.VIEW" /></intent-filter>
+  </activity>
+  <activity android:name=".MainActivity" android:exported="true">
+    <intent-filter>
+      <action android:name="android.intent.action.MAIN" />
+      <category android:name="android.intent.category.LAUNCHER" />
+    </intent-filter>
+  </activity>
+</application></manifest>"#;
+        assert_eq!(
+            launcher_activity_name(manifest).as_deref(),
+            Some(".MainActivity")
+        );
+    }
 
     #[test]
     fn reads_the_activity_name_from_the_manifest() {

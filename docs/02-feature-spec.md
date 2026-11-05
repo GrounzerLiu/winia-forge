@@ -284,7 +284,6 @@ winia build --release
 winia build --target windows --release
 winia build --target android --release --abi arm64-v8a,x86_64
 winia build --target all --json
-winia check
 winia clean --all
 ```
 
@@ -411,8 +410,8 @@ winia test --json
   feature is passed to `cargo test`.
 - Android smoke: builds the APK, installs it, launches the activity, checks the app PID's logcat for
   panics, and writes `target/winia-test/android-smoke.png`.
-- `--json` reports `{target, passed, failed, ignored, success, exit_code, duration_ms}` (Android also
-  includes `device` and `screenshot`).
+- `--json` reports `{target, passed, failed, ignored, success, duration_ms}`; the Android form also
+  includes `device` and `screenshot` (there is no `exit_code` field).
 - `--update-snapshots` sets `WINIA_UPDATE_SNAPSHOTS=1`; snapshot diff/baseline handling is still
   owned by the project's test suite, not this command.
 

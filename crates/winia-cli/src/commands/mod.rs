@@ -106,8 +106,8 @@ fn targets(_args: TargetsArgs) -> Result<()> {
     );
     println!("{:<10} {:<12} x86_64, aarch64", "linux", "supported");
     println!(
-        "{:<10} {:<12} requires the Android platform layer",
-        "android", "planned"
+        "{:<10} {:<12} aarch64, x86_64, armeabi-v7a (APK/AAB)",
+        "android", "supported"
     );
     println!("{:<10} {:<12} not designed yet", "ios", "planned");
     Ok(())
@@ -127,11 +127,22 @@ fn config(args: ConfigArgs) -> Result<()> {
             let value = toml::Value::try_from(&config)?;
             let mut current = &value;
             for part in key.split('.') {
-                current = current
-                    .get(part)
-                    .ok_or_else(|| anyhow::anyhow!("unknown config key: {key}"))?;
+                match current.get(part) {
+                    Some(next) => current = next,
+                    // Optional keys vanish from the serialised config when unset; saying "unknown"
+                    // would be indistinguishable from a typo.
+                    None if matches!(key.as_str(), "app.icon" | "app.license") => {
+                        println!();
+                        return Ok(());
+                    }
+                    None => anyhow::bail!("unknown config key: {key}"),
+                }
             }
-            println!("{current}");
+            // Print scalars without TOML quotes so shell users can consume them directly.
+            match current {
+                toml::Value::String(text) => println!("{text}"),
+                other => println!("{other}"),
+            }
         }
     }
     Ok(())

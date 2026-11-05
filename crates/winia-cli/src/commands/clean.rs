@@ -121,7 +121,7 @@ pub fn run(args: CleanArgs) -> Result<()> {
                 entries.push(ResultEntry {
                     path: target.label.to_owned(),
                     bytes: 0,
-                    status: "skipped",
+                    status: "failed",
                     reason: Some(format!("remove failed: {error}")),
                 });
             }
@@ -165,10 +165,30 @@ pub fn run(args: CleanArgs) -> Result<()> {
                     println!("Skipped {}", entry.path);
                 }
             }
+            "failed" => {
+                if let Some(reason) = &entry.reason {
+                    eprintln!("Failed to remove {} ({reason})", entry.path);
+                } else {
+                    eprintln!("Failed to remove {}", entry.path);
+                }
+            }
             _ => {}
         }
     }
-    if entries.iter().all(|entry| entry.status == "skipped") {
+    let failed = entries
+        .iter()
+        .filter(|entry| entry.status == "failed")
+        .count();
+    if failed > 0 {
+        eprintln!(
+            "{failed} path(s) could not be removed; close whatever is using them and run again"
+        );
+        std::process::exit(1);
+    }
+    if entries
+        .iter()
+        .all(|entry| matches!(entry.status, "skipped" | "missing"))
+    {
         println!("Nothing to clean.");
     } else if !args.dry_run {
         println!(

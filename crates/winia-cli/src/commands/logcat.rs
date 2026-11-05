@@ -19,6 +19,7 @@ pub fn run(args: LogcatArgs) -> Result<()> {
         "time".to_owned(),
     ];
 
+    let mut tag: Option<String> = None;
     if let Some(pid) = args.pid {
         arguments.push(format!("--pid={pid}"));
     } else if let Some(filter) = args.filter.as_deref().filter(|value| !value.is_empty()) {
@@ -32,17 +33,29 @@ pub fn run(args: LogcatArgs) -> Result<()> {
             }
             arguments.push(format!("--pid={pid}"));
         } else {
-            arguments.push("-s".to_owned());
-            arguments.push(filter.to_owned());
+            tag = Some(filter.to_owned());
         }
     }
 
-    if let Some(level) = args.level.as_deref().filter(|value| !value.is_empty()) {
-        let level = level.to_ascii_uppercase();
-        if !matches!(level.as_str(), "V" | "D" | "I" | "W" | "E" | "F" | "S") {
-            bail!("unknown log level '{level}'; expected V, D, I, W, E, F or S");
+    let level = args
+        .level
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        .map(|level| level.to_ascii_uppercase());
+    if let Some(level) = &level
+        && !matches!(level.as_str(), "V" | "D" | "I" | "W" | "E" | "F" | "S")
+    {
+        bail!("unknown log level '{level}'; expected V, D, I, W, E, F or S");
+    }
+    match (tag, level) {
+        // TAG:LEVEL is one filter spec; "-s TAG *:LEVEL" would leave TAG pinned at V.
+        (Some(tag), Some(level)) => arguments.push(format!("{tag}:{level}")),
+        (Some(tag), None) => {
+            arguments.push("-s".to_owned());
+            arguments.push(tag);
         }
-        arguments.push(format!("*:{level}"));
+        (None, Some(level)) => arguments.push(format!("*:{level}")),
+        (None, None) => {}
     }
 
     let status = Command::new(run::adb_program())
@@ -53,6 +66,8 @@ pub fn run(args: LogcatArgs) -> Result<()> {
         Some(0) => Ok(()),
         // Ctrl+C or a closed pipe stops the stream; that is not a failure.
         Some(130) | Some(143) => Ok(()),
+        // Windows reports Ctrl+C as STATUS_CONTROL_C_EXIT (0xC000013A, negative as i32).
+        Some(-1073741510) => Ok(()),
         None => Ok(()),
         _ => bail!("adb logcat exited with {status}"),
     }

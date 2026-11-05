@@ -142,7 +142,12 @@ pub fn run(args: ReleaseArgs) -> Result<()> {
     if args.bump.is_some() {
         config.app.version = version.clone();
         config.android.version_code = config.android.version_code.saturating_add(1);
-        config.save(&config_path)?;
+        // Edit the two keys in place: save() would drop comments and keys this version does not know.
+        crate::config::set_release_versions(
+            &config_path,
+            &config.app.version,
+            config.android.version_code,
+        )?;
         let mut files = vec!["winia.toml".to_owned()];
         if update_cargo_version(&root, &version)? {
             files.push("Cargo.toml".to_owned());
@@ -353,11 +358,14 @@ pub fn run(args: ReleaseArgs) -> Result<()> {
         push_release(&root, if args.no_tag { None } else { Some(&tag) })?;
     }
 
-    if track == Some("github") {
-        upload_github(&root, &tag, &notes, &artifacts)?;
-    }
+    // Write latest.json before publishing so the release carries it.
+    let manifest = write_manifest(&out_dir, &version, &tag, &artifacts)?;
 
-    write_manifest(&out_dir, &version, &tag, &artifacts)?;
+    if track == Some("github") {
+        let mut assets = artifacts.clone();
+        assets.push(manifest.clone());
+        upload_github(&root, &tag, &notes, &assets)?;
+    }
 
     if args.json {
         let values: Vec<_> = artifacts
@@ -838,7 +846,7 @@ fn command_exists(program: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn write_manifest(dist: &Path, version: &str, tag: &str, artifacts: &[PathBuf]) -> Result<()> {
+fn write_manifest(dist: &Path, version: &str, tag: &str, artifacts: &[PathBuf]) -> Result<PathBuf> {
     let entries: Vec<_> = artifacts
         .iter()
         .map(|path| {
@@ -859,7 +867,7 @@ fn write_manifest(dist: &Path, version: &str, tag: &str, artifacts: &[PathBuf]) 
     let path = dist.join("latest.json");
     std::fs::write(&path, serde_json::to_string_pretty(&value)?)
         .with_context(|| format!("writing {}", path.display()))?;
-    Ok(())
+    Ok(path)
 }
 
 fn git(root: &Path, args: &[&str]) -> Result<String> {

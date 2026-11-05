@@ -298,8 +298,9 @@ pub struct PackageArgs {
     /// Target platform(s), comma-separated.
     #[arg(long, value_delimiter = ',')]
     pub target: Vec<String>,
-    /// Artifact format(s), comma-separated. Implemented: zip, nsis, msi, app, dmg, deb, apk, aab;
-    /// appimage, msix, pkg and rpm are accepted but still unimplemented.
+    /// Artifact format(s), comma-separated. Implemented per target: windows zip/nsis/msi,
+    /// macos app/zip/dmg, linux tar.gz/deb, android apk/aab. msix, pkg, rpm and appimage are not
+    /// implemented yet.
     #[arg(long, value_delimiter = ',')]
     pub format: Vec<String>,
     /// Package the release build.
@@ -510,7 +511,7 @@ pub struct TargetsArgs {}
 
 #[derive(Debug, Args)]
 pub struct ConfigArgs {
-    /// Path to winia.toml. Defaults to ./winia.toml.
+    /// Path to winia.toml. Defaults to the nearest winia.toml above the current directory.
     #[arg(long)]
     pub file: Option<PathBuf>,
     #[command(subcommand)]

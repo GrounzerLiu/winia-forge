@@ -93,7 +93,9 @@ pub fn generate(spec: &InstallerSpec<'_>) -> Result<String> {
     if entries.files.is_empty() {
         bail!("payload directory is empty: {}", spec.payload.display());
     }
-    let total_kib = entries.bytes / 1024;
+    // Round up (a sub-KiB payload must not report 0) and add the uninstaller and registry data,
+    // which Add/Remove Programs also counts.
+    let total_kib = entries.bytes.div_ceil(1024) + 60;
     let programs = if spec.program_files_64 {
         "$PROGRAMFILES64"
     } else {

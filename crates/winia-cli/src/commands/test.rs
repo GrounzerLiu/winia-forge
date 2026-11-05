@@ -177,12 +177,22 @@ fn android_smoke(root: &Path, config: &WiniaConfig, args: &TestArgs) -> Result<(
     } else {
         run::launch(&device, &package, &component, &[])?;
     }
-    std::thread::sleep(Duration::from_secs(2));
-
-    let logcat = match run::app_pid(&device, &package) {
-        Some(pid) => run::logcat_pid(&device, pid)
-            .unwrap_or_else(|_| run::logcat_dump(&device).unwrap_or_default()),
-        None => run::logcat_dump(&device).unwrap_or_default(),
+    // Watch for a while instead of a single 2-second sample: a cold start on a slow device can
+    // panic after the old window had already passed.
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let logcat = loop {
+        let current = match run::app_pid(&device, &package) {
+            Some(pid) => run::logcat_pid(&device, pid)
+                .unwrap_or_else(|_| run::logcat_dump(&device).unwrap_or_default()),
+            None => run::logcat_dump(&device).unwrap_or_default(),
+        };
+        if current.contains("panicked at")
+            || current.contains("FATAL EXCEPTION")
+            || std::time::Instant::now() >= deadline
+        {
+            break current;
+        }
+        std::thread::sleep(Duration::from_millis(500));
     };
     let panic = logcat
         .lines()

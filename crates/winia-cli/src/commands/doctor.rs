@@ -174,7 +174,7 @@ pub fn run(args: DoctorArgs) -> Result<()> {
     if args.json {
         print_json(&checks, target, args.strict, fixes.as_deref());
     } else {
-        print_report(&checks, target);
+        print_report(&checks, target, args.strict);
     }
 
     if !passed(&checks, args.strict) {
@@ -418,7 +418,7 @@ fn passed(checks: &[Check], strict: bool) -> bool {
     !has_missing && !(strict && has_warning)
 }
 
-fn print_report(checks: &[Check], target: Option<Target>) {
+fn print_report(checks: &[Check], target: Option<Target>, strict: bool) {
     println!("Winia Forge environment check");
     if let Some(target) = target {
         println!("Target focus: {}", target.as_str());
@@ -440,6 +440,8 @@ fn print_report(checks: &[Check], target: Option<Target>) {
     );
     if !passed(checks, false) {
         println!("  Required checks are missing; install the tools above and run again.");
+    } else if strict && summary.warning > 0 {
+        println!("  --strict: warnings count as failures.");
     } else if summary.warning > 0 {
         println!(
             "  All required checks passed; warnings are optional for this target (use --strict to fail on them)."
@@ -903,12 +905,72 @@ fn adb_check(required: bool) -> Check {
     )
 }
 
+/// Major version from the first line of 'java -version' ("21.0.1", "1.8.0_402").
+fn java_major(text: &str) -> Option<u32> {
+    let start = text.find("version \"")? + "version \"".len();
+    let rest = &text[start..];
+    let end = rest.find('"')?;
+    let version = &rest[..end];
+    let mut parts = version.split('.');
+    let first = parts.next()?.parse::<u32>().ok()?;
+    if first == 1 {
+        parts.next()?.parse().ok()
+    } else {
+        Some(first)
+    }
+}
+
 fn java_check(required: bool) -> Check {
     match std::env::var_os("JAVA_HOME").filter(|value| !value.is_empty()) {
         Some(value) => {
             let path = PathBuf::from(value);
             if path.is_dir() {
-                Check::ok("JAVA_HOME", path.display().to_string(), required)
+                // A directory is not a JDK: ask the binary for its version, the way Gradle will.
+                let exe = path
+                    .join("bin")
+                    .join(if cfg!(windows) { "java.exe" } else { "java" });
+                if !exe.is_file() {
+                    return Check::missing(
+                        "JAVA_HOME",
+                        format!("{} has no bin/java", path.display()),
+                        required,
+                    );
+                }
+                match Command::new(&exe).arg("-version").output() {
+                    Ok(output) => {
+                        let text = format!(
+                            "{}{}",
+                            String::from_utf8_lossy(&output.stderr),
+                            String::from_utf8_lossy(&output.stdout)
+                        );
+                        match java_major(&text) {
+                            Some(major) if major >= 17 => Check::ok(
+                                "JAVA_HOME",
+                                format!("{} (java {major})", path.display()),
+                                required,
+                            ),
+                            Some(major) => Check::missing(
+                                "JAVA_HOME",
+                                format!("java {major} is too old; AGP needs 17 or newer"),
+                                required,
+                            ),
+                            None => Check {
+                                name: "JAVA_HOME",
+                                status: Status::Warning,
+                                detail: format!(
+                                    "{} exists but 'java -version' was not recognised",
+                                    path.display()
+                                ),
+                                required: false,
+                            },
+                        }
+                    }
+                    Err(error) => Check::missing(
+                        "JAVA_HOME",
+                        format!("running {} failed: {error}", exe.display()),
+                        required,
+                    ),
+                }
             } else {
                 Check::missing(
                     "JAVA_HOME",

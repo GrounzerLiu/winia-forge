@@ -290,7 +290,32 @@ fn build_android_library(
         .with_context(|| format!("creating {}", destination_dir.display()))?;
     let destination = destination_dir.join(format!("lib{}.so", metadata.library_name));
     copy_if_changed(&library, &destination)?;
+    remove_stale_libraries(&destination_dir, &destination)?;
     verify_alignment(toolchain, &destination)?;
+    Ok(())
+}
+
+/// Remove native libraries this build previously copied but no longer produces (for example after
+/// renaming [lib]). Only files recorded in the marker are touched, so extra user libraries stay.
+fn remove_stale_libraries(directory: &Path, keep: &Path) -> Result<()> {
+    let marker = directory.join(".winia-libs");
+    let keep_name = keep
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default()
+        .to_owned();
+    if let Ok(previous) = std::fs::read_to_string(&marker) {
+        for name in previous.lines().filter(|line| !line.is_empty()) {
+            if name != keep_name {
+                let stale = directory.join(name);
+                if stale.extension().and_then(|extension| extension.to_str()) == Some("so") {
+                    let _ = std::fs::remove_file(stale);
+                }
+            }
+        }
+    }
+    std::fs::write(&marker, format!("{keep_name}\n"))
+        .with_context(|| format!("writing {}", marker.display()))?;
     Ok(())
 }
 
@@ -645,6 +670,23 @@ impl AndroidToolchain {
     }
 }
 
+fn ndk_version_key(name: &str) -> [u32; 4] {
+    let Some((version, _)) = name.split_once('-') else {
+        let mut parts = name
+            .split('.')
+            .map(|part| part.parse::<u32>().unwrap_or(0))
+            .collect::<Vec<_>>();
+        parts.resize(4, 0);
+        return [parts[0], parts[1], parts[2], parts[3]];
+    };
+    let mut parts = version
+        .split('.')
+        .map(|part| part.parse::<u32>().unwrap_or(0))
+        .collect::<Vec<_>>();
+    parts.resize(4, 0);
+    [parts[0], parts[1], parts[2], parts[3]]
+}
+
 fn find_ndk() -> Result<PathBuf> {
     for variable in ["ANDROID_NDK", "ANDROID_NDK_HOME", "ANDROID_NDK_ROOT"] {
         if let Some(value) = std::env::var_os(variable).filter(|value| !value.is_empty()) {
@@ -666,7 +708,14 @@ fn find_ndk() -> Result<PathBuf> {
                         .collect()
                 })
                 .unwrap_or_default();
-            versions.sort();
+            // Numeric order: a plain string sort puts 9.0.0 above 28.0.1.
+            versions.sort_by_key(|path| {
+                ndk_version_key(
+                    path.file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or(""),
+                )
+            });
             if let Some(preferred) = versions.iter().find(|path| {
                 path.file_name().and_then(|name| name.to_str()) == Some("27.0.12077973")
             }) {
@@ -753,6 +802,10 @@ fn verify_alignment(toolchain: &AndroidToolchain, library: &Path) -> Result<()> 
         "llvm-readelf"
     });
     if !readelf.is_file() {
+        eprintln!(
+            "warning: {} is missing, so 16 KB page alignment was not verified",
+            readelf.display()
+        );
         return Ok(());
     }
     let output = Command::new(&readelf)
@@ -973,6 +1026,7 @@ fn display_relative(root: &Path, path: &Path) -> String {
     path.strip_prefix(root)
         .map(|relative| relative.display().to_string())
         .unwrap_or_else(|_| path.display().to_string())
+        .replace('\\', "/")
 }
 
 #[cfg(test)]

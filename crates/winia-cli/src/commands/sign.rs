@@ -278,10 +278,16 @@ fn verify(build_tools: &Path, apk: &Path) -> Result<String> {
     command.args(["verify", "--print-certs"]).arg(apk);
     let result = command.output().context("running apksigner verify")?;
     if !result.status.success() {
+        // apksigner reports the reason on stderr; include stdout too because versions differ.
+        let reason = format!(
+            "{}\n{}",
+            String::from_utf8_lossy(&result.stderr).trim(),
+            String::from_utf8_lossy(&result.stdout).trim()
+        );
         bail!(
             "apksigner verify failed for {}: {}",
             apk.display(),
-            String::from_utf8_lossy(&result.stdout).trim()
+            reason.trim()
         );
     }
     let text = String::from_utf8_lossy(&result.stdout);

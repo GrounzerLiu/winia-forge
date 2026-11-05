@@ -58,6 +58,22 @@ impl DirNode {
     }
 }
 
+/// Four numeric fields; pre-release and build metadata are dropped.
+fn numeric_version(version: &str) -> String {
+    let core = version.split(['-', '+']).next().unwrap_or("0.0.0");
+    let mut parts = core
+        .split('.')
+        .map(|part| part.parse::<u32>().unwrap_or(0))
+        .collect::<Vec<_>>();
+    parts.resize(4, 0);
+    parts.truncate(4);
+    parts
+        .iter()
+        .map(u32::to_string)
+        .collect::<Vec<_>>()
+        .join(".")
+}
+
 pub fn build(spec: &MsiSpec<'_>) -> Result<PathBuf> {
     if !spec.payload.is_dir() {
         bail!("payload directory not found: {}", spec.payload.display());
@@ -70,6 +86,8 @@ pub fn build(spec: &MsiSpec<'_>) -> Result<PathBuf> {
     if version.is_empty() {
         bail!("app.version is empty");
     }
+    // WiX only accepts numeric fields; a semver pre-release must not reach Product/@Version.
+    let product_version = numeric_version(version);
     let platform = match spec.arch {
         "x86_64" => "x64",
         "aarch64" => "arm64",
@@ -77,7 +95,7 @@ pub fn build(spec: &MsiSpec<'_>) -> Result<PathBuf> {
         other => bail!("unsupported MSI architecture '{other}'"),
     };
 
-    let wxs = generate(spec, &files, version, platform)?;
+    let wxs = generate(spec, &files, &product_version, platform)?;
     let stem = spec
         .output
         .file_stem()

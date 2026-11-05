@@ -155,7 +155,38 @@ pub(crate) fn managed_android_files() -> &'static [TemplateFile] {
     MANAGED_ANDROID
 }
 
+const RUST_KEYWORDS: &[&str] = &[
+    "as", "break", "const", "continue", "crate", "else", "enum", "extern", "false", "fn", "for",
+    "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub", "ref", "return",
+    "self", "static", "struct", "super", "trait", "true", "type", "unsafe", "use", "where",
+    "while", "async", "await", "dyn", "abstract", "become", "box", "do", "final", "macro",
+    "override", "priv", "typeof", "unsized", "virtual", "try", "yield", "gen",
+];
+
+/// A Cargo package name that is also a usable Rust identifier prefix: the template writes
+/// `use <name>::ui;`, so it must start with a letter and cannot be a keyword.
+fn validate_project_name(name: &str) -> Result<()> {
+    let mut chars = name.chars();
+    let Some(first) = chars.next() else {
+        bail!("project name must not be empty");
+    };
+    if !first.is_ascii_alphabetic() {
+        bail!("project name '{name}' must start with an ASCII letter");
+    }
+    if !chars.all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+        bail!("project name '{name}' may only contain letters, digits, '-' and '_'");
+    }
+    if RUST_KEYWORDS.contains(&name) {
+        bail!("project name '{name}' is a Rust keyword; choose another name");
+    }
+    Ok(())
+}
+
 pub fn run(args: NewArgs) -> Result<()> {
+    validate_project_name(&args.name)?;
+    if args.platforms.contains(&Platform::Ios) {
+        bail!("ios support is not implemented yet; choose windows, macos, linux, or android");
+    }
     if args.template != "blank" {
         bail!(
             "unknown template '{}'; the only built-in template is 'blank'",
@@ -409,6 +440,22 @@ fn write_bytes(root: &Path, destination: &str, bytes: &[u8]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rejects_names_that_cannot_be_rust_identifiers() {
+        for name in ["123app", "type", "my app", "app!", ""] {
+            assert!(
+                validate_project_name(name).is_err(),
+                "{name:?} should be rejected"
+            );
+        }
+        for name in ["my-app", "my_app", "App2"] {
+            assert!(
+                validate_project_name(name).is_ok(),
+                "{name:?} should be accepted"
+            );
+        }
+    }
 
     #[test]
     fn android_files_follow_the_activity_choice() {

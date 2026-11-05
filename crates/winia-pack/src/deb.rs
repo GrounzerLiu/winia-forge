@@ -107,7 +107,7 @@ pub fn build(spec: &DebSpec<'_>) -> Result<PathBuf> {
             false,
         )?;
         // Debian keeps the licence in /usr/share/doc/<package>/copyright, not in control.
-        let doc_dir = format!("usr/share/doc/{stem}");
+        let doc_dir = format!("usr/share/doc/{package}");
         for directory in ["usr/share/doc".to_owned(), doc_dir.clone()] {
             if !ordered.contains(&directory) {
                 append_dir(&mut tar, &directory)?;
@@ -196,10 +196,14 @@ fn control_file(
     arch: &str,
     installed_size_kib: u64,
 ) -> String {
+    // Debian policy wants "Name <email>"; authors are free-form, so synthesise an address when the
+    // publisher does not carry one.
     let maintainer = if spec.publisher.trim().is_empty() {
         "Winia contributors <noreply@example.com>".to_owned()
-    } else {
+    } else if spec.publisher.contains('<') {
         spec.publisher.to_owned()
+    } else {
+        format!("{} <noreply@example.com>", spec.publisher.trim())
     };
     format!(
         "Package: {package}\nVersion: {version}\nArchitecture: {arch}\nMaintainer: {maintainer}\nInstalled-Size: {installed_size_kib}\nSection: utils\nPriority: optional\nDescription: {}\n A Winia desktop application.\n",

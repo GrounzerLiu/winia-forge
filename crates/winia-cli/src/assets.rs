@@ -90,6 +90,13 @@ pub fn stage_desktop(root: &Path, config: &WiniaConfig, stage: &Path) -> Result<
     }
     if let Some(icons) = crate::icons::ensure(root, config)? {
         let relative = "assets/winia/window-icon.png";
+        if manifest
+            .files
+            .iter()
+            .any(|entry| entry.packaged == relative)
+        {
+            bail!("{relative} is reserved for the generated window icon; rename the project asset");
+        }
         let destination = stage.join(relative);
         if let Some(parent) = destination.parent() {
             std::fs::create_dir_all(parent)?;
@@ -212,6 +219,11 @@ fn walk(
         let entry = entry?;
         let file_type = entry.file_type()?;
         if file_type.is_symlink() {
+            // Silently dropping files turns into a missing-asset failure at runtime; say so now.
+            eprintln!(
+                "warning: skipping symlink {} (copy the target into assets/ to ship it)",
+                entry.path().display()
+            );
             continue;
         }
         let path = entry.path();
@@ -261,8 +273,9 @@ fn asset_identity(path: &str) -> (String, Option<f32>) {
                 (stem, Some(extension))
             });
         let (stem, suffix_density) = match stem.rsplit_once('@') {
-            Some((stem, token)) => match density_token(token) {
-                Some(value) => (stem, Some(value)),
+            Some((base, token)) => match density_token(token) {
+                Some(value) => (base, Some(value)),
+                // Not a density marker: the '@' belongs to the file name (notes@home.txt).
                 None => (stem, None),
             },
             None => (stem, None),
@@ -287,6 +300,18 @@ fn density_token(value: &str) -> Option<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_at_sign_that_is_not_a_density_stays_in_the_id() {
+        assert_eq!(
+            asset_identity("assets/notes@home.txt"),
+            ("assets/notes@home.txt".to_owned(), None)
+        );
+        assert_eq!(
+            asset_identity("assets/logo@2x.png"),
+            ("assets/logo.png".to_owned(), Some(2.0))
+        );
+    }
 
     fn temp_root(name: &str) -> PathBuf {
         let root = std::env::temp_dir().join(format!("winia-assets-{name}-{}", std::process::id()));

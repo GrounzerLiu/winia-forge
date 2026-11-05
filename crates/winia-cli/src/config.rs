@@ -266,6 +266,31 @@ fn is_java_package(value: &str) -> bool {
     })
 }
 
+/// Write the release version and Android version code in place, preserving comments and unknown
+/// keys. Used by 'winia release --bump' instead of a full save().
+pub fn set_release_versions(path: &Path, version: &str, version_code: u32) -> anyhow::Result<()> {
+    let text =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    let mut doc: toml_edit::DocumentMut = text
+        .parse()
+        .with_context(|| format!("parsing {}", path.display()))?;
+    let app = doc
+        .entry("app")
+        .or_insert(toml_edit::Item::Table(toml_edit::Table::new()));
+    app.as_table_mut()
+        .ok_or_else(|| anyhow::anyhow!("[app] is not a table in {}", path.display()))?["version"] =
+        toml_edit::value(version);
+    let android = doc
+        .entry("android")
+        .or_insert(toml_edit::Item::Table(toml_edit::Table::new()));
+    android
+        .as_table_mut()
+        .ok_or_else(|| anyhow::anyhow!("[android] is not a table in {}", path.display()))?["version_code"] =
+        toml_edit::value(i64::from(version_code));
+    std::fs::write(path, doc.to_string()).with_context(|| format!("writing {}", path.display()))?;
+    Ok(())
+}
+
 /// Point `app.icon` at `icon` while preserving the rest of the manifest (comments, ordering and
 /// keys this version does not model). Used by 'winia assets icon' so the next build reuses the
 /// source instead of falling back to the built-in default.

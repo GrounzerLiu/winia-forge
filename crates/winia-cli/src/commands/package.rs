@@ -609,13 +609,24 @@ fn build_macos_app(
         xml_escape(&config.app.name),
         xml_escape(&config.app.id),
         xml_escape(&executable_name.to_string_lossy()),
-        xml_escape(&config.app.version),
-        xml_escape(&config.app.version),
+        bundle_version(&config.app.version),
+        bundle_version(&config.app.version),
         copyright_entry,
         icon_entry,
     );
     std::fs::write(contents.join("Info.plist"), plist)?;
     Ok(())
+}
+
+/// CFBundleVersion wants one to three period-separated integers; drop any semver suffix.
+fn bundle_version(version: &str) -> String {
+    let core = version.split(['-', '+']).next().unwrap_or("0.0.0");
+    let parts: Vec<&str> = core.split('.').take(3).collect();
+    if parts.len() == 3 && parts.iter().all(|part| part.parse::<u32>().is_ok()) {
+        parts.join(".")
+    } else {
+        "0.0.0".to_owned()
+    }
 }
 
 fn xml_escape(value: &str) -> String {
@@ -1214,13 +1225,26 @@ fn write_checksums(
     artifacts: &[PathBuf],
     hashes: &[Option<String>],
 ) -> Result<()> {
-    let mut text = String::new();
+    // Merge with the existing file: dist usually holds artifacts from several runs, and replacing
+    // the whole file would drop entries for files that are still there.
+    let mut entries: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
+    if let Ok(existing) = std::fs::read_to_string(directory.join("SHA256SUMS")) {
+        for line in existing.lines() {
+            if let Some((hash, name)) = line.split_once("  ") {
+                entries.insert(name.trim().to_owned(), hash.trim().to_owned());
+            }
+        }
+    }
     for (path, hash) in artifacts.iter().zip(hashes.iter()) {
         let (Some(hash), Some(name)) = (hash, path.file_name().and_then(|name| name.to_str()))
         else {
             continue;
         };
-        text.push_str(&checksum_line(hash, name));
+        entries.insert(name.to_owned(), hash.clone());
+    }
+    let mut text = String::new();
+    for (name, hash) in entries {
+        text.push_str(&checksum_line(&hash, &name));
     }
     if text.is_empty() {
         return Ok(());

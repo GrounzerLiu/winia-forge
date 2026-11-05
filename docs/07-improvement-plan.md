@@ -82,8 +82,8 @@ impl Abi {
 ABIs build sequentially by default because Cargo locks `target/`. Parallel builds would need one
 `CARGO_TARGET_DIR` per ABI and are out of scope for the first version.
 
-`--abi` overrides `[android].abis` for one invocation (replace, never merge) and accepts `all`
-with a warning about build time and disk usage.
+`--abi` overrides `[android].abis` for one invocation (replace, never merge) and takes explicit ABI
+names; there is no `all` value.
 
 ### 2.3 Project template and sync
 

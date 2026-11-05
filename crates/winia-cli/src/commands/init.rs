@@ -154,10 +154,32 @@ pub(crate) fn scaffold_android(root: &Path, config: &WiniaConfig) -> Result<()> 
             },
         ),
     ];
-    if !root.join("src/lib.rs").is_file() {
-        std::fs::write(root.join("src/lib.rs"), ANDROID_ENTRY)
-            .with_context(|| format!("writing {}", root.join("src/lib.rs").display()))?;
-        println!("Wrote src/lib.rs (android_main entry point)");
+    // Respect an existing [lib] path: a crate whose library lives in src/core.rs must not grow a
+    // second, unused src/lib.rs.
+    let lib_path = cargo_lib_path(root);
+    let lib_file = root.join(&lib_path);
+    if !lib_file.is_file() {
+        if let Some(parent) = lib_file.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("creating {}", parent.display()))?;
+        }
+        std::fs::write(&lib_file, ANDROID_ENTRY)
+            .with_context(|| format!("writing {}", lib_file.display()))?;
+        println!("Wrote {lib_path} (android_main entry point)");
+    } else {
+        let existing = std::fs::read_to_string(&lib_file)
+            .with_context(|| format!("reading {}", lib_file.display()))?;
+        if !existing.contains("fn android_main") {
+            // Inner doc comments cannot be appended after items; drop them for the append.
+            let entry: String = ANDROID_ENTRY
+                .lines()
+                .filter(|line| !line.trim_start().starts_with("//!"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            std::fs::write(&lib_file, format!("{existing}\n\n{entry}"))
+                .with_context(|| format!("writing {}", lib_file.display()))?;
+            println!("Appended android_main to {lib_path}");
+        }
     }
     for file in new::android_files(config.android.activity) {
         new::write_rendered(root, &file, &vars)?;
@@ -265,6 +287,20 @@ fn set_dependency_features(
         _ => anyhow::bail!("winia dependency has an unsupported shape in Cargo.toml"),
     }
     Ok(())
+}
+
+/// The library target path declared in Cargo.toml, or src/lib.rs.
+fn cargo_lib_path(root: &Path) -> String {
+    let parsed = std::fs::read_to_string(root.join("Cargo.toml"))
+        .ok()
+        .and_then(|text| text.parse::<toml::Value>().ok());
+    parsed
+        .as_ref()
+        .and_then(|value| value.get("lib"))
+        .and_then(|lib| lib.get("path"))
+        .and_then(|path| path.as_str())
+        .unwrap_or("src/lib.rs")
+        .to_owned()
 }
 
 /// The Cargo package name; falls back to the last segment of the app id.

@@ -17,6 +17,7 @@ use tungstenite::{Message, WebSocket, client};
 type Socket = WebSocket<TcpStream>;
 
 pub fn run(args: InspectArgs) -> Result<()> {
+    CONNECT_TIMEOUT_MS.store(args.timeout.max(50), std::sync::atomic::Ordering::Relaxed);
     match args.command.unwrap_or(InspectCommand::Info) {
         InspectCommand::Info => show(args.port, args.json, "info"),
         InspectCommand::Tree => show(args.port, args.json, "t"),
@@ -68,8 +69,12 @@ pub fn run(args: InspectArgs) -> Result<()> {
     }
 }
 
+/// Timeout every subcommand uses for its connection, set once from --timeout.
+static CONNECT_TIMEOUT_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(10_000);
+
 fn connect(port: u16) -> Result<Socket> {
-    connect_with_timeout(port, Duration::from_secs(10))
+    let ms = CONNECT_TIMEOUT_MS.load(std::sync::atomic::Ordering::Relaxed);
+    connect_with_timeout(port, Duration::from_millis(ms))
 }
 
 fn connect_with_timeout(port: u16, timeout: Duration) -> Result<Socket> {
@@ -231,6 +236,13 @@ fn screenshot(port: u16, json: bool, out: Option<PathBuf>) -> Result<()> {
     let rgba = unpremultiply(&pixels[..expected]);
 
     let path = out.unwrap_or_else(|| PathBuf::from(format!("inspect-{port}.png")));
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("creating {}", parent.display()))?;
+    }
     let file =
         std::fs::File::create(&path).with_context(|| format!("creating {}", path.display()))?;
     let mut encoder = png::Encoder::new(BufWriter::new(file), width, height);
@@ -373,7 +385,12 @@ fn discover(start: u16, end: u16, json: bool, timeout_ms: u64, scan: bool) -> Re
 }
 
 fn registry_entries(timeout: Duration) -> Result<Vec<(u16, Value)>> {
-    let directory = PathBuf::from("target/winia-dev");
+    // Resolve the registry through the project root so running from src/ behaves like everywhere else.
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let root = crate::config::find_config(&cwd)
+        .and_then(|path| path.parent().map(|parent| parent.to_path_buf()))
+        .unwrap_or(cwd);
+    let directory = root.join("target/winia-dev");
     let mut ports = Vec::new();
     let Ok(entries) = std::fs::read_dir(&directory) else {
         return Ok(Vec::new());
