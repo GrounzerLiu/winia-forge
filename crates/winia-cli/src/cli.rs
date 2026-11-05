@@ -340,6 +340,9 @@ pub struct SignArgs {
     /// APK to sign. Defaults to every APK in dist/.
     #[arg(long)]
     pub apk: Option<PathBuf>,
+    /// Artifact to sign (Windows). Defaults to every .exe/.msi/.dll in dist/.
+    #[arg(long, value_delimiter = ',')]
+    pub file: Vec<PathBuf>,
     /// Key alias. Defaults to WINIA_ANDROID_KEY_ALIAS.
     #[arg(long)]
     pub alias: Option<String>,

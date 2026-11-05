@@ -16,7 +16,7 @@
 | `winia inspect` | Debug-server client | Implemented: info, tree, click, drag, key, scroll, screenshot, registry/port discovery |
 | `winia test` | Unit, UI, and device smoke tests | Implemented: host cargo tests, Android install/launch/logcat/screenshot smoke |
 | `winia package` | Package installers/archives/APK/AAB | Implemented: desktop portable zip/tar.gz/app, Windows NSIS and MSI, Linux deb, Android APK/AAB; DMG/PKG/rpm/AppImage pending |
-| `winia sign` | Code signing | Implemented for Android APKs |
+| `winia sign` | Code signing | Implemented: Android APKs (apksigner), Windows Authenticode (signtool) |
 | `winia release` | Version, tag, publish | Implemented for Android and desktop targets (local artifacts + GitHub upload) |
 | `winia doctor` | Environment diagnostics | Implemented (Rust/MSRV, platform toolchains, Android SDK/NDK, `--fix`) |
 | `winia add` / `remove` / `update` | Dependency management | Planned |
@@ -497,9 +497,22 @@ See [03-android-support.md](03-android-support.md). Implemented behaviour:
 
 ### 6.1 Windows
 
-- Authenticode: `signtool`, with PFX and certificate-store support.
-- Timestamp server.
-- Verify with `signtool verify` after signing.
+Implemented:
+
+- `winia sign --target windows` signs every `.exe`/`.msi`/`.dll` in `dist/`, or the paths given
+  with `--file` (comma-separated) or `--apk`. Signing happens in place, so the published artifact
+  is the signed one.
+- Credentials come from the environment: `WINIA_WINDOWS_CERT` (PFX) with
+  `WINIA_WINDOWS_CERT_PASSWORD`, or `WINIA_WINDOWS_CERT_SHA1` for a certificate in the current
+  user's store. `--keystore` also accepts a PFX path.
+- Timestamp server defaults to `http://timestamp.digicert.com` and can be overridden with
+  `WINIA_WINDOWS_TIMESTAMP`. Digest and RFC 3161 timestamp both use SHA-256.
+- `signtool` is located through `WINIA_SIGNTOOL`, `PATH`, then the newest Windows SDK under
+  `%ProgramFiles(x86)%\Windows Kits\10\bin<version>\x64`.
+- After signing the command runs `signtool verify /pa`. A locally untrusted chain (self-signed test
+  certificate, missing root) is reported as a note, not a failure.
+- `--dry-run` prints the exact command. `winia release` signs desktop artifacts automatically when
+  a Windows certificate is configured, and warns when it is not.
 
 ### 6.2 macOS
 
@@ -740,7 +753,7 @@ winia upgrade
 | `winia build` | Implemented: host executable and Android APK |
 | `winia run` | Implemented: host and Android |
 | `winia package` | Implemented: desktop portable zip/tar.gz/app, Windows NSIS and MSI, Linux deb; Android APK/AAB with alignment/ABI/signature checks; DMG/PKG/rpm/AppImage pending |
-| `winia sign` | Implemented: Android APK signing with apksigner |
+| `winia sign` | Implemented: Android APK signing with apksigner, Windows Authenticode via signtool |
 | `winia release` | Implemented: multi-target bump/package/sign/tag/SHA256SUMS/latest.json and optional GitHub upload |
 | Project hooks | Implemented: `before_build`/`after_build` per target, `before_package`/`after_package` per run |
 | Template system, hooks, plugins | Planned |

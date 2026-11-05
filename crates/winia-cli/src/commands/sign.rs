@@ -31,10 +31,18 @@ pub fn run(args: SignArgs) -> Result<()> {
     } else {
         args.target.clone()
     };
-    if let Some(unsupported) = targets.iter().find(|target| target.as_str() != "android") {
+    let windows = targets.iter().any(|target| target == "windows");
+    let android = targets.iter().any(|target| target == "android");
+    if let Some(unsupported) = targets
+        .iter()
+        .find(|target| target.as_str() != "android" && target.as_str() != "windows")
+    {
         bail!(
-            "signing for {unsupported} is not implemented yet; only --target android is supported"
+            "signing for {unsupported} is not implemented yet; only android and windows are supported"
         );
+    }
+    if windows && !android {
+        return super::sign_windows::run(&root, &cwd, &args);
     }
     if !root.join("android").is_dir() {
         bail!("no Android project found; create it with --platforms android");

@@ -195,6 +195,7 @@ pub fn run(args: ReleaseArgs) -> Result<()> {
                     target: vec!["android".to_owned()],
                     keystore: None,
                     apk: Some(apk.clone()),
+                    file: Vec::new(),
                     alias: None,
                     in_place: false,
                     dry_run: false,
@@ -210,6 +211,36 @@ pub fn run(args: ReleaseArgs) -> Result<()> {
     } else if android && !artifacts.is_empty() {
         eprintln!("warning: no Android keystore configured; release artifacts are unsigned");
     }
+    if windows_cert_configured() {
+        let files: Vec<PathBuf> = artifacts
+            .iter()
+            .filter(|path| matches!(extension(path), Some("exe" | "msi")))
+            .cloned()
+            .collect();
+        if !files.is_empty() {
+            super::sign_windows::run(
+                &root,
+                &root,
+                &SignArgs {
+                    target: vec!["windows".to_owned()],
+                    keystore: None,
+                    apk: None,
+                    file: files,
+                    alias: None,
+                    in_place: true,
+                    dry_run: false,
+                    release: true,
+                    json: false,
+                },
+            )?;
+        }
+    } else if artifacts
+        .iter()
+        .any(|path| matches!(extension(path), Some("exe" | "msi")))
+    {
+        eprintln!("warning: no Windows certificate configured; desktop artifacts are unsigned");
+    }
+
     let mut artifacts = select_release_artifacts(&artifacts);
     if let Some(checksums) = write_release_checksums(&out_dir, &artifacts)? {
         artifacts.push(checksums);
@@ -628,6 +659,17 @@ fn write_release_checksums(dist: &Path, artifacts: &[PathBuf]) -> Result<Option<
     std::fs::write(&destination, text)
         .with_context(|| format!("writing {}", destination.display()))?;
     Ok(Some(destination))
+}
+
+/// A Windows certificate is available for Authenticode signing.
+fn windows_cert_configured() -> bool {
+    ["WINIA_WINDOWS_CERT", "WINIA_WINDOWS_CERT_SHA1"]
+        .iter()
+        .any(|key| {
+            std::env::var_os(key)
+                .filter(|value| !value.is_empty())
+                .is_some()
+        })
 }
 
 fn keystore_configured() -> bool {

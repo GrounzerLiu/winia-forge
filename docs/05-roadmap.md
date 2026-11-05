@@ -58,7 +58,8 @@ Acceptance:
 - [ ] macOS DMG, PKG, universal binary.
 - [x] Linux deb (payload in /usr/lib, /usr/bin symlink, desktop entry).
 - [ ] Linux rpm, AppImage, AppStream metadata.
-- [ ] Authenticode signing, macOS codesign/notarize.
+- [x] Authenticode signing (`winia sign --target windows`, signtool).
+- [ ] macOS codesign/notarize.
 - [x] `winia release`: version bump, package (Android and desktop), sign Android APKs, tag, checksums, GitHub Releases.
 - [x] CI workflow generator (`winia ci init`: GitHub Actions, GitLab CI).
 
