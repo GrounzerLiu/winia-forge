@@ -110,11 +110,12 @@ jobs:
           $msi = (Get-ChildItem dist -Filter *.msi | Select-Object -First 1).FullName
           if (-not $msi) { throw 'no MSI produced' }
           $target = Join-Path $env:RUNNER_TEMP 'ci-msi'
-          msiexec.exe /i "$msi" /qn /norestart "INSTALLFOLDER=$target"
-          if ($LASTEXITCODE -ne 0) { throw "msiexec install failed with exit code $LASTEXITCODE" }
+          $install = Start-Process msiexec.exe -ArgumentList '/i', $msi, '/qn', '/norestart', "INSTALLFOLDER=$target" -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "msiexec install failed with exit code $($install.ExitCode)" }
           if (-not (Test-Path (Join-Path $target 'ci-smoke.exe'))) { throw 'ci-smoke.exe missing after install' }
-          msiexec.exe /x "$msi" /qn /norestart
-          if ($LASTEXITCODE -ne 0) { throw "msiexec uninstall failed with exit code $LASTEXITCODE" }
+          if (-not (Test-Path (Join-Path $target 'assets\assets.manifest.json'))) { throw 'assets missing after install' }
+          $uninstall = Start-Process msiexec.exe -ArgumentList '/x', $msi, '/qn', '/norestart' -Wait -PassThru
+          if ($uninstall.ExitCode -ne 0) { throw "msiexec uninstall failed with exit code $($uninstall.ExitCode)" }
 
       - name: Verify macOS app bundle
         if: runner.os == 'macOS'
