@@ -298,7 +298,8 @@ pub struct PackageArgs {
     /// Target platform(s), comma-separated.
     #[arg(long, value_delimiter = ',')]
     pub target: Vec<String>,
-    /// Artifact format(s), comma-separated: zip, nsis, msi, msix, app, dmg, pkg, deb, rpm, appimage, apk, aab.
+    /// Artifact format(s), comma-separated. Implemented: zip, nsis, msi, app, dmg, deb, apk, aab;
+    /// appimage, msix, pkg and rpm are accepted but still unimplemented.
     #[arg(long, value_delimiter = ',')]
     pub format: Vec<String>,
     /// Package the release build.
