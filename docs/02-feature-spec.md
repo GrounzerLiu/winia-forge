@@ -15,7 +15,7 @@
 | `winia dev` | Development mode: file watching + restart | Implemented (desktop restart, Android reinstall/restart, automatic debug-server) |
 | `winia inspect` | Debug-server client | Implemented: info, tree, click, drag, key, scroll, screenshot, registry/port discovery |
 | `winia test` | Unit, UI, and device smoke tests | Implemented: host cargo tests, Android install/launch/logcat/screenshot smoke |
-| `winia package` | Package installers/archives/APK/AAB | Implemented: desktop portable zip/tar.gz/app + Android APK/AAB; installers pending |
+| `winia package` | Package installers/archives/APK/AAB | Implemented: desktop portable zip/tar.gz/app, Windows NSIS installer, Android APK/AAB; MSI/DMG/deb pending |
 | `winia sign` | Code signing | Implemented for Android APKs |
 | `winia release` | Version, tag, publish | Implemented for Android (local artifacts + GitHub upload) |
 | `winia doctor` | Environment diagnostics | Implemented (Rust/MSRV, platform toolchains, Android SDK/NDK, `--fix`) |
@@ -375,8 +375,8 @@ winia package --target linux --format tar.gz
 winia package --target macos --format app,zip
 winia package --target android --format apk,aab --split per-abi
 
-Implemented portable formats: Windows `zip`; Linux `tar.gz`; macOS `app`, `zip`; Android `apk`, `aab`.
-Installer formats (NSIS, MSI, DMG, PKG, deb, rpm, AppImage) are not implemented yet.
+Implemented formats: Windows `zip`, `nsis`; Linux `tar.gz`; macOS `app`, `zip`; Android `apk`, `aab`.
+Installer formats still pending: MSI, MSIX, DMG, PKG, deb, rpm, AppImage.
 ```
 
 ### 5.2 General requirements
@@ -390,12 +390,22 @@ Installer formats (NSIS, MSI, DMG, PKG, deb, rpm, AppImage) are not implemented 
 
 ### 5.3 Windows packaging
 
-Implemented: `zip` portable archive containing the executable and `assets/`; the executable embeds
-the generated `.ico` through `build.rs`/`winres`. Installers are pending.
+Implemented: `zip` portable archive containing the executable and `assets/`, plus an `nsis`
+installer (`{app}-{version}-windows-{arch}-setup.exe`). The executable embeds the generated
+`.ico` through `build.rs`/`winres`.
 
 - Icons: multi-size `.ico` (16–256).
 - Version resources: product name, company name, copyright, file version.
-- NSIS: install directory, Start menu, uninstaller, optional run-at-startup.
+- NSIS: implemented with the NSIS defaults kept — `RequestExecutionLevel` is not overridden, so the
+  installer requires administrator rights and installs per machine into `$PROGRAMFILES64\<app>`
+  (64-bit payloads). Unicode and zlib compression are NSIS defaults too.
+  Writes the Add/Remove Programs key under `HKLM` (`DisplayName`, `DisplayVersion`, `Publisher`,
+  `DisplayIcon`, `InstallLocation`, `UninstallString`, `QuietUninstallString`, `NoModify`,
+  `NoRepair`, `EstimatedSize`), creates a Start Menu shortcut for all users, and ships an
+  `Uninstall.exe` that removes exactly the installed payload plus the registry key.
+  The generated script lives under `target/winia-package/`; `makensis` is required
+  (`winget install NSIS.NSIS`, or `apt-get install nsis`) and is located through
+  `MAKENSIS`/`NSISDIR`, `PATH`, the NSIS install directory, or its uninstall registry entry.
 - MSI: WiX project, suitable for enterprise distribution.
 - MSIX: optional; requires signing and a certificate.
 - Dependencies: VC++ runtime detection or static-linking guidance.
@@ -676,7 +686,7 @@ winia upgrade
 | `winia platform add android` | Placeholder directory |
 | `winia build` | Implemented: host executable and Android APK |
 | `winia run` | Implemented: host and Android |
-| `winia package` | Implemented: desktop portable zip/tar.gz/app; Android APK/AAB with alignment/ABI/signature checks; installers pending |
+| `winia package` | Implemented: desktop portable zip/tar.gz/app, Windows NSIS installer; Android APK/AAB with alignment/ABI/signature checks; MSI/DMG/deb pending |
 | `winia sign` | Implemented: Android APK signing with apksigner |
 | `winia release` | Implemented: Android bump/package/sign/tag/latest.json and optional GitHub upload |
 | Template system, hooks, plugins | Planned |

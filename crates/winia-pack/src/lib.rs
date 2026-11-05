@@ -9,6 +9,8 @@
 //! The crate is a placeholder so winia-cli can depend on a stable boundary
 //! while the packaging work lands.
 
+pub mod nsis;
+
 /// Artifact formats the packager intends to support.
 pub const PLANNED_FORMATS: &[&str] = &[
     "zip", "nsis", "msi", "msix", "app", "dmg", "pkg", "deb", "rpm", "appimage", "apk", "aab",

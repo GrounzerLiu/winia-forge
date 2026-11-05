@@ -51,7 +51,8 @@ Acceptance:
 ## 4. P2: desktop release
 
 - [ ] Icon generation (.ico, .icns, PNG).
-- [ ] Windows NSIS, MSI (WiX), optional MSIX.
+- [x] Windows NSIS installer (`winia package --target windows --format nsis`).
+- [ ] Windows MSI (WiX), optional MSIX.
 - [ ] macOS DMG, PKG, universal binary.
 - [ ] Linux deb, rpm, AppImage, .desktop, AppStream.
 - [ ] Authenticode signing, macOS codesign/notarize.

@@ -166,6 +166,27 @@ fn package_desktop(
                 icons.as_ref(),
                 &executable.path,
             )?,
+            "nsis" => {
+                let publisher = config.app.authors.join(", ");
+                let icon = icons
+                    .as_ref()
+                    .filter(|_| target == "windows")
+                    .map(|_| Path::new("app.ico"));
+                let spec = winia_pack::nsis::InstallerSpec {
+                    app_name: &config.app.name,
+                    app_version: &version,
+                    app_id: &config.app.id,
+                    publisher: &publisher,
+                    executable: executable_name
+                        .to_str()
+                        .ok_or_else(|| anyhow::anyhow!("the executable name is not valid UTF-8"))?,
+                    payload: &stage,
+                    output: &destination,
+                    icon,
+                    program_files_64: arch == "x86_64",
+                };
+                winia_pack::nsis::build(&spec)?;
+            }
             other => bail!("unsupported desktop format '{other}'"),
         }
         produced.push(destination);
@@ -202,7 +223,7 @@ fn desktop_formats(target: &str, config: &WiniaConfig, args: &PackageArgs) -> Re
         other => bail!("unknown desktop target '{other}'"),
     };
     let supported: &[&str] = match target {
-        "windows" => &["zip"],
+        "windows" => &["zip", "nsis"],
         "macos" => &["app", "zip"],
         "linux" => &["tar.gz"],
         _ => &[],
@@ -234,7 +255,7 @@ fn desktop_formats(target: &str, config: &WiniaConfig, args: &PackageArgs) -> Re
     }
     if !skipped.is_empty() && !args.json {
         eprintln!(
-            "note: installers are not implemented yet; skipped: {}",
+            "note: formats not available yet; skipped: {}",
             skipped.join(", ")
         );
     }
@@ -263,6 +284,9 @@ fn desktop_artifact_path(
     format: &str,
     out_dir: &Path,
 ) -> PathBuf {
+    if format == "nsis" {
+        return out_dir.join(format!("{stem}-{version}-{target}-{arch}-setup.exe"));
+    }
     out_dir.join(format!("{stem}-{version}-{target}-{arch}.{format}"))
 }
 

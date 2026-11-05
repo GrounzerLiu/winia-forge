@@ -6,7 +6,8 @@ The official project toolchain for Winia: create, build, run, and package Winia 
 
 > Status: active development. Project creation, build/run/dev/test/clean, Android APK/AAB
 > packaging and signing, Android/GitHub releases, desktop portable archives, doctor, inspect, and
-> asset/icon generation are implemented. Desktop installers and Play Store uploads are pending.
+> asset/icon generation, and a Windows NSIS installer are implemented. MSI/DMG/deb installers and
+> Play Store uploads are pending.
 > See [docs/05-roadmap.md](docs/05-roadmap.md) for progress.
 
 ## Quick start
@@ -71,7 +72,7 @@ Implemented:
 - `winia clean`: remove `target/`, `dist/`, and Android build outputs, with `--dry-run`/`--all`
 - `winia assets icon`: generate Windows ICO, macOS ICNS, Linux hicolor, Android mipmap/adaptive, and store icons from one PNG/SVG; Windows executables embed the ICO via `build.rs`
 - `winia inspect`: query the debug server for app identity, layout trees, input events, screenshots, and port discovery
-- `winia package`: assemble portable desktop archives (Windows zip, Linux tar.gz, macOS app/zip) and Android APKs/AABs into `dist/`, with asset manifests, Android alignment, ABIs, and debug signatures
+- `winia package`: assemble portable desktop archives (Windows zip, Linux tar.gz, macOS app/zip), a Windows NSIS installer, and Android APKs/AABs into `dist/`, with asset manifests, Android alignment, ABIs, and debug signatures
 - `winia sign`: sign Android APKs with `apksigner`, writing `*-signed.apk` copies and verifying the certificate
 - `winia release`: bump the version, package, sign, tag, write `dist/latest.json`, and optionally publish a GitHub release
 - `winia doctor`: diagnose the Rust toolchain and MSRV, platform toolchains, the Android SDK/NDK, and `winia.toml` validation
