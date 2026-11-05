@@ -120,10 +120,26 @@ fn config(args: ConfigArgs) -> Result<()> {
         .ok_or_else(|| anyhow::anyhow!("winia.toml not found"))?;
     let config = WiniaConfig::load(&path)?;
     match args.command {
-        ConfigCommand::Show => {
+        ConfigCommand::Show { json: true } => {
+            println!("{}", serde_json::to_string_pretty(&config)?);
+        }
+        ConfigCommand::Show { json: false } => {
             print!("{}", toml::to_string_pretty(&config)?);
         }
-        ConfigCommand::Get { key } => {
+        ConfigCommand::Get { key, json: true } => {
+            let value = toml::Value::try_from(&config)?;
+            let mut current = &value;
+            for part in key.split('.') {
+                current = current
+                    .get(part)
+                    .ok_or_else(|| anyhow::anyhow!("unknown config key: {key}"))?;
+            }
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::to_value(current)?)?
+            );
+        }
+        ConfigCommand::Get { key, json: false } => {
             let value = toml::Value::try_from(&config)?;
             let mut current = &value;
             for part in key.split('.') {
@@ -158,8 +174,15 @@ fn completions(args: crate::cli::CompletionsArgs) -> Result<()> {
         CompletionShell::Elvish => Shell::Elvish,
     };
     let mut command = crate::cli::Cli::command();
-    clap_complete::generate(shell, &mut command, "winia", &mut std::io::stdout());
-    Ok(())
+    // Render first: piping into head closes stdout early, and clap_complete panics on that write.
+    let mut buffer = Vec::new();
+    clap_complete::generate(shell, &mut command, "winia", &mut buffer);
+    use std::io::Write;
+    match std::io::stdout().write_all(&buffer) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
+        Err(error) => Err(error).context("writing completions"),
+    }
 }
 
 fn platform(args: PlatformArgs) -> Result<()> {

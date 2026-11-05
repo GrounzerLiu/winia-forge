@@ -31,12 +31,14 @@ pub(crate) fn android_init(force: bool) -> Result<()> {
     }
     let config_path = root.join("winia.toml");
     let mut config = WiniaConfig::load(&config_path)?;
-    config.validate()?;
+    // Fill the package before validating: validate() rejects an empty [android].package, which is
+    // exactly the state this command is meant to repair.
     if config.android.package.trim().is_empty() {
         // A bundle id may contain hyphens; an Android applicationId may not.
         config.android.package = config.app.id.replace('-', "_");
-        config.save(&config_path)?;
+        crate::config::set_android_package(&config_path, &config.android.package)?;
     }
+    config.validate()?;
     crate::commands::init::ensure_android_cargo(&root, None, config.android.activity, force)?;
     crate::commands::init::scaffold_android(&root, &config)?;
     println!("Next:");

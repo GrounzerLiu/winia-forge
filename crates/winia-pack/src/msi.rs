@@ -399,6 +399,13 @@ fn find_wix() -> Result<WixTools> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn product_versions_are_numeric() {
+        assert_eq!(numeric_version("1.2.3"), "1.2.3.0");
+        assert_eq!(numeric_version("1.0.0-beta.1"), "1.0.0.0");
+        assert_eq!(numeric_version("2.1"), "2.1.0.0");
+    }
+
     fn fixture(name: &str) -> PathBuf {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../target")

@@ -58,7 +58,7 @@ pub enum Command {
     Clean(CleanArgs),
     /// Print environment and project information.
     Info(InfoArgs),
-    /// List supported and installed targets.
+    /// List target platforms and their status.
     Targets(TargetsArgs),
     /// Read or inspect winia.toml.
     Config(ConfigArgs),
@@ -521,9 +521,18 @@ pub struct ConfigArgs {
 #[derive(Debug, Subcommand)]
 pub enum ConfigCommand {
     /// Print the effective configuration.
-    Show,
+    Show {
+        /// Emit JSON instead of TOML.
+        #[arg(long)]
+        json: bool,
+    },
     /// Print one key, using dot notation (for example: android.min_sdk).
-    Get { key: String },
+    Get {
+        key: String,
+        /// Emit JSON instead of a plain value.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Debug, Args)]

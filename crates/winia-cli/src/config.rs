@@ -266,6 +266,24 @@ fn is_java_package(value: &str) -> bool {
     })
 }
 
+/// Set [android].package in place (used when a project leaves it empty).
+pub fn set_android_package(path: &Path, package: &str) -> anyhow::Result<()> {
+    let text =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    let mut doc: toml_edit::DocumentMut = text
+        .parse()
+        .with_context(|| format!("parsing {}", path.display()))?;
+    let android = doc
+        .entry("android")
+        .or_insert(toml_edit::Item::Table(toml_edit::Table::new()));
+    android
+        .as_table_mut()
+        .ok_or_else(|| anyhow::anyhow!("[android] is not a table in {}", path.display()))?["package"] =
+        toml_edit::value(package);
+    std::fs::write(path, doc.to_string()).with_context(|| format!("writing {}", path.display()))?;
+    Ok(())
+}
+
 /// Write the release version and Android version code in place, preserving comments and unknown
 /// keys. Used by 'winia release --bump' instead of a full save().
 pub fn set_release_versions(path: &Path, version: &str, version_code: u32) -> anyhow::Result<()> {
@@ -379,6 +397,25 @@ mod tests {
         assert_eq!(config.android.activity, AndroidActivity::Game);
         assert_eq!(config.android.abis, vec!["arm64-v8a", "x86_64"]);
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn release_versions_are_edited_in_place() {
+        let dir = std::env::temp_dir().join(format!("winia-config-bump-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("winia.toml");
+        std::fs::write(
+            &path,
+            "# keep me\n[app]\nname = \"Demo\"\nid = \"com.example.demo\"\nversion = \"0.1.0\"\n\n[android]\npackage = \"com.example.demo\"\nversion_code = 3\n\n# unknown key\nfuture = 1\n",
+        )
+        .unwrap();
+        set_release_versions(&path, "0.2.0", 4).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("# keep me"), "{text}");
+        assert!(text.contains("version = \"0.2.0\""), "{text}");
+        assert!(text.contains("version_code = 4"), "{text}");
+        assert!(text.contains("future = 1"), "{text}");
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
