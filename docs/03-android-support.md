@@ -298,8 +298,21 @@ winia screenshot --target android --output shot.png
 
 ### 7.1 Permissions and Manifest
 
-- `[android] permissions` generates `<uses-permission>`.
-- Runtime permission requests need a JNI bridge; the first version can declare permissions only.
+- `[android] permissions` is applied by `winia android sync` into a block the CLI owns:
+
+  ```xml
+  <!-- winia:permissions:begin -->
+  <uses-permission android:name="android.permission.INTERNET" />
+  <!-- winia:permissions:end -->
+  ```
+
+- Short names (`INTERNET`) become `android.permission.INTERNET`; a dotted name from another package is
+  kept as written. Duplicates are dropped and order follows the configuration.
+- An empty list keeps `INTERNET`, because the debug server binds a socket.
+- Everything outside the markers is preserved byte for byte, including permissions you add yourself.
+  A manifest without the markers is reported as `permissions-skipped` and left untouched; add the
+  two marker lines to opt in.
+- Runtime permission requests still need a JNI bridge; the CLI only declares permissions.
 - `android:exported`, `launchMode`, `configChanges`, and similar are generated uniformly by the template;
   users do not edit them by hand.
 

@@ -93,6 +93,35 @@ fn sync(check: bool, force: bool, json: bool) -> Result<()> {
         entries.push((destination, status));
     }
 
+    // The manifest belongs to the project; only the block between the markers is rewritten.
+    let manifest_path = root.join("android/app/src/main/AndroidManifest.xml");
+    if let Ok(existing) = std::fs::read_to_string(&manifest_path) {
+        match crate::manifest::merge_permissions(&existing, &config.android.permissions)? {
+            Some(merged) if merged != existing => {
+                pending += 1;
+                if !check {
+                    std::fs::write(&manifest_path, &merged)
+                        .with_context(|| format!("writing {}", manifest_path.display()))?;
+                }
+                entries.push((
+                    "android/app/src/main/AndroidManifest.xml".to_owned(),
+                    "permissions-updated",
+                ));
+            }
+            Some(_) => entries.push((
+                "android/app/src/main/AndroidManifest.xml".to_owned(),
+                "unchanged",
+            )),
+            None => {
+                skipped += 1;
+                entries.push((
+                    "android/app/src/main/AndroidManifest.xml".to_owned(),
+                    "permissions-skipped",
+                ));
+            }
+        }
+    }
+
     if json {
         let values: Vec<_> = entries
             .iter()
@@ -109,16 +138,18 @@ fn sync(check: bool, force: bool, json: bool) -> Result<()> {
         );
     } else {
         for (path, status) in &entries {
-            let note = if *status == "skipped" {
-                " (kept: no generated header, pass --force to overwrite)"
-            } else {
-                ""
+            let note = match *status {
+                "skipped" => " (kept: no generated header, pass --force to overwrite)",
+                "permissions-skipped" => {
+                    " (no winia:permissions block; add the markers to manage permissions)"
+                }
+                _ => "",
             };
             println!("{status:<10} {path}{note}");
         }
         if check {
             let kept = if skipped > 0 {
-                format!(" ({skipped} kept without a generated header)")
+                format!(" ({skipped} kept untouched)")
             } else {
                 String::new()
             };
