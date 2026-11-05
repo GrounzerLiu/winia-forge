@@ -49,7 +49,7 @@ Requirements:
 - The default directory is `./<name>`; `--path` overrides it.
 - The `winia` crate is not published on crates.io yet, so `--winia-path` (or `WINIA_PATH`) is
   required; the generated `Cargo.toml` uses a path dependency to that checkout.
-- Interactive wizard: template, target platforms, Rust edition, render backend, whether to initialise git.
+- Interactive wizard: template, target platforms, Rust edition, whether to initialise git.
 - Non-interactive mode: every option can be passed as a flag, suitable for scripts and CI.
 - A non-empty target directory is refused by default; with `--force`, the files that would be overwritten
   are listed first.
@@ -172,8 +172,6 @@ decorations = true
 
 [build]
 features = ["accessibility"]
-backend = "auto"          # auto | vulkan | gl | cpu
-profile = "dev"           # dev | release | release-lto | minsize
 
 [package.windows]
 formats = ["zip", "nsis", "msi"]
@@ -259,7 +257,6 @@ packaging. They are kept in the schema so projects can declare intent without br
 
 | Field | Current reality |
 | --- | --- |
-| `build.backend` | The backend comes from the `winia` dependency's features |
 
 ## 3. Building
 

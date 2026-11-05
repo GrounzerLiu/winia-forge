@@ -70,25 +70,14 @@ impl Default for WindowConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct BuildConfig {
     /// Cargo features enabled for application builds.
     pub features: Vec<String>,
-    /// Render backend preference: auto, vulkan, gl, cpu.
-    pub backend: String,
-    /// Build profile: dev, release, release-lto, minsize.
-    pub profile: String,
-}
-
-impl Default for BuildConfig {
-    fn default() -> Self {
-        Self {
-            features: Vec::new(),
-            backend: "auto".to_owned(),
-            profile: "dev".to_owned(),
-        }
-    }
+    // 'backend' and 'profile' used to live here and did nothing: the renderer is chosen at runtime
+    // by WINIA_RENDER_BACKEND (winia enables vulkan and gl by default), and debug vs release is the
+    // --release flag. Unknown keys in an older winia.toml are ignored by serde.
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -344,8 +333,6 @@ mod tests {
         assert_eq!(config.android.min_sdk, 26);
         assert_eq!(config.android.activity, AndroidActivity::Game);
         assert_eq!(config.android.abis, vec!["arm64-v8a", "x86_64"]);
-        assert_eq!(config.build.backend, "auto");
-        assert_eq!(config.build.profile, "dev");
         assert!(config.validate().is_ok());
     }
 
