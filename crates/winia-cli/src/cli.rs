@@ -613,8 +613,18 @@ pub struct AndroidArgs {
 pub enum AndroidCommand {
     /// Generate the Android project for an existing Winia app.
     Init,
-    /// Regenerate managed Android files from winia.toml.
-    Sync,
+    /// Regenerate the Gradle files Winia owns from winia.toml.
+    Sync {
+        /// Report what would change without writing (exits 1 when something would change).
+        #[arg(long)]
+        check: bool,
+        /// Overwrite files that carry no generated header.
+        #[arg(long)]
+        force: bool,
+        /// Emit machine-readable output.
+        #[arg(long)]
+        json: bool,
+    },
     /// Open the generated android/ directory in Android Studio.
     Studio,
 }

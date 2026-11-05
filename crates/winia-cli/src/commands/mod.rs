@@ -4,6 +4,7 @@
 //! implemented in this scaffold; every other command fails with an explicit
 //! "not implemented yet" message that points at the written contract.
 
+pub mod android;
 pub mod assets;
 pub mod build;
 pub mod ci;
@@ -58,7 +59,7 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         Command::Logcat(args) => logcat::run(args),
         Command::Screenshot(args) => screenshot(args),
         Command::Devices(args) => devices::run(args),
-        Command::Android(_) => planned("android"),
+        Command::Android(args) => android::run(args),
         other => planned(command_name(&other)),
     }
 }

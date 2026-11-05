@@ -120,6 +120,39 @@ const ANDROID_FILES: &[TemplateFile] = &[
     },
 ];
 
+/// Build configuration owned by 'winia android sync'. Application code (manifest, activity,
+/// resources) is deliberately not in this list: those files belong to the project.
+const MANAGED_ANDROID: &[TemplateFile] = &[
+    TemplateFile {
+        template: ANDROID_SETTINGS,
+        destination: "android/settings.gradle.kts",
+    },
+    TemplateFile {
+        template: ANDROID_BUILD,
+        destination: "android/build.gradle.kts",
+    },
+    TemplateFile {
+        template: ANDROID_GRADLE_PROPERTIES,
+        destination: "android/gradle.properties",
+    },
+    TemplateFile {
+        template: ANDROID_VERSIONS,
+        destination: "android/gradle/libs.versions.toml",
+    },
+    TemplateFile {
+        template: ANDROID_WRAPPER_PROPERTIES,
+        destination: "android/gradle/wrapper/gradle-wrapper.properties",
+    },
+    TemplateFile {
+        template: ANDROID_APP_BUILD,
+        destination: "android/app/build.gradle.kts",
+    },
+];
+
+pub(crate) fn managed_android_files() -> &'static [TemplateFile] {
+    MANAGED_ANDROID
+}
+
 pub fn run(args: NewArgs) -> Result<()> {
     if args.template != "blank" {
         bail!(
@@ -269,7 +302,7 @@ pub(crate) fn winia_dependency(explicit: Option<PathBuf>, features: &[&str]) -> 
     }
 }
 
-fn render(template: &str, vars: &[(&str, &str)]) -> String {
+pub(crate) fn render(template: &str, vars: &[(&str, &str)]) -> String {
     let mut rendered = template.to_owned();
     for (key, value) in vars {
         rendered = rendered.replace(key, value);
