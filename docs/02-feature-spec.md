@@ -434,6 +434,9 @@ installer (`{app}-{version}-windows-{arch}-setup.exe`) and an `msi` package
   `DisplayIcon`, `InstallLocation`, `UninstallString`, `QuietUninstallString`, `NoModify`,
   `NoRepair`, `EstimatedSize`), creates a Start Menu shortcut for all users, and ships an
   `Uninstall.exe` that removes exactly the installed payload plus the registry key.
+  Both the install and the uninstall sections run `taskkill /F /IM <exe>` before touching files,
+  because a running copy locks its executable; reinstalling or uninstalling over a running app
+  therefore succeeds instead of failing on a locked file.
   The generated script lives under `target/winia-package/`; `makensis` is required
   (`winget install NSIS.NSIS`, or `apt-get install nsis`) and is located through
   `MAKENSIS`/`NSISDIR`, `PATH`, the NSIS install directory, or its uninstall registry entry.

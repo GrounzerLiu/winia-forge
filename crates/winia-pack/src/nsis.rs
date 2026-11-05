@@ -150,6 +150,12 @@ pub fn generate(spec: &InstallerSpec<'_>) -> Result<String> {
 
     s.push_str("Section \"Program files\"\n");
     s.push_str("  SectionIn Ro\n");
+    s.push_str("  ; A running copy locks its executable, so stop it before replacing files.\n");
+    s.push_str(&format!(
+        "  nsExec::ExecToStack 'taskkill /F /IM \"{exe}\"'\n"
+    ));
+    s.push_str("  Pop $0\n");
+    s.push_str("  Pop $0\n");
     s.push_str("  SetOutPath \"$INSTDIR\"\n");
     s.push_str(&format!(
         "  File /r \"{}\\*.*\"\n",
@@ -198,6 +204,12 @@ pub fn generate(spec: &InstallerSpec<'_>) -> Result<String> {
 
     s.push_str("Section \"Uninstall\"\n");
     s.push_str("  SetShellVarContext all\n");
+    s.push_str("  ; Removing a running executable fails, so stop it first.\n");
+    s.push_str(&format!(
+        "  nsExec::ExecToStack 'taskkill /F /IM \"{exe}\"'\n"
+    ));
+    s.push_str("  Pop $0\n");
+    s.push_str("  Pop $0\n");
     s.push_str(&format!("  Delete \"$SMPROGRAMS\\{name}.lnk\"\n"));
     s.push_str("  Delete \"$INSTDIR\\Uninstall.exe\"\n");
     for file in &entries.files {
@@ -430,6 +442,7 @@ mod tests {
         assert!(script.contains("Delete \"$INSTDIR\\assets\\logo.png\""));
         assert!(script.contains("RMDir \"$INSTDIR\\assets\""));
         assert!(script.contains("DeleteRegKey HKLM"));
+        assert_eq!(script.matches("taskkill /F /IM").count(), 2);
         std::fs::remove_dir_all(root).unwrap();
     }
 
