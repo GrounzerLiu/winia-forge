@@ -245,19 +245,17 @@ pub(crate) fn winia_dependency(explicit: Option<PathBuf>, features: &[&str]) -> 
         .join(", ");
     match path {
         Some(path) => {
+            // A missing path is left for cargo to report; a readable manifest that is a workspace
+            // is the common mistake worth catching here.
             let manifest = path.join("Cargo.toml");
-            let text = std::fs::read_to_string(&manifest).map_err(|error| {
-                anyhow::anyhow!(
-                    "winia path '{}' has no readable Cargo.toml: {error}",
-                    path.display()
-                )
-            })?;
-            if !text.contains("[package]") {
-                bail!(
-                    "{} is a workspace manifest, not the winia crate; pass the crate directory instead (for example {})",
-                    manifest.display(),
-                    path.join("winia").display()
-                );
+            if let Ok(text) = std::fs::read_to_string(&manifest) {
+                if !text.contains("[package]") {
+                    bail!(
+                        "{} is a workspace manifest, not the winia crate; pass the crate directory instead (for example {})",
+                        manifest.display(),
+                        path.join("winia").display()
+                    );
+                }
             }
             Ok(format!(
                 "{{ path = \"{}\", default-features = false, features = [{}] }}",
