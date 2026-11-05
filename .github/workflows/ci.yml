@@ -113,7 +113,8 @@ jobs:
           $install = Start-Process msiexec.exe -ArgumentList '/i', $msi, '/qn', '/norestart', "INSTALLFOLDER=$target" -Wait -PassThru
           if ($install.ExitCode -ne 0) { throw "msiexec install failed with exit code $($install.ExitCode)" }
           if (-not (Test-Path (Join-Path $target 'ci-smoke.exe'))) { throw 'ci-smoke.exe missing after install' }
-          if (-not (Test-Path (Join-Path $target 'assets\assets.manifest.json'))) { throw 'assets missing after install' }
+          if (-not (Test-Path (Join-Path $target 'assets.manifest.json'))) { throw 'assets.manifest.json missing after install' }
+          if (-not (Test-Path (Join-Path $target 'assets\winia\window-icon.png'))) { throw 'assets directory missing after install' }
           $uninstall = Start-Process msiexec.exe -ArgumentList '/x', $msi, '/qn', '/norestart' -Wait -PassThru
           if ($uninstall.ExitCode -ne 0) { throw "msiexec uninstall failed with exit code $($uninstall.ExitCode)" }
 
