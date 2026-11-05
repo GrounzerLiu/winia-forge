@@ -833,4 +833,5 @@ When the framework starts shipping versioned releases, the intended shape is:
 | `winia sign` | Implemented: Android APK signing with apksigner, Windows Authenticode via signtool, macOS codesign |
 | `winia release` | Implemented: multi-target bump/package/sign/tag/SHA256SUMS/latest.json and optional GitHub upload |
 | Project hooks | Implemented: `before_build`/`after_build` per target, `before_package`/`after_package` per run |
-| Template system, hooks, plugins | Planned |
+| Template system | Implemented: the embedded `blank` template; other built-in templates planned |
+| External subcommands / plugin API | Planned |

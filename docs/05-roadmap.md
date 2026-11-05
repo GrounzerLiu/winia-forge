@@ -32,7 +32,7 @@ Remaining:
 - [x] `winia init`: add Winia to an existing Cargo project.
 - [x] `winia add` / `remove` / `update`: delegate to cargo from the project root.
 - [ ] A unified `--json` / `--dry-run` output layer.
-- [ ] Snapshot tests for command help.
+- [x] Command-surface test: every command is registered and has a description (`tests/help.rs`).
 
 ## 3. P1: desktop MVP
 
