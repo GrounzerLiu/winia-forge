@@ -76,6 +76,11 @@ jobs:
           assert any(name.endswith("assets/winia/window-icon.png") for name in names), names
           PY
 
+      - name: Install NSIS
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install nsis -y --no-progress
+
       - name: Package Windows installer
         if: runner.os == 'Windows'
         shell: bash
