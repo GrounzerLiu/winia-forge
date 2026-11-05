@@ -6,6 +6,7 @@
 
 pub mod assets;
 pub mod build;
+pub mod ci;
 pub mod clean;
 pub mod dev;
 pub mod doctor;
@@ -18,8 +19,8 @@ pub mod sign;
 pub mod test;
 
 use crate::cli::{
-    CiArgs, Cli, Command, CompletionShell, ConfigArgs, ConfigCommand, EmulatorsArgs, InfoArgs,
-    LogcatArgs, PlatformArgs, PlatformCommand, ScreenshotArgs, TargetsArgs,
+    Cli, Command, CompletionShell, ConfigArgs, ConfigCommand, EmulatorsArgs, InfoArgs, LogcatArgs,
+    PlatformArgs, PlatformCommand, ScreenshotArgs, TargetsArgs,
 };
 use crate::config::{WiniaConfig, find_config};
 use anyhow::{Context, Result, bail};
@@ -45,7 +46,7 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         Command::Completions(args) => completions(args),
         Command::Platform(args) => platform(args),
         Command::Assets(args) => assets::run(args),
-        Command::Ci(args) => ci(args),
+        Command::Ci(args) => ci::run(args),
         Command::Emulators(args) => emulators(args),
         Command::Logcat(args) => logcat(args),
         Command::Screenshot(args) => screenshot(args),
@@ -197,10 +198,6 @@ fn platform(args: PlatformArgs) -> Result<()> {
             Ok(())
         }
     }
-}
-
-fn ci(_args: CiArgs) -> Result<()> {
-    planned("ci")
 }
 
 fn emulators(_args: EmulatorsArgs) -> Result<()> {

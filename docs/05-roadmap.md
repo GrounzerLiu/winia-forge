@@ -40,7 +40,8 @@ Remaining:
 - [x] `winia dev`: file watching, process restart, and automatic debug-server.
 - [x] `winia test`: host cargo tests + Android install/launch/logcat/screenshot smoke.
 - [x] `winia clean`.
-- [x] Portable artifacts: Windows zip, macOS .app/zip, Linux tar.gz (installers pending).
+- [x] Portable artifacts: Windows zip, macOS .app/zip, Linux tar.gz.
+- [x] Windows NSIS installer.
 
 Acceptance:
 
@@ -50,14 +51,14 @@ Acceptance:
 
 ## 4. P2: desktop release
 
-- [ ] Icon generation (.ico, .icns, PNG).
+- [x] Icon generation (.ico, .icns, PNG, Android mipmaps) and Windows exe icon embedding.
 - [x] Windows NSIS installer (`winia package --target windows --format nsis`).
 - [ ] Windows MSI (WiX), optional MSIX.
 - [ ] macOS DMG, PKG, universal binary.
 - [ ] Linux deb, rpm, AppImage, .desktop, AppStream.
 - [ ] Authenticode signing, macOS codesign/notarize.
-- [ ] `winia release`: version, changelog, tag, GitHub Releases.
-- [ ] GitHub Actions three-platform matrix template.
+- [x] `winia release`: version bump, package, sign, tag, GitHub Releases (Android; desktop pending).
+- [x] CI workflow generator (`winia ci init`: GitHub Actions, GitLab CI).
 
 Acceptance:
 

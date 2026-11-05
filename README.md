@@ -70,6 +70,7 @@ Implemented:
 - `winia dev`: watch sources and assets, rebuild and restart the host app or reinstall/restart the Android activity, and auto-start the debug server
 - `winia test`: run host cargo tests and an Android install/launch/logcat/screenshot smoke test
 - `winia clean`: remove `target/`, `dist/`, and Android build outputs, with `--dry-run`/`--all`
+- `winia ci init`: write a ready-to-run GitHub Actions or GitLab CI workflow for the project
 - `winia assets icon`: generate Windows ICO, macOS ICNS, Linux hicolor, Android mipmap/adaptive, and store icons from one PNG/SVG; Windows executables embed the ICO via `build.rs`
 - `winia inspect`: query the debug server for app identity, layout trees, input events, screenshots, and port discovery
 - `winia package`: assemble portable desktop archives (Windows zip, Linux tar.gz, macOS app/zip), a Windows NSIS installer, and Android APKs/AABs into `dist/`, with asset manifests, Android alignment, ABIs, and debug signatures

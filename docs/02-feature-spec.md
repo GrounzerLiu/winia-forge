@@ -21,7 +21,7 @@
 | `winia doctor` | Environment diagnostics | Implemented (Rust/MSRV, platform toolchains, Android SDK/NDK, `--fix`) |
 | `winia add` / `remove` / `update` | Dependency management | Planned |
 | `winia assets` | Icon and asset generation | Implemented: icon sets from PNG/SVG; automatic via `app.icon` |
-| `winia ci` | Generate CI configuration | Planned |
+| `winia ci` | Generate CI configuration | Implemented: `ci init` for GitHub Actions and GitLab CI |
 | `winia upgrade` | Framework upgrade and code migration | Planned |
 | `winia clean` | Remove build artifacts | Implemented: target/dist/Android build outputs, `--all` Gradle caches, `--dry-run`, `--json` |
 | `winia info` | Environment and project information | Implemented |
@@ -610,17 +610,18 @@ winia assets icon assets/icon.png
 winia ci init --provider github --platforms windows,macos,linux,android
 ```
 
-The generated GitHub Actions workflow includes:
+Implemented: `winia ci init` writes `.github/workflows/ci.yml` (or `.gitlab-ci.yml`), refusing to
+overwrite an existing file unless `--force` is passed. `winia ci` without a subcommand runs `init`
+with the defaults.
 
-- A three-platform matrix: `windows-latest`, `macos-latest`, `ubuntu-latest`.
-- Rust caching, sccache.
-- Android: SDK/NDK installation, Gradle caching, the built-in NDK driver.
-- build + test + package.
-- Artifact upload.
-- Signing/notarisation/Play upload on release (using Secrets).
-
-GitLab CI emits an isomorphic stage/job configuration. Every command supports `--json` so CI can be
-customised freely.
+- Platform defaults: windows, macOS, Linux, plus Android when the project has an `android/` directory.
+- GitHub: one job per desktop platform plus an Android job. Each job installs Winia Forge,
+  runs `cargo fmt`/`clippy`/`test`, packages with `winia package --release`, and uploads `dist/`.
+  The Android job installs JDK 21, the Android SDK packages, and packaging uses the built-in NDK driver.
+- GitLab: a `.desktop` template extended per platform, plus an Android job.
+- The CLI is installed from `--winia-source` (default
+  `https://github.com/GrounzerLiu/winia-forge`) because it is not published on crates.io yet.
+- Not generated yet: signing/notarisation steps, sccache, and Gradle caching.
 
 ## 10. Extension mechanisms
 

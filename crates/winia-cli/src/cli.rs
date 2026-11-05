@@ -465,6 +465,12 @@ pub struct CiInitArgs {
     /// Target platforms for the matrix.
     #[arg(long, value_delimiter = ',')]
     pub platforms: Vec<String>,
+    /// Where to install Winia Forge from until it is published on crates.io.
+    #[arg(long, default_value = "https://github.com/GrounzerLiu/winia-forge")]
+    pub winia_source: String,
+    /// Overwrite an existing workflow file.
+    #[arg(long)]
+    pub force: bool,
 }
 
 #[derive(Debug, Args)]
