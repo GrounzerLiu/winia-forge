@@ -114,3 +114,20 @@ jobs:
           TARBALL=$(ls dist/ci-smoke-*-linux-*.tar.gz)
           tar -tzf "$TARBALL" | grep -E "/ci-smoke$"
           tar -tzf "$TARBALL" | grep -E "assets\.manifest\.json"
+
+      - name: Install Debian package
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          WINIA="$GITHUB_WORKSPACE/target/release/winia-cli"
+          cd .github/fixtures/ci-app
+          "$WINIA" package --target linux --format deb --out-dir dist --clean
+          DEB=$(ls dist/ci-smoke-*-linux-*.deb)
+          dpkg-deb -I "$DEB"
+          dpkg-deb -c "$DEB" > listing.txt
+          grep -q "\./usr/bin/ci-smoke" listing.txt
+          grep -q "\./usr/lib/com.example.ci-smoke/ci-smoke" listing.txt
+          sudo dpkg -i "$DEB"
+          ci-smoke
+          sudo dpkg -r com.example.ci-smoke

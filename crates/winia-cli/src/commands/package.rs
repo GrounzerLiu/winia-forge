@@ -153,6 +153,7 @@ fn package_desktop(
         }
     }
 
+    let publisher = config.app.authors.join(", ");
     let mut produced = Vec::new();
     for format in &formats {
         let destination = desktop_artifact_path(&stem, &version, target, arch, format, &out_dir);
@@ -166,8 +167,22 @@ fn package_desktop(
                 icons.as_ref(),
                 &executable.path,
             )?,
+            "deb" => {
+                let spec = winia_pack::deb::DebSpec {
+                    app_name: &config.app.name,
+                    app_version: &version,
+                    app_id: &config.app.id,
+                    publisher: &publisher,
+                    executable: executable_name
+                        .to_str()
+                        .ok_or_else(|| anyhow::anyhow!("the executable name is not valid UTF-8"))?,
+                    payload: &stage,
+                    output: &destination,
+                    arch,
+                };
+                winia_pack::deb::build(&spec)?;
+            }
             "nsis" => {
-                let publisher = config.app.authors.join(", ");
                 let icon = icons
                     .as_ref()
                     .filter(|_| target == "windows")
@@ -225,7 +240,7 @@ fn desktop_formats(target: &str, config: &WiniaConfig, args: &PackageArgs) -> Re
     let supported: &[&str] = match target {
         "windows" => &["zip", "nsis"],
         "macos" => &["app", "zip"],
-        "linux" => &["tar.gz"],
+        "linux" => &["tar.gz", "deb"],
         _ => &[],
     };
     let requested = if args.format.is_empty() {

@@ -9,6 +9,7 @@
 //! The crate is a placeholder so winia-cli can depend on a stable boundary
 //! while the packaging work lands.
 
+pub mod deb;
 pub mod nsis;
 
 /// Artifact formats the packager intends to support.
