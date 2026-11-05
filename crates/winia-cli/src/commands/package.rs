@@ -108,6 +108,13 @@ fn package_desktop(
         clean_desktop_output(&out_dir, &stem, &version, target)?;
     }
 
+    let profile = if args.release { "release" } else { "debug" };
+    let context = crate::hooks::HookContext {
+        target,
+        profile,
+        version: &version,
+    };
+    crate::hooks::run(root, config, crate::hooks::Phase::BeforePackage, &context)?;
     let built = build::build_all(
         root,
         config,
@@ -233,6 +240,7 @@ fn package_desktop(
         produced.push(destination);
         built_formats.push(format.clone());
     }
+    crate::hooks::run(root, config, crate::hooks::Phase::AfterPackage, &context)?;
 
     report(
         root,
@@ -625,6 +633,12 @@ fn package_android(
         );
     }
 
+    let context = crate::hooks::HookContext {
+        target: "android",
+        profile,
+        version: &version,
+    };
+    crate::hooks::run(root, config, crate::hooks::Phase::BeforePackage, &context)?;
     let mut produced = Vec::new();
 
     if formats.iter().any(|format| format == "apk") {
@@ -711,6 +725,7 @@ fn package_android(
         validate_aab(&destination, args.json)?;
         produced.push(destination);
     }
+    crate::hooks::run(root, config, crate::hooks::Phase::AfterPackage, &context)?;
 
     report(
         root,

@@ -570,6 +570,8 @@ Checks:
 
 - Rust: `rustc`, `cargo`, MSRV.
 - Rust targets: `rustup target list --installed`.
+- Packaging tools: `makensis` and WiX (Windows), `dpkg-deb` (Linux), `gh`. All are optional
+  warnings with the exact install command, because packaging skips a format whose tool is absent.
 - Windows: MSVC Build Tools, Windows SDK, LLVM (needed by Skia), Vulkan SDK (optional).
 - macOS: Xcode Command Line Tools.
 - Linux: `pkg-config`, `fontconfig`, `libx11`.
@@ -677,9 +679,16 @@ before_package = []
 after_package = []
 ```
 
+Implemented:
+
 - Run before/after the corresponding phase; a failure aborts the run.
 - The working directory is the project root.
 - The environment contains `WINIA_TARGET`, `WINIA_PROFILE`, `WINIA_VERSION`.
+- Commands run through `cmd /C` on Windows and `sh -c` elsewhere, in declaration order.
+- Hook output goes to stderr so `--json` on stdout stays parseable; the command line is echoed
+  before it runs.
+- `build` (and therefore `run`, `dev`, `package`, `release`) fires `before_build`/`after_build`
+  once per target; `package` fires `before_package`/`after_package` once per package run.
 
 ### 10.2 Custom templates
 
@@ -733,4 +742,5 @@ winia upgrade
 | `winia package` | Implemented: desktop portable zip/tar.gz/app, Windows NSIS and MSI, Linux deb; Android APK/AAB with alignment/ABI/signature checks; DMG/PKG/rpm/AppImage pending |
 | `winia sign` | Implemented: Android APK signing with apksigner |
 | `winia release` | Implemented: multi-target bump/package/sign/tag/SHA256SUMS/latest.json and optional GitHub upload |
+| Project hooks | Implemented: `before_build`/`after_build` per target, `before_package`/`after_package` per run |
 | Template system, hooks, plugins | Planned |

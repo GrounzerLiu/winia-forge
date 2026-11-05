@@ -77,11 +77,19 @@ pub(crate) fn build_all(
     let features = effective_features(config, args);
     let targets = resolve_targets(&args.target)?;
     let mut built = Vec::new();
+    let profile = if args.release { "release" } else { "debug" };
     for target in &targets {
+        let context = crate::hooks::HookContext {
+            target,
+            profile,
+            version: &config.app.version,
+        };
+        crate::hooks::run(root, config, crate::hooks::Phase::BeforeBuild, &context)?;
         let artifacts = match target.as_str() {
             "android" => build_android(root, config, args, &metadata, &features)?,
             host => build_desktop(root, args, &metadata, host, &features)?,
         };
+        crate::hooks::run(root, config, crate::hooks::Phase::AfterBuild, &context)?;
         built.push((target.clone(), artifacts));
     }
     Ok(built)

@@ -244,7 +244,45 @@ fn collect_checks(target: Option<Target>, android_required: bool) -> Vec<Check> 
         Some(Target::Windows) | Some(Target::Macos) | Some(Target::Linux) => {}
     }
 
+    checks.extend(packaging_checks(target));
     checks.push(config_check());
+    checks
+}
+
+/// Installer toolchains. Missing tools are warnings, because packaging skips those formats
+/// unless they were requested explicitly.
+fn packaging_checks(target: Option<Target>) -> Vec<Check> {
+    let mut checks = Vec::new();
+    let windows = target == Some(Target::Windows) || (target.is_none() && cfg!(windows));
+    let linux = target == Some(Target::Linux) || (target.is_none() && cfg!(target_os = "linux"));
+
+    if windows {
+        checks.push(match winia_pack::nsis::find_makensis() {
+            Ok(path) => Check::ok("makensis", path.display().to_string(), false),
+            Err(_) => Check::missing(
+                "makensis",
+                "not found; NSIS installers are skipped (winget install NSIS.NSIS)",
+                false,
+            ),
+        });
+        if cfg!(windows) {
+            checks.push(if winia_pack::msi::wix_available() {
+                Check::ok("WiX", "candle and light are available", false)
+            } else {
+                Check::missing(
+                    "WiX",
+                    "not found; MSI packages are skipped (choco install wixtoolset)",
+                    false,
+                )
+            });
+        }
+    }
+
+    if linux {
+        checks.push(command_check("dpkg-deb", &["--version"], false));
+    }
+
+    checks.push(command_check("gh", &["--version"], false));
     checks
 }
 
