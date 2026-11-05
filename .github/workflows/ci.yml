@@ -110,7 +110,7 @@ jobs:
           $msi = (Get-ChildItem dist -Filter *.msi | Select-Object -First 1).FullName
           if (-not $msi) { throw 'no MSI produced' }
           $target = Join-Path $env:RUNNER_TEMP 'ci-msi'
-          msiexec.exe /i "$msi" /qn /norestart "INSTALLDIR=$target"
+          msiexec.exe /i "$msi" /qn /norestart "INSTALLFOLDER=$target"
           if ($LASTEXITCODE -ne 0) { throw "msiexec install failed with exit code $LASTEXITCODE" }
           if (-not (Test-Path (Join-Path $target 'ci-smoke.exe'))) { throw 'ci-smoke.exe missing after install' }
           msiexec.exe /x "$msi" /qn /norestart

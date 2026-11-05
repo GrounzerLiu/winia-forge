@@ -1,14 +1,15 @@
 //! MSI generation through the WiX toolset.
 //!
-//! WiX is an external dependency (candle + light from WiX 3.x, or the wix CLI). This module writes
-//! the .wxs description from the staged payload and then compiles it, so no WiX project files live
-//! in the user's repository.
+//! WiX is an external dependency (candle + light from WiX 3.x). This module writes the .wxs
+//! description from the staged payload and then compiles it, so no WiX project files live in the
+//! user's repository.
 //!
-//! The package installs per machine into Program Files, adds a Start Menu shortcut and registers
-//! itself in Add/Remove Programs, which is what MSI gives for free once the tables are correct.
+//! The package installs per machine into Program Files, mirrors the payload directory tree, adds a
+//! Start Menu shortcut and registers itself in Add/Remove Programs.
 
 use anyhow::{Context, Result, bail};
 use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -30,8 +31,31 @@ pub struct MsiSpec<'a> {
 
 /// A file that goes into the installer.
 struct PayloadFile {
+    /// Path relative to the payload root, forward slashes.
     relative: String,
     source: PathBuf,
+}
+
+/// One directory in the installer tree.
+#[derive(Default)]
+struct DirNode {
+    children: BTreeMap<String, DirNode>,
+    /// File name and source path, sorted by name.
+    files: Vec<(String, PathBuf)>,
+}
+
+impl DirNode {
+    fn insert(&mut self, relative: &str, source: &Path) {
+        let mut parts = relative.split('/').peekable();
+        let mut node = self;
+        while let Some(part) = parts.next() {
+            if parts.peek().is_none() {
+                node.files.push((part.to_owned(), source.to_path_buf()));
+                return;
+            }
+            node = node.children.entry(part.to_owned()).or_default();
+        }
+    }
 }
 
 pub fn build(spec: &MsiSpec<'_>) -> Result<PathBuf> {
@@ -81,15 +105,7 @@ pub fn build(spec: &MsiSpec<'_>) -> Result<PathBuf> {
         bail!(
             "candle failed ({}): {}",
             candle.status,
-            tail(
-                &format!(
-                    "{}
-{}",
-                    String::from_utf8_lossy(&candle.stdout),
-                    String::from_utf8_lossy(&candle.stderr)
-                ),
-                20
-            )
+            tail(&combined(&candle.stdout, &candle.stderr), 20)
         );
     }
     let light = Command::new(&tools.light)
@@ -102,15 +118,7 @@ pub fn build(spec: &MsiSpec<'_>) -> Result<PathBuf> {
         bail!(
             "light failed ({}): {}",
             light.status,
-            tail(
-                &format!(
-                    "{}
-{}",
-                    String::from_utf8_lossy(&light.stdout),
-                    String::from_utf8_lossy(&light.stderr)
-                ),
-                20
-            )
+            tail(&combined(&light.stdout, &light.stderr), 20)
         );
     }
     if !spec.output.is_file() {
@@ -137,6 +145,23 @@ fn generate(
     } else {
         spec.publisher
     };
+
+    let mut root = DirNode::default();
+    for file in files {
+        root.insert(&file.relative, &file.source);
+    }
+
+    let mut body = String::new();
+    let mut components: Vec<String> = Vec::new();
+    let mut counter = 0usize;
+    emit_directory(
+        &mut body,
+        &root,
+        "INSTALLFOLDER",
+        &mut components,
+        &mut counter,
+    );
+
     let mut s = String::new();
     s.push_str("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n");
     s.push_str("<Wix xmlns=\"http://schemas.microsoft.com/wix/2006/wi\">\n");
@@ -145,9 +170,11 @@ fn generate(
         xml(spec.app_name),
         xml(publisher)
     ));
-    s.push_str(&format!(
-        "    <Package InstallerVersion=\"500\" Compressed=\"yes\" InstallScope=\"perMachine\" Platform=\"{platform}\" />\n"
-    ));
+    s.push_str(
+        "    <Package InstallerVersion=\"500\" Compressed=\"yes\" InstallScope=\"perMachine\" Platform=\"",
+    );
+    s.push_str(platform);
+    s.push_str("\" />\n");
     s.push_str(
         "    <MajorUpgrade DowngradeErrorMessage=\"A newer version is already installed.\" />\n",
     );
@@ -158,12 +185,7 @@ fn generate(
         "        <Directory Id=\"INSTALLFOLDER\" Name=\"{}\">\n",
         xml(spec.app_name)
     ));
-    for (index, file) in files.iter().enumerate() {
-        s.push_str(&format!(
-            "          <Component Id=\"cmp_{index}\" Guid=\"*\">\n            <File Id=\"fil_{index}\" Source=\"{}\" KeyPath=\"yes\" />\n          </Component>\n",
-            xml(&file.source.to_string_lossy())
-        ));
-    }
+    s.push_str(&body);
     s.push_str("        </Directory>\n");
     s.push_str("      </Directory>\n");
     s.push_str("      <Directory Id=\"ProgramMenuFolder\">\n");
@@ -191,14 +213,43 @@ fn generate(
         "    <Feature Id=\"MainFeature\" Title=\"{}\" Level=\"1\">\n",
         xml(spec.app_name)
     ));
-    for index in 0..files.len() {
-        s.push_str(&format!("      <ComponentRef Id=\"cmp_{index}\" />\n"));
+    for component in &components {
+        s.push_str(&format!("      <ComponentRef Id=\"{component}\" />\n"));
     }
     s.push_str("      <ComponentRef Id=\"cmp_shortcut\" />\n");
     s.push_str("    </Feature>\n");
     s.push_str("  </Product>\n");
     s.push_str("</Wix>\n");
     Ok(s)
+}
+
+/// Emit nested Directory elements so the payload keeps its shape after installation.
+fn emit_directory(
+    out: &mut String,
+    node: &DirNode,
+    id: &str,
+    components: &mut Vec<String>,
+    counter: &mut usize,
+) {
+    for (index, (name, child)) in node.children.iter().enumerate() {
+        let child_id = format!("{id}_d{index}");
+        out.push_str(&format!(
+            "          <Directory Id=\"{child_id}\" Name=\"{}\">\n",
+            xml(name)
+        ));
+        emit_directory(out, child, &child_id, components, counter);
+        out.push_str("          </Directory>\n");
+    }
+    for (name, source) in &node.files {
+        let component = format!("cmp_{}", *counter);
+        *counter += 1;
+        out.push_str(&format!(
+            "          <Component Id=\"{component}\" Guid=\"*\">\n            <File Id=\"fil_{component}\" Source=\"{}\" Name=\"{}\" KeyPath=\"yes\" />\n          </Component>\n",
+            xml(&source.to_string_lossy()),
+            xml(name)
+        ));
+        components.push(component);
+    }
 }
 
 fn collect(payload: &Path) -> Result<Vec<PayloadFile>> {
@@ -235,9 +286,8 @@ fn collect(payload: &Path) -> Result<Vec<PayloadFile>> {
 /// Deterministic GUID derived from a seed, so upgrades keep a stable UpgradeCode.
 fn guid(seed: &str) -> String {
     let digest = Sha256::digest(seed.as_bytes());
-    let bytes = &digest[..16];
     let mut value = [0u8; 16];
-    value.copy_from_slice(bytes);
+    value.copy_from_slice(&digest[..16]);
     value[6] = (value[6] & 0x0f) | 0x40;
     value[8] = (value[8] & 0x3f) | 0x80;
     format!(
@@ -270,6 +320,14 @@ fn xml(value: &str) -> String {
         .replace('\'', "&apos;")
 }
 
+fn combined(stdout: &[u8], stderr: &[u8]) -> String {
+    format!(
+        "{}\n{}",
+        String::from_utf8_lossy(stdout),
+        String::from_utf8_lossy(stderr)
+    )
+}
+
 fn tail(text: &str, lines: usize) -> String {
     let collected: Vec<&str> = text.lines().collect();
     let start = collected.len().saturating_sub(lines);
@@ -281,7 +339,7 @@ struct WixTools {
     light: PathBuf,
 }
 
-/// Locate candle.exe and light.exe: WIX environment variable, PATH, then the default install.
+/// Locate candle and light: WIX environment variable, PATH, then the default install.
 fn find_wix() -> Result<WixTools> {
     let names = if cfg!(windows) {
         ("candle.exe", "light.exe")
@@ -295,7 +353,7 @@ fn find_wix() -> Result<WixTools> {
         directories.push(base);
     }
     if let Some(path) = std::env::var_os("PATH") {
-        directories.extend(std::env::split_paths(&path).map(|dir| dir.to_path_buf()));
+        directories.extend(std::env::split_paths(&path));
     }
     if cfg!(windows) {
         if let Some(dir) = std::env::var_os("ProgramFiles(x86)") {
@@ -312,9 +370,7 @@ fn find_wix() -> Result<WixTools> {
             return Ok(WixTools { candle, light });
         }
     }
-    bail!(
-        "candle/light not found; install the WiX toolset (choco install wixtoolset) or set WIXDIR"
-    )
+    bail!("candle/light not found; install the WiX toolset (choco install wixtoolset) or set WIX")
 }
 
 #[cfg(test)]
@@ -327,31 +383,41 @@ mod tests {
             .join(format!("msi-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let payload = root.join("payload");
-        std::fs::create_dir_all(payload.join("assets")).unwrap();
+        std::fs::create_dir_all(payload.join("assets/winia")).unwrap();
         std::fs::write(payload.join("app.exe"), b"exe").unwrap();
-        std::fs::write(payload.join("assets/logo.png"), b"png").unwrap();
+        std::fs::write(payload.join("assets/winia/icon.png"), b"png").unwrap();
         root
     }
 
-    #[test]
-    fn generates_components_and_a_feature() {
-        let root = fixture("gen");
-        let payload = root.join("payload");
-        let files = collect(&payload).unwrap();
-        let spec = MsiSpec {
+    fn spec<'a>(payload: &'a Path, output: &'a Path, publisher: &'a str) -> MsiSpec<'a> {
+        MsiSpec {
             app_name: "Winia Blank",
             app_version: "0.1.3",
             app_id: "com.example.winia_blank",
-            publisher: "Winia contributors",
+            publisher,
             executable: "app.exe",
-            payload: &payload,
-            output: &root.join("app.msi"),
+            payload,
+            output,
             arch: "x86_64",
-        };
-        let wxs = generate(&spec, &files, "0.1.3", "x64").unwrap();
+        }
+    }
+
+    #[test]
+    fn mirrors_the_payload_directory_tree() {
+        let root = fixture("tree");
+        let payload = root.join("payload");
+        let files = collect(&payload).unwrap();
+        let wxs = generate(
+            &spec(&payload, &root.join("app.msi"), "Winia"),
+            &files,
+            "0.1.3",
+            "x64",
+        )
+        .unwrap();
         assert!(wxs.contains("Platform=\"x64\""));
-        assert!(wxs.contains("<Component Id=\"cmp_0\" Guid=\"*\">"));
-        assert!(wxs.contains("<Component Id=\"cmp_1\" Guid=\"*\">"));
+        assert!(wxs.contains("<Directory Id=\"INSTALLFOLDER_d0\" Name=\"assets\">"));
+        assert!(wxs.contains("<Directory Id=\"INSTALLFOLDER_d0_d0\" Name=\"winia\">"));
+        assert!(wxs.contains("Name=\"icon.png\""));
         assert!(wxs.contains("<ComponentRef Id=\"cmp_shortcut\" />"));
         assert!(wxs.contains("ProgramFiles64Folder"));
         std::fs::remove_dir_all(root).unwrap();
@@ -362,17 +428,13 @@ mod tests {
         let root = fixture("publisher");
         let payload = root.join("payload");
         let files = collect(&payload).unwrap();
-        let spec = MsiSpec {
-            app_name: "Winia Blank",
-            app_version: "0.1.3",
-            app_id: "com.example.winia_blank",
-            publisher: "",
-            executable: "app.exe",
-            payload: &payload,
-            output: &root.join("app.msi"),
-            arch: "x86_64",
-        };
-        let wxs = generate(&spec, &files, "0.1.3", "x64").unwrap();
+        let wxs = generate(
+            &spec(&payload, &root.join("app.msi"), ""),
+            &files,
+            "0.1.3",
+            "x64",
+        )
+        .unwrap();
         assert!(wxs.contains("Manufacturer=\"Winia Blank\""));
         std::fs::remove_dir_all(root).unwrap();
     }
