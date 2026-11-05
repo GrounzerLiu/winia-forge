@@ -402,12 +402,24 @@ pub(crate) fn run_gradle_task(
     run_command(&mut command, &format!("gradlew {task}"), json)
 }
 
-/// Gradle properties that keep the APK version metadata in sync with
-/// `winia.toml` instead of the values baked into the generated build file.
-pub(crate) fn version_properties(config: &WiniaConfig) -> Vec<(&'static str, String)> {
+/// Gradle properties that keep the generated build file in sync with `winia.toml`: version
+/// metadata, the SDK levels and the launcher label. The template reads each one with a fallback,
+/// so a project generated before a property existed still builds.
+pub(crate) fn gradle_properties(config: &WiniaConfig) -> Vec<(&'static str, String)> {
     vec![
         ("winiaVersionCode", config.android.version_code.to_string()),
         ("winiaVersionName", config.app.version.clone()),
+        ("winiaCompileSdk", config.android.compile_sdk.to_string()),
+        ("winiaMinSdk", config.android.min_sdk.to_string()),
+        ("winiaTargetSdk", config.android.target_sdk.to_string()),
+        (
+            "winiaAppLabel",
+            config
+                .android
+                .label
+                .clone()
+                .unwrap_or_else(|| config.app.name.clone()),
+        ),
     ]
 }
 
@@ -422,7 +434,7 @@ fn run_gradle(
     } else {
         "assembleDebug"
     };
-    run_gradle_task(android_dir, task, &version_properties(config), json)?;
+    run_gradle_task(android_dir, task, &gradle_properties(config), json)?;
 
     let output_dir =
         android_dir
@@ -962,6 +974,38 @@ fn display_relative(root: &Path, path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gradle_properties_carry_sdk_levels_and_label() {
+        let mut config = WiniaConfig::default();
+        config.app.name = "Demo".to_owned();
+        config.android.min_sdk = 28;
+        config.android.target_sdk = 35;
+        config.android.compile_sdk = 36;
+        config.android.label = Some("Demo Label".to_owned());
+
+        let properties = gradle_properties(&config);
+        let value = |key: &str| {
+            properties
+                .iter()
+                .find(|(name, _)| *name == key)
+                .map(|(_, value)| value.as_str())
+        };
+        assert_eq!(value("winiaMinSdk"), Some("28"));
+        assert_eq!(value("winiaTargetSdk"), Some("35"));
+        assert_eq!(value("winiaCompileSdk"), Some("36"));
+        assert_eq!(value("winiaAppLabel"), Some("Demo Label"));
+
+        config.android.label = None;
+        let properties = gradle_properties(&config);
+        assert_eq!(
+            properties
+                .iter()
+                .find(|(name, _)| *name == "winiaAppLabel")
+                .map(|(_, value)| value.as_str()),
+            Some("Demo")
+        );
+    }
 
     fn args(target: &[&str], features: &[&str]) -> BuildArgs {
         BuildArgs {

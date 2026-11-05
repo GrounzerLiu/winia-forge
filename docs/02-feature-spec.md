@@ -233,7 +233,22 @@ after_package = []
 - `app.icon`, when set, is checked by the icon generator rather than by validation: a missing file
   fails the build with `app.icon not found: <path>`.
 
-### 2.4 Fields that are not applied yet
+### 2.4 Field coverage
+
+Applied by the Android build (passed to Gradle as `-P` properties, read by the generated
+`app/build.gradle.kts`):
+
+| Field | Property | Effect |
+| --- | --- | --- |
+| `app.version` | `winiaVersionName` | `versionName` in the APK |
+| `android.version_code` | `winiaVersionCode` | `versionCode` in the APK |
+| `android.min_sdk` | `winiaMinSdk` | `minSdkVersion`, and the NDK clang wrapper API level |
+| `android.target_sdk` | `winiaTargetSdk` | `targetSdkVersion` |
+| `android.compile_sdk` | `winiaCompileSdk` | `compileSdk` |
+| `android.label` (falls back to `app.name`) | `winiaAppLabel` | `app_name` string resource behind `android:label="@string/app_name"` |
+
+`android.label` reaches the manifest through a generated string resource, so projects created
+before this change keep their literal `android:label` until they adopt `@string/app_name`.
 
 These are parsed and round-tripped by `winia config`, but nothing reads them when building or
 packaging. They are kept in the schema so projects can declare intent without breaking:
@@ -241,8 +256,6 @@ packaging. They are kept in the schema so projects can declare intent without br
 | Field | Current reality |
 | --- | --- |
 | `[window]` title/width/height/resizable/decorations | The template app creates its window through `winia::run_app!` and never reads `winia.toml` |
-| `android.target_sdk`, `android.compile_sdk` | Gradle hardcodes 36; only `min_sdk` reaches the NDK wrapper |
-| `android.label` | The manifest uses `app.name` |
 | `android.orientation` | The manifest omits `screenOrientation` |
 | `android.permissions` | The manifest ships `INTERNET` regardless; no injection |
 | `android.activity` | The template is always GameActivity |

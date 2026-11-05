@@ -728,7 +728,7 @@ fn package_android(
         build::run_gradle_task(
             &android_dir,
             task,
-            &build::version_properties(config),
+            &build::gradle_properties(config),
             args.json,
         )?;
         let bundle_dir = android_dir.join("app/build/outputs/bundle").join(profile);
