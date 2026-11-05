@@ -701,8 +701,13 @@ exclude = ["**/*.psd"]
 - Each entry records a stable `id`, logical path, packaged path, size, SHA-256, and optional
   density. Density variants use `logo@2x.png` or `2x/logo.png`; the `id` strips the marker
   (`assets/icons/logo.png`).
+- A density token is any positive multiple of `x`: `@1.5x`, `@2x`, `2x/`, `0.75x/`. When a file
+  carries both a directory segment and an `@` suffix, the suffix wins.
 - Runtime `Image::asset` resolves the `id` against the window density: exact match, then the
-  smallest density at or above the target, then the largest available density.
+  smallest density at or above the target (up-scaling slightly beats down-scaling), then the
+  largest available density.
+- The decode cache is keyed by `(id, chosen density)`, so 1x and 2x decodes of the same asset do
+  not collide; `resolved_density()` reports which variant a lookup would pick.
 - Desktop staging copies assets next to the executable; Android stages them under
   `android/app/src/main/assets/winia-assets/` so Gradle packs them into the APK/AAB.
 - Staging verifies every copied file against its manifest hash.
@@ -734,7 +739,8 @@ winia assets icon assets/icon.png
   the Windows SDK `rc.exe`; a missing tool emits a build warning instead of failing).
 - The Android manifest references `@mipmap/ic_launcher` and `@mipmap/ic_launcher_round`; when
   `app.icon` is absent, a built-in default icon is generated.
-- Not implemented yet: macOS signing.
+- macOS bundle signing is implemented (`winia sign --target macos`); notarisation and stapling
+  are not.
 
 ## 9. CI/CD
 
