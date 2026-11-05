@@ -107,13 +107,14 @@ jobs:
           Set-Location .github/fixtures/ci-app
           & $winia package --target windows --format msi --out-dir dist --clean
           if ($LASTEXITCODE -ne 0) { throw "winia package failed with exit code $LASTEXITCODE" }
-          $msi = (Get-ChildItem dist -Filter *-setup.msi).FullName
-          if (-not $msi) { $msi = (Get-ChildItem dist -Filter *.msi | Select-Object -First 1).FullName }
+          $msi = (Get-ChildItem dist -Filter *.msi | Select-Object -First 1).FullName
           if (-not $msi) { throw 'no MSI produced' }
           $target = Join-Path $env:RUNNER_TEMP 'ci-msi'
-          Start-Process msiexec.exe -ArgumentList "/i", """$msi"", "/qn", "/norestart", "INSTALLDIR=$target" -Wait
+          msiexec.exe /i "$msi" /qn /norestart "INSTALLDIR=$target"
+          if ($LASTEXITCODE -ne 0) { throw "msiexec install failed with exit code $LASTEXITCODE" }
           if (-not (Test-Path (Join-Path $target 'ci-smoke.exe'))) { throw 'ci-smoke.exe missing after install' }
-          Start-Process msiexec.exe -ArgumentList "/x", """$msi"", "/qn", "/norestart" -Wait
+          msiexec.exe /x "$msi" /qn /norestart
+          if ($LASTEXITCODE -ne 0) { throw "msiexec uninstall failed with exit code $LASTEXITCODE" }
 
       - name: Verify macOS app bundle
         if: runner.os == 'macOS'
