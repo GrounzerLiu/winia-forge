@@ -17,7 +17,7 @@
 | `winia test` | Unit, UI, and device smoke tests | Implemented: host cargo tests, Android install/launch/logcat/screenshot smoke |
 | `winia package` | Package installers/archives/APK/AAB | Implemented: desktop portable zip/tar.gz/app, Windows NSIS and MSI, Linux deb, Android APK/AAB; DMG/PKG/rpm/AppImage pending |
 | `winia sign` | Code signing | Implemented for Android APKs |
-| `winia release` | Version, tag, publish | Implemented for Android (local artifacts + GitHub upload) |
+| `winia release` | Version, tag, publish | Implemented for Android and desktop targets (local artifacts + GitHub upload) |
 | `winia doctor` | Environment diagnostics | Implemented (Rust/MSRV, platform toolchains, Android SDK/NDK, `--fix`) |
 | `winia add` / `remove` / `update` | Dependency management | Planned |
 | `winia assets` | Icon and asset generation | Implemented: icon sets from PNG/SVG; automatic via `app.icon` |
@@ -535,9 +535,10 @@ winia release --target android --dry-run
 winia release --target android --bump patch
 winia release --target android --bump patch --push
 winia release --target android --bump minor --track github
+winia release --target windows --bump patch --track github
 ```
 
-Implemented flow (Android only):
+Implemented flow (Android and the desktop targets):
 
 1. Refuse a dirty worktree unless `--allow-dirty`.
 2. Validate the signing environment and, for GitHub, `gh auth status` plus a git remote before
@@ -545,17 +546,21 @@ Implemented flow (Android only):
 3. Bump `app.version`, `android.version_code`, and the `Cargo.toml` package version; commit
    `chore(release): vX.Y.Z`.
 4. Generate notes from conventional commits since the previous tag.
-5. Package the release APK/AAB through `winia package`.
-6. Sign the APK when a keystore is configured; `latest.json` lists the signed APK.
+5. Package every requested target through `winia package`, using that target's
+   `[package.<platform>].formats`. Installer formats whose tool is missing are dropped from the
+   plan and the run, so a release does not fail because WiX or NSIS is absent.
+6. Sign the APK when the release includes Android and a keystore is configured. Desktop artifacts
+   are published unsigned; `latest.json` lists the signed APK.
 7. Create the annotated tag unless `--no-tag`.
 8. Push HEAD and the tag when `--push` is given, or automatically with `--track github`.
 9. With `--track github`, upload the artifacts to a GitHub release (the tag must exist remotely).
-10. Write `dist/latest.json` with the version, tag, and artifact sizes.
+10. Rewrite `dist/SHA256SUMS` for exactly the published files, then write `dist/latest.json`
+    with the version, tag, and artifact sizes (including the checksum file).
 
-`--json` prints `{ target, version, tag, pushed, published, artifacts, notes, duration_ms }`.
+`--json` prints `{ targets, version, tag, pushed, published, artifacts, notes, duration_ms }`.
 
-Not implemented yet: Play track uploads, desktop/macOS releases, rollback after a failed build, and
-checksums in `latest.json`.
+Not implemented yet: Play track uploads, macOS signing/notarisation, rollback after a failed build,
+and hashes inside `latest.json` (they live in `SHA256SUMS`).
 
 ## 7. Environment and toolchain
 
@@ -727,5 +732,5 @@ winia upgrade
 | `winia run` | Implemented: host and Android |
 | `winia package` | Implemented: desktop portable zip/tar.gz/app, Windows NSIS and MSI, Linux deb; Android APK/AAB with alignment/ABI/signature checks; DMG/PKG/rpm/AppImage pending |
 | `winia sign` | Implemented: Android APK signing with apksigner |
-| `winia release` | Implemented: Android bump/package/sign/tag/latest.json and optional GitHub upload |
+| `winia release` | Implemented: multi-target bump/package/sign/tag/SHA256SUMS/latest.json and optional GitHub upload |
 | Template system, hooks, plugins | Planned |

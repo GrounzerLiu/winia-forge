@@ -9,6 +9,7 @@ use crate::cli::{Bump, PackageArgs, ReleaseArgs, SignArgs};
 use crate::commands::{package, sign};
 use crate::config::WiniaConfig;
 use anyhow::{Context, Result, bail};
+use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
@@ -30,9 +31,15 @@ pub fn run(args: ReleaseArgs) -> Result<()> {
     } else {
         args.target.clone()
     };
-    if let Some(unsupported) = targets.iter().find(|target| target.as_str() != "android") {
-        bail!("releasing {unsupported} is not implemented yet; only --target android is supported");
+    for target in &targets {
+        match target.as_str() {
+            "windows" | "macos" | "linux" | "android" => {}
+            other => bail!(
+                "unknown release target '{other}'; expected windows, macos, linux, or android"
+            ),
+        }
     }
+    let android = targets.iter().any(|target| target == "android");
     let track = match args.track.as_deref() {
         None => None,
         Some("github") => Some("github"),
@@ -53,8 +60,20 @@ pub fn run(args: ReleaseArgs) -> Result<()> {
     let tag = format!("v{version}");
     let stem = package::artifact_stem(&config);
     let out_dir = root.join("dist");
-    let formats = config.package.android.formats.clone();
-    let planned = planned_artifacts(&stem, &version, &formats, &out_dir);
+    let arch = std::env::consts::ARCH;
+    let planned: Vec<PathBuf> = targets
+        .iter()
+        .flat_map(|target| {
+            planned_artifacts(
+                &stem,
+                &version,
+                target,
+                arch,
+                &formats_for(&config, target),
+                &out_dir,
+            )
+        })
+        .collect();
     let notes = release_notes(&root)?;
 
     if !args.no_tag
@@ -84,7 +103,7 @@ pub fn run(args: ReleaseArgs) -> Result<()> {
                 })
                 .collect();
             let value = serde_json::json!({
-                "target": "android",
+                "targets": targets.clone(),
                 "dry_run": true,
                 "version": version,
                 "tag": if args.no_tag { serde_json::Value::Null } else { serde_json::json!(tag) },
@@ -135,19 +154,22 @@ pub fn run(args: ReleaseArgs) -> Result<()> {
         git(&root, &["commit", "-m", &format!("chore(release): {tag}")])?;
     }
 
-    if args.json {
-        run_package_json(&root, &formats, &out_dir)?;
-    } else {
-        package::run(PackageArgs {
-            target: vec!["android".to_owned()],
-            format: formats.clone(),
-            release: true,
-            out_dir: Some(out_dir.clone()),
-            split: None,
-            json: false,
-            dry_run: false,
-            clean: false,
-        })?;
+    for target in &targets {
+        let formats = available_formats(&formats_for(&config, target));
+        if args.json {
+            run_package_json(&root, target, &formats, &out_dir)?;
+        } else {
+            package::run(PackageArgs {
+                target: vec![target.clone()],
+                format: formats,
+                release: true,
+                out_dir: Some(out_dir.clone()),
+                split: None,
+                json: false,
+                dry_run: false,
+                clean: false,
+            })?;
+        }
     }
 
     let mut artifacts = version_artifacts(&out_dir, &stem, &version)?;
@@ -155,7 +177,7 @@ pub fn run(args: ReleaseArgs) -> Result<()> {
         bail!("packaging produced no artifacts for {version}");
     }
 
-    if keystore_configured() {
+    if android && keystore_configured() {
         let unsigned_apk = artifacts
             .iter()
             .find(|path| {
@@ -185,10 +207,13 @@ pub fn run(args: ReleaseArgs) -> Result<()> {
                 artifacts.push(signed);
             }
         }
-    } else if !artifacts.is_empty() {
+    } else if android && !artifacts.is_empty() {
         eprintln!("warning: no Android keystore configured; release artifacts are unsigned");
     }
-    let artifacts = select_release_artifacts(&artifacts);
+    let mut artifacts = select_release_artifacts(&artifacts);
+    if let Some(checksums) = write_release_checksums(&out_dir, &artifacts)? {
+        artifacts.push(checksums);
+    }
 
     if !args.no_tag {
         git(&root, &["tag", "-a", &tag, "-m", &tag])?;
@@ -217,7 +242,7 @@ pub fn run(args: ReleaseArgs) -> Result<()> {
             })
             .collect();
         let value = serde_json::json!({
-            "target": "android",
+            "targets": targets.clone(),
             "version": version,
             "tag": if args.no_tag { serde_json::Value::Null } else { serde_json::json!(tag) },
             "pushed": push,
@@ -255,11 +280,11 @@ fn run_self_json(root: &Path, args: &[String]) -> Result<serde_json::Value> {
     serde_json::from_slice(&output.stdout).context("parsing winia JSON output")
 }
 
-fn run_package_json(root: &Path, formats: &[String], out_dir: &Path) -> Result<()> {
+fn run_package_json(root: &Path, target: &str, formats: &[String], out_dir: &Path) -> Result<()> {
     let mut args = vec![
         "package".to_owned(),
         "--target".to_owned(),
-        "android".to_owned(),
+        target.to_owned(),
         "--release".to_owned(),
         "--out-dir".to_owned(),
         out_dir.display().to_string(),
@@ -408,12 +433,46 @@ fn release_notes(root: &Path) -> Result<String> {
     Ok(notes)
 }
 
+/// Drop installer formats whose external tool is missing: a release must not fail because the
+/// machine has no WiX, and the plan has to match what packaging actually produces.
+fn available_formats(formats: &[String]) -> Vec<String> {
+    formats
+        .iter()
+        .filter(|format| match format.as_str() {
+            "nsis" => winia_pack::nsis::find_makensis().is_ok(),
+            "msi" => winia_pack::msi::wix_available(),
+            _ => true,
+        })
+        .cloned()
+        .collect()
+}
+
+/// Formats for one target, taken from the matching section of winia.toml.
+fn formats_for(config: &WiniaConfig, target: &str) -> Vec<String> {
+    match target {
+        "windows" => config.package.windows.formats.clone(),
+        "macos" => config.package.macos.formats.clone(),
+        "linux" => config.package.linux.formats.clone(),
+        _ => config.package.android.formats.clone(),
+    }
+}
+
 fn planned_artifacts(
     stem: &str,
     version: &str,
+    target: &str,
+    arch: &str,
     formats: &[String],
     out_dir: &Path,
 ) -> Vec<PathBuf> {
+    if target != "android" {
+        return available_formats(formats)
+            .iter()
+            .filter_map(|format| {
+                package::release_artifact_path(stem, version, target, arch, format, out_dir)
+            })
+            .collect();
+    }
     let mut paths = Vec::new();
     if formats.iter().any(|format| format == "apk") {
         paths.push(out_dir.join(format!("{stem}-{version}-android-universal.apk")));
@@ -425,7 +484,7 @@ fn planned_artifacts(
 }
 
 fn version_artifacts(dist: &Path, stem: &str, version: &str) -> Result<Vec<PathBuf>> {
-    let prefix = format!("{stem}-{version}-android");
+    let prefix = format!("{stem}-{version}-");
     let mut artifacts: Vec<PathBuf> = std::fs::read_dir(dist)
         .map(|entries| {
             entries
@@ -435,8 +494,7 @@ fn version_artifacts(dist: &Path, stem: &str, version: &str) -> Result<Vec<PathB
                     path.file_name()
                         .and_then(|name| name.to_str())
                         .map(|name| {
-                            name.starts_with(&prefix)
-                                && matches!(extension(path), Some("apk" | "aab"))
+                            path.is_file() && name.starts_with(&prefix) && is_release_file(path)
                         })
                         .unwrap_or(false)
                 })
@@ -505,8 +563,27 @@ fn preflight_github(root: &Path, tag: &str) -> Result<()> {
     Ok(())
 }
 
+/// File artifacts a release can publish; directories such as the macOS .app bundle are skipped.
+fn is_release_file(path: &Path) -> bool {
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+    matches!(
+        extension(path),
+        Some("apk" | "aab" | "zip" | "exe" | "msi" | "deb")
+    ) || name.ends_with(".tar.gz")
+}
+
+fn is_android_artifact(path: &Path) -> bool {
+    matches!(extension(path), Some("apk" | "aab"))
+}
+
 fn select_release_artifacts(artifacts: &[PathBuf]) -> Vec<PathBuf> {
-    let mut selected = Vec::new();
+    let mut selected: Vec<PathBuf> = artifacts
+        .iter()
+        .filter(|path| !is_android_artifact(path))
+        .cloned()
+        .collect();
     let unsigned_apk = artifacts.iter().find(|path| {
         path.file_name()
             .and_then(|name| name.to_str())
@@ -527,7 +604,30 @@ fn select_release_artifacts(artifacts: &[PathBuf]) -> Vec<PathBuf> {
             .filter(|path| extension(path) == Some("aab"))
             .cloned(),
     );
+    selected.sort();
+    selected.dedup();
     selected
+}
+
+/// Rewrite dist/SHA256SUMS for exactly the artifacts that are published.
+fn write_release_checksums(dist: &Path, artifacts: &[PathBuf]) -> Result<Option<PathBuf>> {
+    let mut text = String::new();
+    for path in artifacts {
+        let Ok(bytes) = std::fs::read(path) else {
+            continue;
+        };
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        text.push_str(&format!("{:x}  {name}\n", Sha256::digest(&bytes)));
+    }
+    if text.is_empty() {
+        return Ok(None);
+    }
+    let destination = dist.join("SHA256SUMS");
+    std::fs::write(&destination, text)
+        .with_context(|| format!("writing {}", destination.display()))?;
+    Ok(Some(destination))
 }
 
 fn keystore_configured() -> bool {
@@ -650,6 +750,40 @@ fn display_relative(root: &Path, path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn keeps_desktop_artifacts_and_prefers_the_signed_apk() {
+        let artifacts = vec![
+            PathBuf::from("dist/app-1.0.0-windows-x86_64.zip"),
+            PathBuf::from("dist/app-1.0.0-windows-x86_64-setup.exe"),
+            PathBuf::from("dist/app-1.0.0-linux-x86_64.tar.gz"),
+            PathBuf::from("dist/app-1.0.0-android-universal.apk"),
+            PathBuf::from("dist/app-1.0.0-android-universal-signed.apk"),
+            PathBuf::from("dist/app-1.0.0-android.aab"),
+        ];
+        let selected = select_release_artifacts(&artifacts);
+        let names: Vec<&str> = selected
+            .iter()
+            .filter_map(|path| path.file_name().and_then(|name| name.to_str()))
+            .collect();
+        assert!(names.contains(&"app-1.0.0-windows-x86_64.zip"));
+        assert!(names.contains(&"app-1.0.0-linux-x86_64.tar.gz"));
+        assert!(names.contains(&"app-1.0.0-android-universal-signed.apk"));
+        assert!(!names.contains(&"app-1.0.0-android-universal.apk"));
+        assert!(names.contains(&"app-1.0.0-android.aab"));
+    }
+
+    #[test]
+    fn recognises_release_files() {
+        assert!(is_release_file(Path::new(
+            "dist/app-1.0.0-linux-x86_64.tar.gz"
+        )));
+        assert!(is_release_file(Path::new(
+            "dist/app-1.0.0-windows-x86_64.msi"
+        )));
+        assert!(!is_release_file(Path::new("dist/app.app")));
+        assert!(!is_release_file(Path::new("dist/SHA256SUMS")));
+    }
 
     #[test]
     fn bumps_semver_components() {

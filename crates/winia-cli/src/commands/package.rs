@@ -318,6 +318,29 @@ fn planned_desktop_artifacts(
         .collect()
 }
 
+/// Artifact path for a supported desktop format, or None when the format is not packaged.
+pub(crate) fn release_artifact_path(
+    stem: &str,
+    version: &str,
+    target: &str,
+    arch: &str,
+    format: &str,
+    out_dir: &Path,
+) -> Option<PathBuf> {
+    let supported: &[&str] = match target {
+        "windows" => &["zip", "nsis", "msi"],
+        "macos" => &["app", "zip"],
+        "linux" => &["tar.gz", "deb"],
+        _ => return None,
+    };
+    if !supported.contains(&format) {
+        return None;
+    }
+    Some(desktop_artifact_path(
+        stem, version, target, arch, format, out_dir,
+    ))
+}
+
 fn desktop_artifact_path(
     stem: &str,
     version: &str,
