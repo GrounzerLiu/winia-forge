@@ -45,7 +45,11 @@ pub fn build(spec: &DebSpec<'_>) -> Result<PathBuf> {
     if files.is_empty() {
         bail!("payload directory is empty: {}", spec.payload.display());
     }
-    let install_dir = format!("usr/lib/{}", package.to_lowercase());
+    let stem = Path::new(spec.executable)
+        .file_stem()
+        .map(|value| value.to_string_lossy().into_owned())
+        .unwrap_or_else(|| package.clone());
+    let install_dir = format!("usr/lib/{stem}");
     let install_size_kib: u64 = files
         .iter()
         .map(|file| file.bytes.len() as u64)
@@ -73,13 +77,13 @@ pub fn build(spec: &DebSpec<'_>) -> Result<PathBuf> {
         }
         append_symlink(
             &mut tar,
-            &format!("usr/bin/{}", package.to_lowercase()),
-            &format!("../lib/{}/{}", package.to_lowercase(), spec.executable),
+            &format!("usr/bin/{stem}"),
+            &format!("../lib/{stem}/{}", spec.executable),
         )?;
         append_file(
             &mut tar,
-            &format!("usr/share/applications/{}.desktop", package.to_lowercase()),
-            desktop_entry(spec, &package).as_bytes(),
+            &format!("usr/share/applications/{stem}.desktop"),
+            desktop_entry(spec, &stem).as_bytes(),
             false,
         )?;
         let encoder = tar.into_inner().context("finishing data.tar.gz")?;
@@ -170,8 +174,8 @@ fn control_file(
     )
 }
 
-fn desktop_entry(spec: &DebSpec<'_>, package: &str) -> String {
-    let executable = package.to_lowercase();
+fn desktop_entry(spec: &DebSpec<'_>, stem: &str) -> String {
+    let executable = stem;
     format!(
         "[Desktop Entry]\nType=Application\nName={}\nComment={}\nExec={}\nTerminal=false\nCategories=Utility;\n",
         spec.app_name, spec.app_name, executable
