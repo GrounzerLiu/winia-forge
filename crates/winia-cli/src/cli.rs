@@ -320,6 +320,10 @@ pub struct PackageArgs {
     /// Remove existing files in the output directory before packaging.
     #[arg(long)]
     pub clean: bool,
+    /// Reuse an existing macOS .app bundle instead of rebuilding it (release uses this after
+    /// signing the bundle, so the signature is preserved).
+    #[arg(skip)]
+    pub reuse_app: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]

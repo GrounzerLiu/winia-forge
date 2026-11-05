@@ -359,12 +359,12 @@ fn find_wix() -> Result<WixTools> {
     if let Some(path) = std::env::var_os("PATH") {
         directories.extend(std::env::split_paths(&path));
     }
-    if cfg!(windows) {
-        if let Some(dir) = std::env::var_os("ProgramFiles(x86)") {
-            let base = PathBuf::from(dir);
-            for entry in ["WiX Toolset v3.14/bin", "WiX Toolset v3.11/bin"] {
-                directories.push(base.join(entry));
-            }
+    if cfg!(windows)
+        && let Some(dir) = std::env::var_os("ProgramFiles(x86)")
+    {
+        let base = PathBuf::from(dir);
+        for entry in ["WiX Toolset v3.14/bin", "WiX Toolset v3.11/bin"] {
+            directories.push(base.join(entry));
         }
     }
     for directory in directories {

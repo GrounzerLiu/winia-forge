@@ -308,10 +308,10 @@ impl Dev {
             self.stop_debug_forward();
         }
         self.stop_desktop();
-        if let Some(status) = status {
-            if !status.success() {
-                bail!("application exited with {status}");
-            }
+        if let Some(status) = status
+            && !status.success()
+        {
+            bail!("application exited with {status}");
         }
         Ok(())
     }
@@ -447,10 +447,10 @@ impl Dev {
     }
 
     fn stop_debug_forward(&self) {
-        if self.debug_enabled {
-            if let Session::Android { device, .. } = &self.session {
-                let _ = run::adb_remove_forward(device, self.debug_port);
-            }
+        if self.debug_enabled
+            && let Session::Android { device, .. } = &self.session
+        {
+            let _ = run::adb_remove_forward(device, self.debug_port);
         }
     }
 
@@ -564,12 +564,11 @@ fn debug_port_file(root: &Path) -> PathBuf {
 fn wait_for_debug_port_file(path: &Path, timeout: Duration) -> Option<u16> {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
-        if let Ok(text) = std::fs::read_to_string(path) {
-            if let Ok(port) = text.trim().parse::<u16>() {
-                if port > 0 {
-                    return Some(port);
-                }
-            }
+        if let Ok(text) = std::fs::read_to_string(path)
+            && let Ok(port) = text.trim().parse::<u16>()
+            && port > 0
+        {
+            return Some(port);
         }
         std::thread::sleep(Duration::from_millis(100));
     }
@@ -671,10 +670,17 @@ fn is_relevant(path: &Path, root: &Path) -> bool {
         "android/.gradle/",
         "android/app/build/",
         "android/build/",
+        // Staged assets land inside the Android project; watching them makes the build
+        // re-trigger itself whenever an asset has a source-like extension.
+        "android/app/src/main/assets/",
     ]
     .iter()
     .any(|prefix| text.starts_with(prefix))
     {
+        return false;
+    }
+    // Generated from winia.toml on every build; it is an output, not an input.
+    if text == "src/winia_config.rs" {
         return false;
     }
     if text == "assets" || text.starts_with("assets/") {
@@ -682,7 +688,13 @@ fn is_relevant(path: &Path, root: &Path) -> bool {
     }
     matches!(
         path.extension().and_then(|extension| extension.to_str()),
-        Some("rs") | Some("toml") | Some("java") | Some("kt") | Some("xml")
+        Some("rs")
+            | Some("toml")
+            | Some("java")
+            | Some("kt")
+            | Some("kts")
+            | Some("properties")
+            | Some("xml")
     )
 }
 
@@ -766,6 +778,34 @@ mod tests {
         .unwrap();
         assert!(android_has_internet_permission(&root));
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn ignores_generated_outputs_and_accepts_gradle_config() {
+        let root = std::path::Path::new("C:/proj");
+        // Staged assets live inside the Android project and must not re-trigger a build.
+        assert!(!is_relevant(
+            std::path::Path::new("C:/proj/android/app/src/main/assets/winia-assets/data.toml"),
+            root
+        ));
+        // The generated window config is an output even though it is a .rs file.
+        assert!(!is_relevant(
+            std::path::Path::new("C:/proj/src/winia_config.rs"),
+            root
+        ));
+        // Gradle files are watched explicitly, so their events must count.
+        assert!(is_relevant(
+            std::path::Path::new("C:/proj/android/app/build.gradle.kts"),
+            root
+        ));
+        assert!(is_relevant(
+            std::path::Path::new("C:/proj/android/gradle.properties"),
+            root
+        ));
+        assert!(is_relevant(
+            std::path::Path::new("C:/proj/src/main.rs"),
+            root
+        ));
     }
 
     #[test]

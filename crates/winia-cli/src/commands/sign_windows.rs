@@ -165,7 +165,19 @@ impl Credentials {
 
 fn render_command(signtool: &Path, credentials: &Credentials, file: &Path) -> String {
     let mut parts = vec![signtool.display().to_string()];
+    // Never echo the certificate password: this string lands in --dry-run output and CI logs.
+    let mut mask_next = false;
     for argument in credentials.arguments() {
+        if mask_next {
+            parts.push("***".to_owned());
+            mask_next = false;
+            continue;
+        }
+        if argument == "/p" {
+            parts.push(argument);
+            mask_next = true;
+            continue;
+        }
         // Quote only values that would otherwise split: switches, tokens and URLs stay as they are.
         if argument.contains(' ') || argument.contains('\\') {
             parts.push(format!("\"{argument}\""));
@@ -244,20 +256,31 @@ pub fn find_signtool() -> Result<PathBuf> {
             }
         }
     }
-    if cfg!(windows) {
-        if let Some(kits) = std::env::var_os("ProgramFiles(x86)") {
-            let base = PathBuf::from(kits).join("Windows Kits/10/bin");
-            if let Ok(entries) = std::fs::read_dir(&base) {
-                let mut versions: Vec<PathBuf> =
-                    entries.flatten().map(|entry| entry.path()).collect();
-                versions.sort();
-                versions.reverse();
-                for version in versions {
-                    for arch in ["x64", "x86"] {
-                        let candidate = version.join(arch).join("signtool.exe");
-                        if candidate.is_file() {
-                            return Ok(candidate);
-                        }
+    if cfg!(windows)
+        && let Some(kits) = std::env::var_os("ProgramFiles(x86)")
+    {
+        let base = PathBuf::from(kits).join("Windows Kits/10/bin");
+        if let Ok(entries) = std::fs::read_dir(&base) {
+            let mut versions: Vec<PathBuf> = entries.flatten().map(|entry| entry.path()).collect();
+            // Numeric order: 10.0.26100.0 must beat 10.0.9.0.
+            versions.sort_by_key(|path| {
+                let name = path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("");
+                let mut parts = name
+                    .split('.')
+                    .map(|part| part.parse::<u32>().unwrap_or(0))
+                    .collect::<Vec<_>>();
+                parts.resize(4, 0);
+                [parts[0], parts[1], parts[2], parts[3]]
+            });
+            versions.reverse();
+            for version in versions {
+                for arch in ["x64", "x86"] {
+                    let candidate = version.join(arch).join("signtool.exe");
+                    if candidate.is_file() {
+                        return Ok(candidate);
                     }
                 }
             }

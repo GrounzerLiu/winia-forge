@@ -436,10 +436,10 @@ pub(crate) fn debug_server_port(device: &str) -> Result<Option<u16>> {
                 .chars()
                 .take_while(|character| character.is_ascii_digit())
                 .collect();
-            if let Ok(port) = digits.parse::<u16>() {
-                if port > 0 {
-                    return Ok(Some(port));
-                }
+            if let Ok(port) = digits.parse::<u16>()
+                && port > 0
+            {
+                return Ok(Some(port));
             }
         }
     }
@@ -500,16 +500,16 @@ fn launch_impl(
 /// the template's `.MainActivity`.
 pub(crate) fn activity_component(root: &Path, package: &str) -> String {
     let manifest = root.join("android/app/src/main/AndroidManifest.xml");
-    if let Ok(text) = std::fs::read_to_string(&manifest) {
-        if let Some(name) = first_activity_name(&text) {
-            return if name.starts_with('.') {
-                format!("{package}/{name}")
-            } else if name.starts_with(package) {
-                name
-            } else {
-                format!("{package}/{name}")
-            };
-        }
+    if let Ok(text) = std::fs::read_to_string(&manifest)
+        && let Some(name) = first_activity_name(&text)
+    {
+        return if name.starts_with('.') {
+            format!("{package}/{name}")
+        } else if name.starts_with(package) {
+            name
+        } else {
+            format!("{package}/{name}")
+        };
     }
     format!("{package}/.MainActivity")
 }

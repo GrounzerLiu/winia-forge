@@ -34,6 +34,9 @@ pub fn run(args: CiArgs) -> Result<()> {
     } else {
         init.winia_source.trim()
     };
+    if source.contains('"') || source.contains('\n') || source.contains('\r') {
+        bail!("--winia-source must not contain quotes or newlines");
+    }
     let (relative, contents) = match provider.as_str() {
         "github" => (
             ".github/workflows/ci.yml",
@@ -84,7 +87,14 @@ fn platforms(root: &Path, requested: &[String]) -> Result<Vec<String>> {
             }
         }
     }
-    Ok(list)
+    // Duplicate names would emit duplicate YAML keys.
+    let mut unique: Vec<String> = Vec::new();
+    for platform in list {
+        if !unique.contains(&platform) {
+            unique.push(platform);
+        }
+    }
+    Ok(unique)
 }
 
 fn runner(platform: &str) -> &'static str {
@@ -101,7 +111,6 @@ fn render_github(platforms: &[String], source: &str) -> String {
     out.push_str("name: CI\n\n");
     out.push_str("on:\n  push:\n  pull_request:\n  workflow_dispatch:\n\n");
     out.push_str("permissions:\n  contents: read\n\n");
-    out.push_str(&format!("env:\n  WINIA_SOURCE: \"{source}\"\n\n"));
     out.push_str("jobs:\n");
 
     for platform in platforms {
@@ -118,7 +127,9 @@ fn render_github(platforms: &[String], source: &str) -> String {
         out.push_str("        with:\n          components: rustfmt, clippy\n");
         out.push_str("      - uses: Swatinem/rust-cache@v2\n");
         out.push_str("      - name: Install Winia Forge\n");
-        out.push_str("        run: cargo install --git \"$WINIA_SOURCE\" winia-cli\n");
+        out.push_str(&format!(
+            "        run: cargo install --git \"{source}\" winia-cli\n"
+        ));
         out.push_str("      - run: cargo fmt --all -- --check\n");
         out.push_str("      - run: cargo clippy --all-targets -- -D warnings\n");
         out.push_str("      - run: cargo test\n");
@@ -136,6 +147,9 @@ fn render_github(platforms: &[String], source: &str) -> String {
         out.push_str("    steps:\n");
         out.push_str("      - uses: actions/checkout@v4\n");
         out.push_str("      - uses: dtolnay/rust-toolchain@stable\n");
+        out.push_str(
+            "        with:\n          targets: aarch64-linux-android,x86_64-linux-android\n",
+        );
         out.push_str("      - uses: actions/setup-java@v4\n");
         out.push_str(
             "        with:\n          distribution: temurin\n          java-version: \"21\"\n",
@@ -145,7 +159,9 @@ fn render_github(platforms: &[String], source: &str) -> String {
         out.push_str("        run: sdkmanager \"platforms;android-36\" \"build-tools;36.0.0\" \"ndk;27.0.12077973\"\n");
         out.push_str("      - uses: Swatinem/rust-cache@v2\n");
         out.push_str("      - name: Install Winia Forge\n");
-        out.push_str("        run: cargo install --git \"$WINIA_SOURCE\" winia-cli\n");
+        out.push_str(&format!(
+            "        run: cargo install --git \"{source}\" winia-cli\n"
+        ));
         out.push_str(
             "      - name: Package\n        run: winia package --target android --release\n",
         );
@@ -160,11 +176,16 @@ fn render_github(platforms: &[String], source: &str) -> String {
 fn render_gitlab(platforms: &[String], source: &str) -> String {
     let mut out = String::new();
     out.push_str("stages:\n  - desktop\n  - android\n\n");
-    out.push_str(&format!("variables:\n  WINIA_SOURCE: \"{source}\"\n\n"));
+
     out.push_str(".desktop:\n");
     out.push_str("  stage: desktop\n");
+    out.push_str("  image: rust:1.85-bookworm\n");
+    out.push_str("  before_script:\n");
+    out.push_str("    - rustup component add clippy rustfmt\n");
     out.push_str("  script:\n");
-    out.push_str("    - cargo install --git \"$WINIA_SOURCE\" winia-cli\n");
+    out.push_str(&format!(
+        "    - cargo install --git \"{source}\" winia-cli\n"
+    ));
     out.push_str("    - cargo fmt --all -- --check\n");
     out.push_str("    - cargo clippy --all-targets -- -D warnings\n");
     out.push_str("    - cargo test\n");
@@ -183,9 +204,23 @@ fn render_gitlab(platforms: &[String], source: &str) -> String {
         out.push_str("android:\n");
         out.push_str("  stage: android\n");
         out.push_str("  image: ubuntu:24.04\n");
+        out.push_str("  variables:\n");
+        out.push_str("    ANDROID_HOME: \"$CI_PROJECT_DIR/.android-sdk\"\n");
+        out.push_str("    ANDROID_SDK_ROOT: \"$CI_PROJECT_DIR/.android-sdk\"\n");
+        out.push_str("  before_script:\n");
+        out.push_str("    - apt-get update && apt-get install -y --no-install-recommends openjdk-21-jdk unzip curl ca-certificates git build-essential\n");
+        out.push_str("    - curl -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.85.0 --profile minimal\n");
+        out.push_str("    - . \"$HOME/.cargo/env\"\n");
+        out.push_str("    - rustup target add aarch64-linux-android x86_64-linux-android\n");
+        out.push_str("    - curl -sSLo /tmp/cmdline-tools.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip\n");
+        out.push_str("    - mkdir -p \"$ANDROID_HOME/cmdline-tools\" && unzip -q /tmp/cmdline-tools.zip -d \"$ANDROID_HOME/cmdline-tools\"\n");
+        out.push_str("    - mv \"$ANDROID_HOME/cmdline-tools/cmdline-tools\" \"$ANDROID_HOME/cmdline-tools/latest\"\n");
+        out.push_str("    - yes | \"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager\" --licenses > /dev/null || true\n");
+        out.push_str("    - \"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager\" \"platforms;android-36\" \"build-tools;36.0.0\" \"ndk;27.0.12077973\"\n");
         out.push_str("  script:\n");
-        out.push_str("    - apt-get update && apt-get install -y openjdk-21-jdk unzip curl\n");
-        out.push_str("    - cargo install --git \"$WINIA_SOURCE\" winia-cli\n");
+        out.push_str(&format!(
+            "    - cargo install --git \"{source}\" winia-cli\n"
+        ));
         out.push_str("    - winia package --target android --release\n");
         out.push_str("  artifacts:\n    paths:\n      - dist/\n");
     }
@@ -216,6 +251,40 @@ mod tests {
         assert!(workflow.contains("  android:"));
         assert!(workflow.contains("sdkmanager"));
         assert!(!workflow.contains("desktop-windows:"));
+    }
+
+    #[test]
+    fn workflow_inlines_the_source_and_installs_android_targets() {
+        let workflow = render_github(
+            &["windows".to_owned(), "android".to_owned()],
+            DEFAULT_SOURCE,
+        );
+        assert!(
+            workflow.contains(&format!(
+                "cargo install --git \"{DEFAULT_SOURCE}\" winia-cli"
+            )),
+            "the install step must not depend on a shell variable"
+        );
+        assert!(!workflow.contains("$WINIA_SOURCE"));
+        assert!(workflow.contains("targets: aarch64-linux-android,x86_64-linux-android"));
+    }
+
+    #[test]
+    fn gitlab_android_job_installs_rust_and_the_sdk() {
+        let workflow = render_gitlab(&["android".to_owned()], DEFAULT_SOURCE);
+        assert!(workflow.contains("image: rust:1.85-bookworm") || workflow.contains("rustup"));
+        assert!(workflow.contains("rustup target add aarch64-linux-android"));
+        assert!(workflow.contains("sdkmanager"));
+        assert!(!workflow.contains("$WINIA_SOURCE"));
+    }
+
+    #[test]
+    fn duplicate_platforms_are_collapsed() {
+        let root = std::env::temp_dir().join(format!("winia-ci-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&root);
+        let list = platforms(&root, &["windows".to_owned(), "windows".to_owned()]).unwrap();
+        assert_eq!(list, vec!["windows"]);
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

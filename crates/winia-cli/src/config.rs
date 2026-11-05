@@ -266,6 +266,26 @@ fn is_java_package(value: &str) -> bool {
     })
 }
 
+/// Point `app.icon` at `icon` while preserving the rest of the manifest (comments, ordering and
+/// keys this version does not model). Used by 'winia assets icon' so the next build reuses the
+/// source instead of falling back to the built-in default.
+pub fn set_app_icon(path: &Path, icon: &str) -> anyhow::Result<()> {
+    let text =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    let mut doc: toml_edit::DocumentMut = text
+        .parse()
+        .with_context(|| format!("parsing {}", path.display()))?;
+    let app = doc
+        .entry("app")
+        .or_insert(toml_edit::Item::Table(toml_edit::Table::new()));
+    let table = app
+        .as_table_mut()
+        .ok_or_else(|| anyhow::anyhow!("[app] is not a table in {}", path.display()))?;
+    table["icon"] = toml_edit::value(icon);
+    std::fs::write(path, doc.to_string()).with_context(|| format!("writing {}", path.display()))?;
+    Ok(())
+}
+
 /// Search upwards from `start` for a `winia.toml`.
 pub fn find_config(start: &Path) -> Option<PathBuf> {
     let mut dir = if start.is_dir() {

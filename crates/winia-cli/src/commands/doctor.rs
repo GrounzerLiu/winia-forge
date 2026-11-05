@@ -270,10 +270,10 @@ fn target_dependency(value: &toml::Value, android: bool) -> Option<&toml::Value>
         let mentions_android = key.contains("android");
         let is_desktop = mentions_android && key.contains("not(");
         let is_android = mentions_android && !key.contains("not(");
-        if (android && is_android) || (!android && is_desktop) {
-            if let Some(dependency) = entry.get("dependencies").and_then(|deps| deps.get("winia")) {
-                return Some(dependency);
-            }
+        if ((android && is_android) || (!android && is_desktop))
+            && let Some(dependency) = entry.get("dependencies").and_then(|deps| deps.get("winia"))
+        {
+            return Some(dependency);
         }
     }
     None
@@ -326,17 +326,17 @@ fn dependency_check(root: &Path) -> Check {
                 true,
             );
         }
-        if let Ok(manifest_text) = std::fs::read_to_string(resolved.join("Cargo.toml")) {
-            if !manifest_text.contains("[package]") {
-                return Check {
-                    name: NAME,
-                    status: Status::Warning,
-                    detail: format!(
-                        "'{path}' is a workspace manifest; point the dependency at the winia crate (for example {path}/winia)"
-                    ),
-                    required: false,
-                };
-            }
+        if let Ok(manifest_text) = std::fs::read_to_string(resolved.join("Cargo.toml"))
+            && !manifest_text.contains("[package]")
+        {
+            return Check {
+                name: NAME,
+                status: Status::Warning,
+                detail: format!(
+                    "'{path}' is a workspace manifest; point the dependency at the winia crate (for example {path}/winia)"
+                ),
+                required: false,
+            };
         }
     }
 
@@ -354,15 +354,14 @@ fn dependency_check(root: &Path) -> Check {
         .into_iter()
         .flatten()
         .find_map(|spec| spec.get("version").and_then(|value| value.as_str()))
+        && version != cli
     {
-        if version != cli {
-            return Check {
-                name: NAME,
-                status: Status::Warning,
-                detail: format!("declares winia {version}; this CLI is {cli}"),
-                required: false,
-            };
-        }
+        return Check {
+            name: NAME,
+            status: Status::Warning,
+            detail: format!("declares winia {version}; this CLI is {cli}"),
+            required: false,
+        };
     }
 
     Check::ok(
@@ -887,14 +886,14 @@ fn adb_check(required: bool) -> Check {
         let executable =
             sdk.join("platform-tools")
                 .join(if cfg!(windows) { "adb.exe" } else { "adb" });
-        if executable.is_file() {
-            if let Ok(detail) = version_line(&executable, &["version"]) {
-                return Check::ok(
-                    "adb",
-                    format!("{detail} (from {}, not on PATH)", executable.display()),
-                    required,
-                );
-            }
+        if executable.is_file()
+            && let Ok(detail) = version_line(&executable, &["version"])
+        {
+            return Check::ok(
+                "adb",
+                format!("{detail} (from {}, not on PATH)", executable.display()),
+                required,
+            );
         }
     }
     Check::missing(
@@ -1070,10 +1069,10 @@ fn installed_subdirs(root: &Path) -> Vec<String> {
     let mut names = Vec::new();
     if let Ok(entries) = std::fs::read_dir(root) {
         for entry in entries.flatten() {
-            if entry.path().is_dir() {
-                if let Some(name) = entry.file_name().to_str() {
-                    names.push(name.to_owned());
-                }
+            if entry.path().is_dir()
+                && let Some(name) = entry.file_name().to_str()
+            {
+                names.push(name.to_owned());
             }
         }
     }
@@ -1082,12 +1081,11 @@ fn installed_subdirs(root: &Path) -> Vec<String> {
 
 fn project_abis() -> Vec<String> {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    if let Some(path) = crate::config::find_config(&cwd) {
-        if let Ok(config) = WiniaConfig::load(&path) {
-            if !config.android.abis.is_empty() {
-                return config.android.abis;
-            }
-        }
+    if let Some(path) = crate::config::find_config(&cwd)
+        && let Ok(config) = WiniaConfig::load(&path)
+        && !config.android.abis.is_empty()
+    {
+        return config.android.abis;
     }
     vec!["arm64-v8a".to_owned(), "x86_64".to_owned()]
 }

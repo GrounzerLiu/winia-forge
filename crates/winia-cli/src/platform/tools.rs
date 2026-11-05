@@ -31,12 +31,12 @@ pub(crate) fn build_tools_dir() -> Option<PathBuf> {
 /// `cmd.exe` re-parsing paths with spaces); the batch launcher is the fallback.
 pub(crate) fn apksigner_command(build_tools: &Path) -> Result<Command> {
     let jar = build_tools.join("lib").join("apksigner.jar");
-    if jar.is_file() {
-        if let Some(java) = java_program() {
-            let mut command = Command::new(java);
-            command.arg("-jar").arg(jar);
-            return Ok(command);
-        }
+    if jar.is_file()
+        && let Some(java) = java_program()
+    {
+        let mut command = Command::new(java);
+        command.arg("-jar").arg(jar);
+        return Ok(command);
     }
     let launcher = build_tools.join(if cfg!(windows) {
         "apksigner.bat"

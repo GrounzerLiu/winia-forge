@@ -221,12 +221,12 @@ fn screenshot(port: u16, json: bool, out: Option<PathBuf>) -> Result<()> {
         other => bail!("expected a binary frame, got {other:?}"),
     };
     let (width, height, pixels, expected) = frame_parts(&bytes)?;
-    if let Some((reported_width, reported_height)) = parse_screenshot_size(&response) {
-        if reported_width != width || reported_height != height {
-            bail!(
-                "screenshot response says {reported_width}x{reported_height}, frame is {width}x{height}"
-            );
-        }
+    if let Some((reported_width, reported_height)) = parse_screenshot_size(&response)
+        && (reported_width != width || reported_height != height)
+    {
+        bail!(
+            "screenshot response says {reported_width}x{reported_height}, frame is {width}x{height}"
+        );
     }
     let rgba = unpremultiply(&pixels[..expected]);
 
@@ -265,7 +265,7 @@ fn parse_screenshot_size(response: &str) -> Option<(u32, u32)> {
 
 fn unpremultiply(pixels: &[u8]) -> Vec<u8> {
     let mut output = pixels.to_vec();
-    for pixel in output.chunks_exact_mut(4) {
+    for pixel in output.as_chunks_mut::<4>().0 {
         let alpha = pixel[3] as u32;
         if alpha > 0 && alpha < 255 {
             for channel in &mut pixel[..3] {

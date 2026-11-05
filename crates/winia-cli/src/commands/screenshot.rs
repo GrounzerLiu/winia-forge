@@ -12,10 +12,10 @@ use std::time::Instant;
 
 pub fn run(args: ScreenshotArgs) -> Result<()> {
     let started = Instant::now();
-    if let Some(target) = args.target.as_deref() {
-        if target != "android" {
-            bail!("screenshots are only implemented for android, not '{target}'");
-        }
+    if let Some(target) = args.target.as_deref()
+        && target != "android"
+    {
+        bail!("screenshots are only implemented for android, not '{target}'");
     }
     let device = run::select_device(args.device.as_deref())?;
     let output = args

@@ -146,6 +146,21 @@ pub fn run(args: ReleaseArgs) -> Result<()> {
         let mut files = vec!["winia.toml".to_owned()];
         if update_cargo_version(&root, &version)? {
             files.push("Cargo.toml".to_owned());
+            // Refresh Cargo.lock so the tagged commit builds with --locked.
+            let refreshed = std::process::Command::new("cargo")
+                .args(["metadata", "--format-version", "1", "--no-deps"])
+                .current_dir(&root)
+                .output()
+                .context("refreshing Cargo.lock after the version bump")?;
+            if !refreshed.status.success() {
+                bail!(
+                    "cargo metadata failed after the version bump: {}",
+                    String::from_utf8_lossy(&refreshed.stderr).trim()
+                );
+            }
+            if root.join("Cargo.lock").is_file() {
+                files.push("Cargo.lock".to_owned());
+            }
         }
         let mut add = vec!["add".to_owned()];
         add.extend(files);
@@ -154,36 +169,55 @@ pub fn run(args: ReleaseArgs) -> Result<()> {
         git(&root, &["commit", "-m", &format!("chore(release): {tag}")])?;
     }
 
+    // Anything already in dist before this point was produced by an earlier run (or copied in by
+    // hand); it must not end up in this release just because the name matches.
+    let run_started = std::time::SystemTime::now();
+
     for target in &targets {
-        let formats = available_formats(&formats_for(&config, target));
-        // A dmg built before signing would carry an unsigned bundle, so defer it.
-        let deferred_dmg = target == "macos"
-            && macos_identity_configured()
-            && formats.iter().any(|format| format == "dmg");
-        let first: Vec<String> = if deferred_dmg {
+        let mut formats = available_formats(&formats_for(&config, target));
+        // An .app is a directory, so a macOS release needs a zip to publish the bundle.
+        if target == "macos"
+            && formats.iter().any(|format| format == "app")
+            && !formats.iter().any(|format| format == "zip")
+        {
+            eprintln!("note: adding zip to the macOS release so the .app bundle can be published");
+            formats.push("zip".to_owned());
+        }
+        // A bundle packed before signing would stay unsigned, so build those formats after signing.
+        let deferred: Vec<String> = if target == "macos" && macos_identity_configured() {
             formats
                 .iter()
-                .filter(|format| format.as_str() != "dmg")
+                .filter(|format| matches!(format.as_str(), "dmg" | "zip"))
                 .cloned()
                 .collect()
         } else {
+            Vec::new()
+        };
+        let first: Vec<String> = if deferred.is_empty() {
             formats.clone()
+        } else {
+            formats
+                .iter()
+                .filter(|format| !deferred.contains(format))
+                .cloned()
+                .collect()
         };
         if args.json {
             run_package_json(&root, target, &first, &out_dir)?;
         } else {
             package::run(PackageArgs {
                 target: vec![target.clone()],
-                format: first,
+                format: first.clone(),
                 release: true,
                 out_dir: Some(out_dir.clone()),
                 split: None,
                 json: false,
                 dry_run: false,
                 clean: false,
+                reuse_app: false,
             })?;
         }
-        if deferred_dmg {
+        if !deferred.is_empty() {
             let bundle = out_dir.join(format!("{stem}-{version}-macos-{arch}.app"));
             if bundle.exists() {
                 super::sign_macos::run(
@@ -204,18 +238,41 @@ pub fn run(args: ReleaseArgs) -> Result<()> {
             }
             package::run(PackageArgs {
                 target: vec![target.clone()],
-                format: vec!["dmg".to_owned()],
+                format: deferred.clone(),
                 release: true,
                 out_dir: Some(out_dir.clone()),
                 split: None,
                 json: false,
                 dry_run: false,
                 clean: false,
+                // The bundle was just signed; rebuilding it would drop the signature.
+                reuse_app: true,
             })?;
         }
     }
 
-    let mut artifacts = version_artifacts(&out_dir, &stem, &version)?;
+    let scanned = version_artifacts(&out_dir, &stem, &version)?;
+    let mut artifacts: Vec<PathBuf> = scanned
+        .iter()
+        .filter(|path| is_fresh(path, run_started))
+        .cloned()
+        .collect();
+    let stale: Vec<&PathBuf> = scanned
+        .iter()
+        .filter(|path| !is_fresh(path, run_started))
+        .collect();
+    if !stale.is_empty() {
+        eprintln!(
+            "warning: ignoring {} file(s) in {} that this run did not produce: {}",
+            stale.len(),
+            out_dir.display(),
+            stale
+                .iter()
+                .filter_map(|path| path.file_name().and_then(|name| name.to_str()))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
     if artifacts.is_empty() {
         bail!("packaging produced no artifacts for {version}");
     }
@@ -557,6 +614,16 @@ fn planned_artifacts(
     paths
 }
 
+/// A file counts as produced by this run when it is new or was rewritten after `started`. The
+/// two-second slack covers filesystems with coarse timestamps (FAT), where a freshly written file
+/// can still report a time slightly before the call that created it.
+fn is_fresh(path: &Path, started: std::time::SystemTime) -> bool {
+    let Ok(modified) = std::fs::metadata(path).and_then(|meta| meta.modified()) else {
+        return false;
+    };
+    modified + std::time::Duration::from_secs(2) >= started
+}
+
 fn version_artifacts(dist: &Path, stem: &str, version: &str) -> Result<Vec<PathBuf>> {
     let prefix = format!("{stem}-{version}-");
     let mut artifacts: Vec<PathBuf> = std::fs::read_dir(dist)
@@ -644,7 +711,7 @@ fn is_release_file(path: &Path) -> bool {
     };
     matches!(
         extension(path),
-        Some("apk" | "aab" | "zip" | "exe" | "msi" | "deb")
+        Some("apk" | "aab" | "zip" | "exe" | "msi" | "deb" | "dmg")
     ) || name.ends_with(".tar.gz")
 }
 
@@ -842,6 +909,18 @@ fn display_relative(root: &Path, path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn freshness_requires_a_file_written_by_this_run() {
+        let dir = std::env::temp_dir().join(format!("winia-release-fresh-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("artifact.zip");
+        std::fs::write(&file, b"x").unwrap();
+        let started = std::time::SystemTime::now();
+        assert!(is_fresh(&file, started));
+        assert!(!is_fresh(&dir.join("missing.zip"), started));
+        let _ = std::fs::remove_dir_all(dir);
+    }
 
     #[test]
     fn keeps_desktop_artifacts_and_prefers_the_signed_apk() {

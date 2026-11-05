@@ -73,9 +73,10 @@ pub fn run(args: InitArgs) -> Result<()> {
     }
     let android = platforms.contains(&Platform::Android);
 
+    let activity = AndroidActivity::Game;
     let winia_android = new::winia_dependency(
         args.winia_path.clone(),
-        &["android-game-activity", "vulkan"],
+        &[new::android_feature(activity), "vulkan"],
     )?;
     let winia_desktop = new::winia_dependency(args.winia_path.clone(), &["gl"])?;
 
@@ -86,6 +87,12 @@ pub fn run(args: InitArgs) -> Result<()> {
     )?;
     set_target_dependency(&mut doc, "cfg(target_os = \"android\")", &winia_android)?;
     if android {
+        // The Android entry point names winit directly, so the fork must be a dependency.
+        set_target_dependency(
+            &mut doc,
+            "cfg(target_os = \"android\")",
+            &new::winit_dependency(activity),
+        )?;
         ensure_crate_types(&mut doc)?;
     }
     std::fs::write(&cargo_toml, doc.to_string())
@@ -200,6 +207,15 @@ pub(crate) fn ensure_android_cargo(
     } else if !present {
         let spec = new::winia_dependency(winia_path, &features)?;
         set_target_dependency(&mut doc, cfg, &spec)?;
+    }
+    let winit_present = doc
+        .get("target")
+        .and_then(|target| target.get(cfg))
+        .and_then(|target| target.get("dependencies"))
+        .and_then(|dependencies| dependencies.get("winit"))
+        .is_some();
+    if !winit_present {
+        set_target_dependency(&mut doc, cfg, &new::winit_dependency(activity))?;
     }
     ensure_crate_types(&mut doc)?;
     std::fs::write(&path, doc.to_string())
@@ -342,6 +358,45 @@ fn ensure_crate_types(doc: &mut DocumentMut) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn android_cargo_gains_the_winit_fork_used_by_the_entry_point() {
+        let root = std::env::temp_dir().join(format!("winia-init-winit-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"probe\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[target.'cfg(target_os = \"android\")'.dependencies]\nwinia = { path = \"../winia\", default-features = false, features = [\"android-game-activity\", \"vulkan\"] }\n",
+        )
+        .unwrap();
+
+        ensure_android_cargo(&root, None, AndroidActivity::Game, false).unwrap();
+        let manifest = std::fs::read_to_string(root.join("Cargo.toml")).unwrap();
+        assert!(
+            manifest.contains("package = \"winia-winit\""),
+            "winit fork missing from {manifest}"
+        );
+        assert!(manifest.contains("crate-type"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn switching_backend_updates_both_dependencies() {
+        let root = std::env::temp_dir().join(format!("winia-init-switch-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"probe\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[target.'cfg(target_os = \"android\")'.dependencies]\nwinia = { path = \"../winia\", default-features = false, features = [\"android-game-activity\", \"vulkan\"] }\nwinit = { package = \"winia-winit\", version = \"=0.31.0-beta.4\", features = [\"android-game-activity\"] }\n",
+        )
+        .unwrap();
+
+        ensure_android_cargo(&root, None, AndroidActivity::Native, true).unwrap();
+        let manifest = std::fs::read_to_string(root.join("Cargo.toml")).unwrap();
+        assert!(manifest.contains("android-native-activity"));
+        assert!(!manifest.contains("android-game-activity"));
+        let _ = std::fs::remove_dir_all(root);
+    }
 
     #[test]
     fn title_cases_package_names() {

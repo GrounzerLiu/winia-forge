@@ -291,14 +291,14 @@ pub(crate) fn winia_dependency(explicit: Option<PathBuf>, features: &[&str]) -> 
             // A missing path is left for cargo to report; a readable manifest that is a workspace
             // is the common mistake worth catching here.
             let manifest = path.join("Cargo.toml");
-            if let Ok(text) = std::fs::read_to_string(&manifest) {
-                if !text.contains("[package]") {
-                    bail!(
-                        "{} is a workspace manifest, not the winia crate; pass the crate directory instead (for example {})",
-                        manifest.display(),
-                        path.join("winia").display()
-                    );
-                }
+            if let Ok(text) = std::fs::read_to_string(&manifest)
+                && !text.contains("[package]")
+            {
+                bail!(
+                    "{} is a workspace manifest, not the winia crate; pass the crate directory instead (for example {})",
+                    manifest.display(),
+                    path.join("winia").display()
+                );
             }
             Ok(format!(
                 "{{ path = \"{}\", default-features = false, features = [{}] }}",
@@ -359,6 +359,18 @@ pub(crate) fn android_files(activity: crate::config::AndroidActivity) -> Vec<Tem
         files.push(ANDROID_GAME_ACTIVITY);
     }
     files
+}
+
+/// Version of the published winit fork; the template and 'winia init' must pin the same one.
+pub(crate) const WINIT_VERSION: &str = "=0.31.0-beta.4";
+
+/// The direct winit dependency an Android project needs: the generated entry point takes
+/// `winit::platform::android::activity::AndroidApp`.
+pub(crate) fn winit_dependency(activity: crate::config::AndroidActivity) -> String {
+    format!(
+        "{{ package = \"winia-winit\", version = \"{WINIT_VERSION}\", features = [\"{}\"] }}",
+        android_feature(activity)
+    )
 }
 
 /// winia feature that selects the Android backend.

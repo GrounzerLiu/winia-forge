@@ -25,6 +25,14 @@ pub fn run(args: AssetsArgs) -> Result<()> {
                 cwd.join(icon.source)
             };
             let icons = crate::icons::generate(&root, &config, Some(&source))?;
+            // Persist the choice: otherwise the next build falls back to the built-in default and
+            // silently replaces these icons.
+            let relative = source
+                .strip_prefix(&root)
+                .map(|path| path.to_string_lossy().replace('\\', "/"))
+                .unwrap_or_else(|_| source.to_string_lossy().into_owned());
+            crate::config::set_app_icon(&config_path, &relative)?;
+            println!("Updated app.icon = \"{relative}\" in winia.toml");
             print_icons(&icons);
         }
         None => {

@@ -85,16 +85,22 @@ pub fn run(
     Ok(())
 }
 
+#[cfg(windows)]
 fn shell(command: &str) -> Command {
-    if cfg!(windows) {
-        let mut process = Command::new("cmd");
-        process.arg("/C").arg(command);
-        process
-    } else {
-        let mut process = Command::new("sh");
-        process.arg("-c").arg(command);
-        process
-    }
+    use std::os::windows::process::CommandExt;
+    let mut process = Command::new("cmd");
+    process.arg("/C");
+    // Pass the line verbatim. Command::arg applies MSVC-style quoting, which turns the line's
+    // quotes into \" and breaks cmd's own parser.
+    process.raw_arg(command);
+    process
+}
+
+#[cfg(not(windows))]
+fn shell(command: &str) -> Command {
+    let mut process = Command::new("sh");
+    process.arg("-c").arg(command);
+    process
 }
 
 #[cfg(test)]
@@ -113,6 +119,26 @@ mod tests {
             profile: "debug",
             version: "0.1.0",
         }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn quoted_hook_arguments_reach_the_child_verbatim() {
+        let dir = std::env::temp_dir().join(format!("winia-hook-quote-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let status = shell("echo \"hello world\" > out.txt")
+            .current_dir(&dir)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        let text = std::fs::read_to_string(dir.join("out.txt")).unwrap();
+        assert_eq!(
+            text.trim(),
+            "\"hello world\"",
+            "backslashes leaked into {text:?}"
+        );
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

@@ -308,7 +308,9 @@ fn collect(
 
 /// NSIS treats the dollar sign as a variable prefix and the double quote as a delimiter.
 fn escape(value: &str) -> String {
-    value.replace('$', "$$").replace('"', "$\"")
+    // NSIS escapes: $$ for a dollar, $\" for a quote. A bare $\" terminates the string and makes
+    // makensis reject the script ("Name expects 1-2 parameters").
+    value.replace('$', "$$").replace('"', "$\\\"")
 }
 
 fn forward_slashes(path: &Path) -> String {
@@ -488,9 +490,39 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn a_quoted_app_name_still_compiles() {
+        // makensis is optional on developer machines and CI; skip when it is absent.
+        if find_makensis().is_err() {
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("winia-nsis-quote-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let payload = dir.join("payload");
+        std::fs::create_dir_all(&payload).unwrap();
+        std::fs::write(payload.join("app.exe"), b"MZ").unwrap();
+        let output = dir.join("out.exe");
+        let spec = InstallerSpec {
+            app_name: "Say \"Hi\"",
+            app_version: "0.1.0",
+            app_id: "com.example.quote",
+            publisher: "A \"Publisher\"",
+            license: Some("Apache-2.0"),
+            executable: "app.exe",
+            payload: &payload,
+            output: &output,
+            icon: None,
+            program_files_64: true,
+        };
+        build(&spec).unwrap_or_else(|error| panic!("quote in name broke the script: {error}"));
+        assert!(output.is_file());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     #[test]
     fn escapes_dollars_and_quotes() {
         assert_eq!(escape("a$b"), "a$$b");
-        assert_eq!(escape("say \"hi\""), "say $\"hi$\"");
+        assert_eq!(escape("say \"hi\""), "say $\\\"hi$\\\"");
     }
 }

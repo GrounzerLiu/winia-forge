@@ -175,6 +175,14 @@ fn package_desktop(
     for format in &formats {
         let destination = desktop_artifact_path(&stem, &version, target, arch, format, &out_dir);
         match format.as_str() {
+            "zip" if target == "macos" => {
+                // A macOS zip without the .app bundle has no Info.plist and no identity.
+                let bundle = macos_bundle_path(&out_dir, &stem, &version, target, arch);
+                if !args.reuse_app || !bundle.exists() {
+                    build_macos_app(&stage, &bundle, config, icons.as_ref(), &executable.path)?;
+                }
+                zip_directory(&bundle, &destination)?;
+            }
             "zip" => zip_directory(&stage, &destination)?,
             "tar.gz" => tar_gz_directory(&stage, &destination)?,
             "app" => build_macos_app(
@@ -185,8 +193,8 @@ fn package_desktop(
                 &executable.path,
             )?,
             "dmg" => {
-                let bundle = out_dir.join(format!("{stem}-{version}-{target}-{arch}.app"));
-                if !bundle.exists() {
+                let bundle = macos_bundle_path(&out_dir, &stem, &version, target, arch);
+                if !args.reuse_app || !bundle.exists() {
                     build_macos_app(&stage, &bundle, config, icons.as_ref(), &executable.path)?;
                 }
                 build_macos_dmg(&bundle, &destination, config)?;
@@ -377,6 +385,16 @@ fn desktop_artifact_path(
         return out_dir.join(format!("{stem}-{version}-{target}-{arch}-setup.exe"));
     }
     out_dir.join(format!("{stem}-{version}-{target}-{arch}.{format}"))
+}
+
+fn macos_bundle_path(
+    out_dir: &Path,
+    stem: &str,
+    version: &str,
+    target: &str,
+    arch: &str,
+) -> PathBuf {
+    out_dir.join(format!("{stem}-{version}-{target}-{arch}.app"))
 }
 
 fn clean_desktop_output(out_dir: &Path, stem: &str, version: &str, target: &str) -> Result<()> {
@@ -1116,10 +1134,8 @@ fn report(
     } else {
         artifacts.iter().map(|path| sha256_of(path)).collect()
     };
-    if !dry_run {
-        if let Some(directory) = artifacts.first().and_then(|path| path.parent()) {
-            write_checksums(directory, artifacts, &hashes)?;
-        }
+    if !dry_run && let Some(directory) = artifacts.first().and_then(|path| path.parent()) {
+        write_checksums(directory, artifacts, &hashes)?;
     }
     if json {
         let values: Vec<_> = artifacts

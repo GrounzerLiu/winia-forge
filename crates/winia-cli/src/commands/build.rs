@@ -47,14 +47,13 @@ pub fn run(args: BuildArgs) -> Result<()> {
         for artifact in artifacts {
             all.push(artifact);
         }
-        if target != "android" {
-            if let Some(executable) = artifacts.iter().find(|artifact| {
+        if target != "android"
+            && let Some(executable) = artifacts.iter().find(|artifact| {
                 artifact.path.extension().and_then(|ext| ext.to_str()) != Some("apk")
-            }) {
-                if let Some(parent) = executable.path.parent() {
-                    crate::assets::stage_desktop(&root, &config, parent)?;
-                }
-            }
+            })
+            && let Some(parent) = executable.path.parent()
+        {
+            crate::assets::stage_desktop(&root, &config, parent)?;
         }
     }
     let profile = if args.release { "release" } else { "debug" };
@@ -398,7 +397,10 @@ pub(crate) fn run_gradle_task(
         command
     };
     for (key, value) in properties {
-        command.arg(format!("-P{key}={value}"));
+        // Project properties travel through the environment: Gradle promotes ORG_GRADLE_PROJECT_*
+        // to project properties, and this keeps values containing &, | or quotes away from cmd.exe
+        // (which would split the -P argument) and from the device shell.
+        command.env(format!("ORG_GRADLE_PROJECT_{key}"), value);
     }
     command.current_dir(android_dir);
     run_command(&mut command, &format!("gradlew {task}"), json)
@@ -614,13 +616,13 @@ impl AndroidToolchain {
             if std::env::var_os("LIBCLANG_PATH").is_none() {
                 environment.push(("LIBCLANG_PATH".to_owned(), display(&llvm)));
             }
-            if std::env::var_os("BINDGEN_EXTRA_CLANG_ARGS").is_none() {
-                if let Some(resource_dir) = clang_resource_dir(&llvm) {
-                    environment.push((
-                        "BINDGEN_EXTRA_CLANG_ARGS".to_owned(),
-                        format!("-resource-dir {}", display(&resource_dir)),
-                    ));
-                }
+            if std::env::var_os("BINDGEN_EXTRA_CLANG_ARGS").is_none()
+                && let Some(resource_dir) = clang_resource_dir(&llvm)
+            {
+                environment.push((
+                    "BINDGEN_EXTRA_CLANG_ARGS".to_owned(),
+                    format!("-resource-dir {}", display(&resource_dir)),
+                ));
             }
         }
 
@@ -1018,6 +1020,31 @@ mod tests {
             json: false,
             out_dir: None,
         }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn gradle_properties_travel_through_the_environment() {
+        let dir = std::env::temp_dir().join(format!("winia-gradle-env-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("gradlew.bat"),
+            "@echo off\r\necho \"%ORG_GRADLE_PROJECT_winiaAppLabel%\"> env.txt\r\necho %*> args.txt\r\n",
+        )
+        .unwrap();
+        run_gradle_task(
+            &dir,
+            "assembleDebug",
+            &[("winiaAppLabel", "Q&A".to_owned())],
+            false,
+        )
+        .unwrap();
+        let env = std::fs::read_to_string(dir.join("env.txt")).unwrap();
+        assert_eq!(env.trim(), "\"Q&A\"");
+        let args = std::fs::read_to_string(dir.join("args.txt")).unwrap();
+        assert!(!args.contains("-P"), "properties must not be argv: {args}");
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
