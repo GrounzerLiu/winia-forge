@@ -113,7 +113,7 @@ Implemented: `winia init` never rewrites the user's sources.
   rejects a `--winia-path` that points at a workspace manifest instead of the crate.
 - `ios` is rejected explicitly.
 
-### 1.4 Adopting an existing project
+### 1.5 Adopting an existing project
 
 ```bash
 winia init
@@ -127,7 +127,7 @@ Behaviour:
 - Do not overwrite existing source; only add files and a small amount of configuration.
 - `--dry-run` shows the files that would be added or modified.
 
-### 1.5 Templates and version management
+### 1.6 Templates and version management
 
 - Template versions follow the CLI version; the Winia version declared by a template must match the range
   supported by the CLI.

@@ -161,8 +161,8 @@ Either implement the flag or mark those architectures as planned.
   sees the shared UI).
 - The generated project still has no `rust-toolchain.toml` or `.cargo/config.toml`.
 - ~~`winia platform add android` writes into the current directory instead of the project root
-  found through `winia.toml`.~~ Fixed: it now delegates to `android init`, which resolves the
-  project root and refuses to run outside one.
+  found through `winia.toml`.~~ Resolved by removing the duplicate alias; `winia android init`
+  resolves the project root and refuses to run outside one.
 
 ## 4. P3 — documentation and tests
 
