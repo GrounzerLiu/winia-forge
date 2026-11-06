@@ -397,6 +397,18 @@ fn macos_bundle_path(
     out_dir.join(format!("{stem}-{version}-{target}-{arch}.app"))
 }
 
+/// Only artifacts the CLI can produce: a prefix match alone would delete notes, signatures or
+/// unrelated files the user keeps next to dist.
+fn is_desktop_artifact_name(name: &str) -> bool {
+    if name.ends_with(".app") {
+        return true;
+    }
+    ["zip", "exe", "msi", "deb", "dmg"]
+        .iter()
+        .any(|extension| name.ends_with(&format!(".{extension}")))
+        || name.ends_with(".tar.gz")
+}
+
 fn clean_desktop_output(out_dir: &Path, stem: &str, version: &str, target: &str) -> Result<()> {
     if !out_dir.is_dir() {
         return Ok(());
@@ -409,7 +421,7 @@ fn clean_desktop_output(out_dir: &Path, stem: &str, version: &str, target: &str)
         let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
             continue;
         };
-        if !name.starts_with(&prefix) {
+        if !name.starts_with(&prefix) || !is_desktop_artifact_name(name) {
             continue;
         }
         if path.is_dir() {
@@ -1219,6 +1231,54 @@ fn sha256_of(path: &Path) -> Option<String> {
     Some(format!("{:x}", Sha256::digest(&bytes)))
 }
 
+/// Read an existing SHA256SUMS into memory (name -> hash).
+fn read_checksums(path: &Path) -> std::collections::BTreeMap<String, String> {
+    let mut entries = std::collections::BTreeMap::new();
+    if let Ok(existing) = std::fs::read_to_string(path) {
+        for line in existing.lines() {
+            if let Some((hash, name)) = line.split_once("  ") {
+                entries.insert(name.trim().to_owned(), hash.trim().to_owned());
+            }
+        }
+    }
+    entries
+}
+
+fn write_checksums_file(
+    path: &Path,
+    entries: &std::collections::BTreeMap<String, String>,
+) -> Result<()> {
+    let mut text = String::new();
+    for (name, hash) in entries {
+        text.push_str(&checksum_line(hash, name));
+    }
+    std::fs::write(path, text).with_context(|| format!("writing {}", path.display()))?;
+    Ok(())
+}
+
+/// Refresh the SHA256SUMS entries for files that were rewritten after packaging (signing).
+/// Does nothing when the directory has no checksum file, so standalone signing stays optional.
+pub(crate) fn update_checksums(files: &[PathBuf]) -> Result<()> {
+    let Some(directory) = files.first().and_then(|file| file.parent()) else {
+        return Ok(());
+    };
+    let path = directory.join("SHA256SUMS");
+    if !path.is_file() {
+        return Ok(());
+    }
+    let mut entries = read_checksums(&path);
+    for file in files {
+        let (Some(hash), Some(name)) = (
+            sha256_of(file),
+            file.file_name().and_then(|name| name.to_str()),
+        ) else {
+            continue;
+        };
+        entries.insert(name.to_owned(), hash);
+    }
+    write_checksums_file(&path, &entries)
+}
+
 /// Write SHA256SUMS next to the artifacts, in the format sha256sum -c expects.
 fn write_checksums(
     directory: &Path,
@@ -1227,14 +1287,8 @@ fn write_checksums(
 ) -> Result<()> {
     // Merge with the existing file: dist usually holds artifacts from several runs, and replacing
     // the whole file would drop entries for files that are still there.
-    let mut entries: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
-    if let Ok(existing) = std::fs::read_to_string(directory.join("SHA256SUMS")) {
-        for line in existing.lines() {
-            if let Some((hash, name)) = line.split_once("  ") {
-                entries.insert(name.trim().to_owned(), hash.trim().to_owned());
-            }
-        }
-    }
+    let path = directory.join("SHA256SUMS");
+    let mut entries = read_checksums(&path);
     for (path, hash) in artifacts.iter().zip(hashes.iter()) {
         let (Some(hash), Some(name)) = (hash, path.file_name().and_then(|name| name.to_str()))
         else {
@@ -1242,17 +1296,7 @@ fn write_checksums(
         };
         entries.insert(name.to_owned(), hash.clone());
     }
-    let mut text = String::new();
-    for (name, hash) in entries {
-        text.push_str(&checksum_line(&hash, &name));
-    }
-    if text.is_empty() {
-        return Ok(());
-    }
-    let destination = directory.join("SHA256SUMS");
-    std::fs::write(&destination, text)
-        .with_context(|| format!("writing {}", destination.display()))?;
-    Ok(())
+    write_checksums_file(&path, &entries)
 }
 
 fn checksum_line(hash: &str, name: &str) -> String {
@@ -1269,6 +1313,36 @@ fn display_relative(root: &Path, path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clean_only_deletes_artifacts_it_produces() {
+        assert!(is_desktop_artifact_name("app-0.1.0-windows-x86_64.zip"));
+        assert!(is_desktop_artifact_name("app-0.1.0-macos-x86_64.app"));
+        assert!(is_desktop_artifact_name("app-0.1.0-linux-x86_64.tar.gz"));
+        assert!(!is_desktop_artifact_name(
+            "app-0.1.0-windows-x86_64-CHANGELOG.txt"
+        ));
+        assert!(!is_desktop_artifact_name(
+            "app-0.1.0-windows-x86_64.zip.asc"
+        ));
+    }
+
+    #[test]
+    fn signing_refreshes_existing_checksums() {
+        let dir = std::env::temp_dir().join(format!("winia-sums-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let artifact = dir.join("app.zip");
+        std::fs::write(&artifact, b"after").unwrap();
+        std::fs::write(dir.join("SHA256SUMS"), "0000  app.zip\n1111  other.zip\n").unwrap();
+        update_checksums(std::slice::from_ref(&artifact)).unwrap();
+        let text = std::fs::read_to_string(dir.join("SHA256SUMS")).unwrap();
+        assert!(!text.contains("0000"), "{text}");
+        assert!(text.contains("1111  other.zip"), "{text}");
+        let expected = sha256_of(&artifact).unwrap();
+        assert!(text.contains(&expected), "{text}");
+        let _ = std::fs::remove_dir_all(dir);
+    }
 
     #[test]
     fn checksum_lines_match_the_sha256sum_format() {

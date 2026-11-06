@@ -919,6 +919,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn macos_bundles_and_images_are_publishable() {
+        assert!(is_release_file(Path::new(
+            "dist/app-0.1.0-macos-x86_64.dmg"
+        )));
+        assert!(is_release_file(Path::new(
+            "dist/app-0.1.0-macos-x86_64.zip"
+        )));
+        // A bundle is a directory and cannot be an upload asset.
+        assert!(!is_release_file(Path::new(
+            "dist/app-0.1.0-macos-x86_64.app"
+        )));
+    }
+
+    #[test]
     fn freshness_requires_a_file_written_by_this_run() {
         let dir = std::env::temp_dir().join(format!("winia-release-fresh-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();

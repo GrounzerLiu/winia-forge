@@ -21,7 +21,7 @@ pub struct IconSet {
     pub store_png: PathBuf,
 }
 
-const GENERATOR_VERSION: u32 = 2;
+const GENERATOR_VERSION: u32 = 3;
 const DEFAULT_ICON_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
   <rect width="1024" height="1024" rx="224" fill="#1E78DC"/>
   <circle cx="512" cy="512" r="260" fill="#FFFFFF"/>
@@ -33,6 +33,9 @@ struct Marker {
     source_sha256: String,
     #[serde(default)]
     generator_version: u32,
+    /// The Linux icon file is named after app.id, so an id change must regenerate the set.
+    #[serde(default)]
+    app_id: Option<String>,
 }
 
 pub fn ensure(root: &Path, config: &WiniaConfig) -> Result<Option<IconSet>> {
@@ -49,7 +52,7 @@ pub fn ensure(root: &Path, config: &WiniaConfig) -> Result<Option<IconSet>> {
     };
     let digest = format!("{:x}", Sha256::digest(&bytes));
     let icons = icon_root(root);
-    if marker_matches(&icons, &digest) {
+    if marker_matches(&icons, &digest, &config.app.id) {
         return Ok(Some(paths(&icons)));
     }
     generate_from_bytes(root, config, &bytes, &source, &digest).map(Some)
@@ -91,6 +94,11 @@ fn generate_from_bytes(
     digest: &str,
 ) -> Result<IconSet> {
     let icons = icon_root(root);
+    // Start clean: a renamed app id or a removed density would otherwise leave stale files in the
+    // packaged icon set. Everything here is generated output.
+    if icons.exists() {
+        let _ = std::fs::remove_dir_all(&icons);
+    }
     std::fs::create_dir_all(&icons).with_context(|| format!("creating {}", icons.display()))?;
     let source = Source::load(bytes, source)?;
     for warning in source.validate()? {
@@ -120,6 +128,7 @@ fn generate_from_bytes(
         serde_json::to_string_pretty(&Marker {
             source_sha256: digest.to_owned(),
             generator_version: GENERATOR_VERSION,
+            app_id: Some(config.app.id.clone()),
         })?,
     )?;
     Ok(paths(&icons))
@@ -139,7 +148,7 @@ fn icon_root(root: &Path) -> PathBuf {
     root.join("target").join("winia").join("icons")
 }
 
-fn marker_matches(icons: &Path, digest: &str) -> bool {
+fn marker_matches(icons: &Path, digest: &str, app_id: &str) -> bool {
     let marker = icons.join("manifest.json");
     let Ok(text) = std::fs::read_to_string(marker) else {
         return false;
@@ -149,6 +158,7 @@ fn marker_matches(icons: &Path, digest: &str) -> bool {
     };
     marker.source_sha256 == digest
         && marker.generator_version == GENERATOR_VERSION
+        && marker.app_id.as_deref() == Some(app_id)
         && icons.join("windows/app.ico").is_file()
         && icons.join("macos/app.icns").is_file()
         && icons.join("store/icon-512.png").is_file()

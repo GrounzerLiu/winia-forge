@@ -617,6 +617,10 @@ Implemented:
   user's store. `--keystore` also accepts a PFX path.
 - Timestamp server defaults to `http://timestamp.digicert.com` and can be overridden with
   `WINIA_WINDOWS_TIMESTAMP`. Digest and RFC 3161 timestamp both use SHA-256.
+- A PFX password has to reach `signtool` on its command line; Windows offers no environment or
+  stdin channel for it. The CLI masks it in `--dry-run` and in error output, but a local process
+  listing can still see it while `signtool` runs. Use `WINIA_WINDOWS_CERT_SHA1` (certificate
+  store) when that matters.
 - `signtool` is located through `WINIA_SIGNTOOL`, `PATH`, then the newest Windows SDK under
   `%ProgramFiles(x86)%\Windows Kits\10\bin<version>\x64`.
 - After signing the command runs `signtool verify /pa`. A locally untrusted chain (self-signed test

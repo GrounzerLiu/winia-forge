@@ -99,6 +99,15 @@ pub fn run(args: SignArgs) -> Result<()> {
         results.push((input, output, certificate));
     }
 
+    // Signing rewrites files that dist/SHA256SUMS may already describe.
+    let outputs: Vec<PathBuf> = results
+        .iter()
+        .map(|(_, output, _)| output.clone())
+        .collect();
+    if let Err(error) = super::package::update_checksums(&outputs) {
+        eprintln!("warning: could not refresh SHA256SUMS: {error}");
+    }
+
     report(&root, &results, args.json, started.elapsed())
 }
 

@@ -60,6 +60,10 @@ pub fn run(root: &Path, cwd: &Path, args: &SignArgs) -> Result<()> {
         signed.push(file.clone());
     }
 
+    if let Err(error) = super::package::update_checksums(&signed) {
+        eprintln!("warning: could not refresh SHA256SUMS: {error}");
+    }
+
     if args.json {
         let values: Vec<_> = signed
             .iter()

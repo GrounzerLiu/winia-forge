@@ -57,9 +57,18 @@ pub fn collect(root: &Path, config: &WiniaConfig) -> Result<AssetManifest> {
         if let Some(previous) = seen.insert(lower, relative.clone()) {
             bail!("asset path conflicts by case: {previous} and {relative}");
         }
-        let bytes =
-            std::fs::read(&path).with_context(|| format!("reading asset {}", path.display()))?;
-        let digest = Sha256::digest(&bytes);
+        // Hash the file as a stream: assets can be large, and the bytes are only needed for the
+        // digest and the size.
+        let mut file = std::fs::File::open(&path)
+            .with_context(|| format!("reading asset {}", path.display()))?;
+        let bytes = file
+            .metadata()
+            .map(|metadata| metadata.len())
+            .with_context(|| format!("reading asset {}", path.display()))?;
+        let mut hasher = Sha256::new();
+        std::io::copy(&mut file, &mut hasher)
+            .with_context(|| format!("hashing asset {}", path.display()))?;
+        let digest = hasher.finalize();
         let (id, density) = asset_identity(&relative);
         let variant_key = format!("{}@{:.3}", id, density.unwrap_or(1.0));
         if let Some(previous) = variants.insert(variant_key, relative.clone()) {
@@ -69,7 +78,7 @@ pub fn collect(root: &Path, config: &WiniaConfig) -> Result<AssetManifest> {
             id,
             packaged: relative.clone(),
             path: relative.clone(),
-            bytes: bytes.len() as u64,
+            bytes,
             sha256: format!("{digest:x}"),
             density,
         });

@@ -215,8 +215,8 @@ fn render_gitlab(platforms: &[String], source: &str) -> String {
         out.push_str("    - curl -sSLo /tmp/cmdline-tools.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip\n");
         out.push_str("    - mkdir -p \"$ANDROID_HOME/cmdline-tools\" && unzip -q /tmp/cmdline-tools.zip -d \"$ANDROID_HOME/cmdline-tools\"\n");
         out.push_str("    - mv \"$ANDROID_HOME/cmdline-tools/cmdline-tools\" \"$ANDROID_HOME/cmdline-tools/latest\"\n");
-        out.push_str("    - yes | \"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager\" --licenses > /dev/null || true\n");
-        out.push_str("    - \"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager\" \"platforms;android-36\" \"build-tools;36.0.0\" \"ndk;27.0.12077973\"\n");
+        out.push_str("    - printf 'y\\n' | \"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager\" --licenses > /dev/null || true\n");
+        out.push_str("    - '\"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager\" \"platforms;android-36\" \"build-tools;36.0.0\" \"ndk;27.0.12077973\"'\n");
         out.push_str("  script:\n");
         out.push_str(&format!(
             "    - cargo install --git \"{source}\" winia-cli\n"
@@ -276,6 +276,17 @@ mod tests {
         assert!(workflow.contains("rustup target add aarch64-linux-android"));
         assert!(workflow.contains("sdkmanager"));
         assert!(!workflow.contains("$WINIA_SOURCE"));
+    }
+
+    #[test]
+    fn gitlab_sdkmanager_lines_are_valid_yaml() {
+        let workflow = render_gitlab(&["android".to_owned()], DEFAULT_SOURCE);
+        let line = workflow
+            .lines()
+            .find(|line| line.contains("platforms;android-36"))
+            .expect("sdkmanager line");
+        // A sequence item that starts with a double quote would end the scalar early.
+        assert!(line.trim_start().starts_with("- '"), "{line}");
     }
 
     #[test]

@@ -198,7 +198,13 @@ fn generate(
     );
     s.push_str("    <MediaTemplate EmbedCab=\"yes\" />\n");
     s.push_str("    <Directory Id=\"TARGETDIR\" Name=\"SourceDir\">\n");
-    s.push_str("      <Directory Id=\"ProgramFiles64Folder\">\n");
+    // A 32-bit package cannot install into the 64-bit Program Files folder.
+    let program_files = if platform == "x86" {
+        "ProgramFilesFolder"
+    } else {
+        "ProgramFiles64Folder"
+    };
+    s.push_str(&format!("      <Directory Id=\"{program_files}\">\n"));
     s.push_str(&format!(
         "        <Directory Id=\"INSTALLFOLDER\" Name=\"{}\">\n",
         xml(spec.app_name)
@@ -398,6 +404,23 @@ fn find_wix() -> Result<WixTools> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_32_bit_package_uses_the_32_bit_program_files_folder() {
+        let root = fixture("x86");
+        let payload = root.join("payload");
+        let output = root.join("out.msi");
+        let mut spec = spec(&payload, &output, "Winia");
+        spec.arch = "x86";
+        let files = collect(&payload).unwrap();
+        let wxs = generate(&spec, &files, "0.1.3.0", "x86").unwrap();
+        assert!(
+            wxs.contains("<Directory Id=\"ProgramFilesFolder\">"),
+            "{wxs}"
+        );
+        assert!(!wxs.contains("ProgramFiles64Folder"), "{wxs}");
+        let _ = std::fs::remove_dir_all(root);
+    }
 
     #[test]
     fn product_versions_are_numeric() {
