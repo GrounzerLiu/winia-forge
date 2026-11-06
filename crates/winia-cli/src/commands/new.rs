@@ -39,6 +39,9 @@ const ANDROID_DEBUG_MANIFEST: &str =
 const ANDROID_ACTIVITY: &str = include_str!(
     "../../templates/blank/android/app/src/main/java/__PACKAGE_PATH__/MainActivity.java.tmpl"
 );
+const ANDROID_PERMISSIONS: &str = include_str!(
+    "../../templates/blank/android/app/src/main/java/com/winia/permissions/WiniaPermissions.java"
+);
 
 const ANDROID_GRADLEW: &[u8] = include_bytes!("../../templates/blank/android/gradlew");
 const ANDROID_GRADLEW_BAT: &[u8] = include_bytes!("../../templates/blank/android/gradlew.bat");
@@ -114,6 +117,10 @@ const ANDROID_FILES: &[TemplateFile] = &[
         template: ANDROID_DEBUG_MANIFEST,
         destination: "android/app/src/debug/AndroidManifest.xml",
     },
+    TemplateFile {
+        template: ANDROID_PERMISSIONS,
+        destination: "android/app/src/main/java/com/winia/permissions/WiniaPermissions.java",
+    },
 ];
 
 /// GameActivity needs a Java subclass; this file is always generated.
@@ -148,6 +155,10 @@ const MANAGED_ANDROID: &[TemplateFile] = &[
     TemplateFile {
         template: ANDROID_APP_BUILD,
         destination: "android/app/build.gradle.kts",
+    },
+    TemplateFile {
+        template: ANDROID_PERMISSIONS,
+        destination: "android/app/src/main/java/com/winia/permissions/WiniaPermissions.java",
     },
 ];
 

@@ -57,6 +57,15 @@ Winia Forge generates only GameActivity projects. GameActivity provides the Java
 needed for soft-keyboard IME text events and for the permission-result bridge. NativeActivity is not
 offered by the template: it has no generated Java activity, so it cannot support those paths.
 
+### 2.1.1 Runtime permission bridge
+
+Generated projects include `com.winia.permissions.WiniaPermissions`, a thin adapter over
+XXPermissions 28.3. The adapter receives permission results through XXPermissions' headless
+Fragment, so `MainActivity` does not override `onRequestPermissionsResult`. The adapter is managed
+by `winia new`/`winia init` and refreshed by `winia android sync`.
+
+Permission declarations remain in `AndroidManifest.xml`; `winia.toml` has no permission table.
+
 ### 2.2 Project file management
 
 - `android/` is a generated directory, but users may add Kotlin/Java code and third-party SDKs.
