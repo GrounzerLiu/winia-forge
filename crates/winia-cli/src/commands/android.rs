@@ -19,7 +19,7 @@ pub fn run(args: AndroidArgs) -> Result<()> {
     }
 }
 
-/// Shared by 'winia android init' and 'winia platform add android'.
+/// Shared by 'winia init --platforms android' and 'winia android init'.
 pub(crate) fn android_init(force: bool, winia_path: Option<std::path::PathBuf>) -> Result<()> {
     let root = project_root()?;
     if root.join("android").exists() && !force {

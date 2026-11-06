@@ -323,7 +323,7 @@ fn dependency_check(root: &Path) -> Check {
     if declared.is_empty() {
         return Check::missing(
             NAME,
-            "not declared in Cargo.toml; add it with 'winia add winia' or 'winia init'",
+            "not declared in Cargo.toml; add winia to the manifest or run 'winia init'",
             true,
         );
     }

@@ -233,7 +233,7 @@ fn build_android_libraries_with(
     let android_dir = root.join("android");
     if !android_dir.is_dir() {
         bail!(
-            "android/ not found; create the project with --platforms android or run 'winia platform add android'"
+            "android/ not found; create the project with --platforms android or run 'winia android init'"
         );
     }
 

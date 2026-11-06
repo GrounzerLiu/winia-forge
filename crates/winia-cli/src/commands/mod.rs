@@ -1,8 +1,8 @@
 //! Command dispatch.
 //!
 //! Every command in the CLI is implemented; commands that cannot work in the
-//! current situation (iOS, release tracks other than GitHub, desktop entries in
-//! 'platform add') explain why instead of failing silently.
+//! current situation (iOS, release tracks other than GitHub, unsupported targets)
+//! explain why instead of failing silently.
 
 pub mod android;
 pub mod assets;
