@@ -12,9 +12,19 @@ pub fn app(ctx: &mut ComposeCtx) {
             .resizable(crate::winia_config::WINDOW_RESIZABLE)
             .decorations(crate::winia_config::WINDOW_DECORATIONS)
             .build(ctx, |ctx| {
-                Scaffold::new(|ctx, _padding| {
+                Scaffold::new(|ctx, padding| {
                     Column::new()
-                        .modifier(Modifier::new().fill_max_size().padding(24.0))
+                        .modifier(
+                            Modifier::new()
+                                .fill_max_size()
+                                .padding_sides(
+                                    padding.start,
+                                    padding.top,
+                                    padding.end,
+                                    padding.bottom,
+                                )
+                                .padding(24.0),
+                        )
                         .build(ctx, |ctx| {
                             Text::new("Hello, Winia!").build(ctx);
                         });
