@@ -100,6 +100,7 @@ fn package_desktop(
                 split: None,
                 version: &version,
                 quiet: args.quiet,
+                verification_skips: &[],
             },
         );
     }
@@ -295,6 +296,7 @@ fn package_desktop(
             split: None,
             version: &version,
             quiet: args.quiet,
+            verification_skips: &[],
         },
     )
 }
@@ -307,6 +309,15 @@ fn output_dir(root: &Path, args: &PackageArgs) -> PathBuf {
     }
 }
 
+pub(crate) fn supported_desktop_formats(target: &str) -> &'static [&'static str] {
+    match target {
+        "windows" => &["zip", "nsis", "msi"],
+        "macos" => &["app", "zip", "dmg"],
+        "linux" => &["tar.gz", "deb"],
+        _ => &[],
+    }
+}
+
 fn desktop_formats(target: &str, config: &WiniaConfig, args: &PackageArgs) -> Result<Vec<String>> {
     let configured = match target {
         "windows" => &config.package.windows.formats,
@@ -314,12 +325,7 @@ fn desktop_formats(target: &str, config: &WiniaConfig, args: &PackageArgs) -> Re
         "linux" => &config.package.linux.formats,
         other => bail!("unknown desktop target '{other}'"),
     };
-    let supported: &[&str] = match target {
-        "windows" => &["zip", "nsis", "msi"],
-        "macos" => &["app", "zip", "dmg"],
-        "linux" => &["tar.gz", "deb"],
-        _ => &[],
-    };
+    let supported = supported_desktop_formats(target);
     let requested = if args.format.is_empty() {
         configured
     } else {
@@ -735,6 +741,7 @@ fn package_android(
                 split: Some(split),
                 version: &version,
                 quiet: args.quiet,
+                verification_skips: &[],
             },
         );
     }
@@ -756,6 +763,7 @@ fn package_android(
     };
     crate::hooks::run(root, config, crate::hooks::Phase::BeforePackage, &context)?;
     let mut produced = Vec::new();
+    let mut verification_skips: Vec<String> = Vec::new();
 
     if formats.iter().any(|format| format == "apk") {
         match split {
@@ -771,6 +779,7 @@ fn package_android(
                     config.android.version_code,
                     &version,
                     args.json,
+                    &mut verification_skips,
                 )?;
                 produced.push(destination);
             }
@@ -792,6 +801,7 @@ fn package_android(
                         config.android.version_code,
                         &version,
                         args.json,
+                        &mut verification_skips,
                     )?;
                     produced.push(destination);
                 }
@@ -838,7 +848,7 @@ fn package_android(
         }
         let destination = out_dir.join(format!("{stem}-{version}-android.aab"));
         copy_artifact(&bundle, &destination)?;
-        validate_aab(&destination, args.json)?;
+        validate_aab(&destination, args.json, &mut verification_skips)?;
         produced.push(destination);
     }
     crate::hooks::run(root, config, crate::hooks::Phase::AfterPackage, &context)?;
@@ -855,6 +865,7 @@ fn package_android(
             split: Some(split),
             version: &version,
             quiet: args.quiet,
+            verification_skips: &verification_skips,
         },
     )
 }
@@ -958,8 +969,10 @@ fn verify_apk(
     version_code: u32,
     version_name: &str,
     json: bool,
+    verification: &mut Vec<String>,
 ) -> Result<()> {
     let Some(build_tools) = build_tools_dir() else {
+        verification.push("build-tools".to_owned());
         if !json {
             eprintln!("warning: Android build-tools not found; skipped APK verification");
         }
@@ -980,8 +993,11 @@ fn verify_apk(
                 String::from_utf8_lossy(&output.stderr).trim()
             );
         }
-    } else if !json {
-        eprintln!("warning: zipalign not found; skipped alignment check");
+    } else {
+        verification.push("zipalign".to_owned());
+        if !json {
+            eprintln!("warning: zipalign not found; skipped alignment check");
+        }
     }
 
     let aapt2 = build_tools.join(executable("aapt2"));
@@ -1033,6 +1049,7 @@ fn verify_apk(
                 }
             }
             None => {
+                verification.push("version-metadata".to_owned());
                 if !json {
                     eprintln!(
                         "warning: could not read version metadata from {}",
@@ -1041,8 +1058,11 @@ fn verify_apk(
                 }
             }
         }
-    } else if !json {
-        eprintln!("warning: aapt2 not found; skipped ABI and version checks");
+    } else {
+        verification.push("aapt2".to_owned());
+        if !json {
+            eprintln!("warning: aapt2 not found; skipped ABI and version checks");
+        }
     }
 
     let launcher = build_tools.join(if cfg!(windows) {
@@ -1070,14 +1090,18 @@ fn verify_apk(
                 );
             }
         }
-    } else if !json {
-        eprintln!("warning: apksigner not found; skipped signature check");
+    } else {
+        verification.push("apksigner".to_owned());
+        if !json {
+            eprintln!("warning: apksigner not found; skipped signature check");
+        }
     }
     Ok(())
 }
 
-fn validate_aab(aab: &Path, json: bool) -> Result<()> {
+fn validate_aab(aab: &Path, json: bool, verification: &mut Vec<String>) -> Result<()> {
     let Some(mut command) = bundletool_command() else {
+        verification.push("bundletool".to_owned());
         if !json {
             eprintln!("warning: bundletool not found; skipped AAB validation");
         }
@@ -1163,6 +1187,7 @@ struct ReportMeta<'a> {
     split: Option<SplitMode>,
     version: &'a str,
     quiet: bool,
+    verification_skips: &'a [String],
 }
 
 fn report(
@@ -1216,6 +1241,7 @@ fn report(
             "formats": meta.formats,
             "dry_run": dry_run,
             "artifacts": values,
+            "verification_skips": meta.verification_skips,
             "duration_ms": elapsed.as_millis(),
         });
         if let Some(split) = split {
@@ -1226,6 +1252,12 @@ fn report(
     }
     if meta.quiet {
         return Ok(());
+    }
+    if !meta.verification_skips.is_empty() {
+        eprintln!(
+            "warning: verification checks skipped: {}",
+            meta.verification_skips.join(", ")
+        );
     }
     println!(
         "{}",

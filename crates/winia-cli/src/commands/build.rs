@@ -332,17 +332,32 @@ fn remove_stale_libraries(directory: &Path, keep: &Path) -> Result<()> {
         .to_owned();
     if let Ok(previous) = std::fs::read_to_string(&marker) {
         for name in previous.lines().filter(|line| !line.is_empty()) {
-            if name != keep_name {
-                let stale = directory.join(name);
-                if stale.extension().and_then(|extension| extension.to_str()) == Some("so") {
-                    let _ = std::fs::remove_file(stale);
-                }
+            if name != keep_name
+                && let Some(stale) = marker_library(directory, name)
+            {
+                let _ = std::fs::remove_file(stale);
             }
         }
     }
     std::fs::write(&marker, format!("{keep_name}\n"))
         .with_context(|| format!("writing {}", marker.display()))?;
     Ok(())
+}
+
+/// Resolve a library recorded in .winia-libs and refuse anything that escapes the ABI directory.
+fn marker_library(directory: &Path, name: &str) -> Option<PathBuf> {
+    let candidate = directory.join(name);
+    let canonical_directory = directory.canonicalize().ok()?;
+    let canonical = candidate.canonicalize().ok()?;
+    if !canonical.starts_with(&canonical_directory)
+        || canonical
+            .extension()
+            .and_then(|extension| extension.to_str())
+            != Some("so")
+    {
+        return None;
+    }
+    Some(canonical)
 }
 
 fn effective_features(config: &WiniaConfig, args: &BuildArgs) -> Vec<String> {
@@ -401,8 +416,8 @@ fn clean_jni_libs(root: &Path, selected: &[Abi]) -> Result<()> {
         let marker = directory.join(".winia-libs");
         if let Ok(previous) = std::fs::read_to_string(&marker) {
             for name in previous.lines().filter(|line| !line.is_empty()) {
-                if name.ends_with(".so") {
-                    let _ = std::fs::remove_file(directory.join(name));
+                if let Some(stale) = marker_library(&directory, name) {
+                    let _ = std::fs::remove_file(stale);
                 }
             }
             let _ = std::fs::remove_file(&marker);

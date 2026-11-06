@@ -155,6 +155,12 @@ pub(crate) fn managed_android_files() -> &'static [TemplateFile] {
     MANAGED_ANDROID
 }
 
+const RESERVED_CRATE_NAMES: &[&str] = &["std", "core", "alloc", "test", "proc_macro"];
+const WINDOWS_RESERVED_NAMES: &[&str] = &[
+    "con", "prn", "aux", "nul", "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8",
+    "com9", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
+];
+
 const RUST_KEYWORDS: &[&str] = &[
     "as", "break", "const", "continue", "crate", "else", "enum", "extern", "false", "fn", "for",
     "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub", "ref", "return",
@@ -162,6 +168,17 @@ const RUST_KEYWORDS: &[&str] = &[
     "while", "async", "await", "dyn", "abstract", "become", "box", "do", "final", "macro",
     "override", "priv", "typeof", "unsized", "virtual", "try", "yield", "gen",
 ];
+
+fn inside_git_worktree(path: &Path) -> bool {
+    let mut current = path.parent();
+    while let Some(directory) = current {
+        if directory.join(".git").exists() {
+            return true;
+        }
+        current = directory.parent();
+    }
+    false
+}
 
 /// A Cargo package name that is also a usable Rust identifier prefix: the template writes
 /// `use <name>::ui;`, so it must start with a letter and cannot be a keyword.
@@ -176,8 +193,17 @@ fn validate_project_name(name: &str) -> Result<()> {
     if !chars.all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
         bail!("project name '{name}' may only contain letters, digits, '-' and '_'");
     }
-    if RUST_KEYWORDS.contains(&name) {
+    let normalized = name.trim().to_lowercase().replace(' ', "-");
+    if RUST_KEYWORDS.contains(&normalized.as_str()) {
         bail!("project name '{name}' is a Rust keyword; choose another name");
+    }
+    if RESERVED_CRATE_NAMES.contains(&normalized.as_str()) {
+        bail!(
+            "project name '{name}' collides with the Rust {normalized} crate; choose another name"
+        );
+    }
+    if WINDOWS_RESERVED_NAMES.contains(&normalized.as_str()) {
+        bail!("project name '{name}' is a reserved Windows device name; choose another name");
     }
     Ok(())
 }
@@ -271,16 +297,23 @@ pub fn run(args: NewArgs) -> Result<()> {
     }
 
     if !args.no_git {
-        match std::process::Command::new("git")
-            .arg("init")
-            .current_dir(&root)
-            .status()
-        {
-            Ok(status) if status.success() => {}
-            Ok(status) => eprintln!(
-                "warning: 'git init' failed with {status}; the project is not a repository"
-            ),
-            Err(error) => eprintln!("warning: could not run 'git init': {error}"),
+        if inside_git_worktree(&root) {
+            eprintln!(
+                "note: {} is inside an existing git worktree; skipped 'git init'",
+                root.display()
+            );
+        } else {
+            match std::process::Command::new("git")
+                .arg("init")
+                .current_dir(&root)
+                .status()
+            {
+                Ok(status) if status.success() => {}
+                Ok(status) => eprintln!(
+                    "warning: 'git init' failed with {status}; the project is not a repository"
+                ),
+                Err(error) => eprintln!("warning: could not run 'git init': {error}"),
+            }
         }
     }
 
@@ -470,7 +503,23 @@ mod tests {
 
     #[test]
     fn rejects_names_that_cannot_be_rust_identifiers() {
-        for name in ["123app", "type", "my app", "app!", ""] {
+        for name in [
+            "123app",
+            "type",
+            "my app",
+            "app!",
+            "",
+            "Type",
+            "SELF",
+            "std",
+            "core",
+            "alloc",
+            "test",
+            "proc_macro",
+            "con",
+            "nul",
+            "com1",
+        ] {
             assert!(
                 validate_project_name(name).is_err(),
                 "{name:?} should be rejected"

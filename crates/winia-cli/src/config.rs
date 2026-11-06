@@ -377,12 +377,13 @@ fn write_atomic(path: &Path, text: &str) -> anyhow::Result<()> {
         .unwrap_or("winia.toml");
     let temporary = path.with_file_name(format!(".{name}.tmp"));
     std::fs::write(&temporary, text).with_context(|| format!("writing {}", temporary.display()))?;
-    if std::fs::rename(&temporary, path).is_err() {
-        // Windows cannot rename over an existing file; the temporary copy is still complete.
-        let _ = std::fs::remove_file(path);
-        std::fs::rename(&temporary, path)
-            .with_context(|| format!("replacing {}", path.display()))?;
-    }
+    std::fs::rename(&temporary, path).with_context(|| {
+        format!(
+            "replacing {}; the complete new content remains at {}",
+            path.display(),
+            temporary.display()
+        )
+    })?;
     Ok(())
 }
 

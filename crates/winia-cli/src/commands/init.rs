@@ -9,7 +9,7 @@ use crate::commands::new;
 use crate::config::{AndroidActivity, WiniaConfig};
 use anyhow::{Context, Result, bail};
 use std::path::{Path, PathBuf};
-use toml_edit::{Array, DocumentMut, Item, Table};
+use toml_edit::{Array, DocumentMut, InlineTable, Item, Table, Value};
 
 /// Written only when the project has no src/lib.rs. The blank template starts from a real UI;
 /// an existing project usually already has one, so the entry point is left empty.
@@ -69,26 +69,72 @@ pub fn run(args: InitArgs) -> Result<()> {
         bail!("ios support is not implemented yet; choose windows, macos, linux, or android");
     }
     let android = platforms.contains(&Platform::Android);
+    if android && root.join("android").exists() && !args.force {
+        bail!(
+            "{} already contains android/; pass --force to regenerate it, or run 'winia android sync' to update only the managed Gradle files",
+            root.display()
+        );
+    }
+
+    let mut config = WiniaConfig::default();
+    config.app.name = app_name.clone();
+    config.app.id = app_id.clone();
+    config.app.version = package_version;
+    config.android.package = app_id.clone();
+    config.window.title = app_name.clone();
+    config.window.width = 1000.0;
+    config.window.height = 700.0;
+    config.validate()?;
+    if android {
+        // Validate the lib path before touching Cargo.toml or winia.toml so an escaping
+        // manifest cannot leave a half-initialized project.
+        checked_lib_path(&root, &cargo_lib_path(&root))?;
+    }
 
     let activity = AndroidActivity::Game;
-    let winia_android = new::winia_dependency(
-        args.winia_path.clone(),
-        &[new::android_feature(activity), "vulkan"],
-    )?;
-    let winia_desktop = new::winia_dependency(args.winia_path.clone(), &["gl"])?;
+    let android_feature = new::android_feature(activity);
+    let desktop_features = ["gl"];
+    let android_features = [android_feature, "vulkan"];
 
-    set_target_dependency(
-        &mut doc,
-        "cfg(not(target_os = \"android\"))",
-        "winia",
-        &winia_desktop,
-    )?;
-    set_target_dependency(
-        &mut doc,
-        "cfg(target_os = \"android\")",
-        "winia",
-        &winia_android,
-    )?;
+    let plain = dependency_spec(&doc, None);
+    let desktop_spec = dependency_spec(&doc, Some(false));
+    let android_spec = dependency_spec(&doc, Some(true));
+    if let Some((_, mut spec)) = plain {
+        // A single dependency for all targets cannot coexist with target-specific ones:
+        // Cargo requires one canonical source per dependency. Merge every required feature.
+        merge_dependency_features(&mut spec, &["gl", android_feature, "vulkan"])?;
+        insert_dependency_spec(&mut doc, None, "winia", spec)?;
+    } else if desktop_spec.is_some() || android_spec.is_some() {
+        merge_existing_target_dependency(
+            &mut doc,
+            false,
+            "winia",
+            &desktop_features,
+            android_spec.as_ref().map(|(_, spec)| spec),
+        )?;
+        merge_existing_target_dependency(
+            &mut doc,
+            true,
+            "winia",
+            &android_features,
+            desktop_spec.as_ref().map(|(_, spec)| spec),
+        )?;
+    } else {
+        let winia_android = new::winia_dependency(args.winia_path.clone(), &android_features)?;
+        let winia_desktop = new::winia_dependency(args.winia_path.clone(), &desktop_features)?;
+        set_target_dependency(
+            &mut doc,
+            "cfg(not(target_os = \"android\"))",
+            "winia",
+            &winia_desktop,
+        )?;
+        set_target_dependency(
+            &mut doc,
+            "cfg(target_os = \"android\")",
+            "winia",
+            &winia_android,
+        )?;
+    }
     if android {
         // The Android entry point names winit directly, so the fork must be a dependency.
         set_target_dependency(
@@ -106,15 +152,6 @@ pub fn run(args: InitArgs) -> Result<()> {
         if android { " + lib crate types" } else { "" }
     );
 
-    let mut config = WiniaConfig::default();
-    config.app.name = app_name.clone();
-    config.app.id = app_id.clone();
-    config.app.version = package_version;
-    config.android.package = app_id.clone();
-    config.window.title = app_name;
-    config.window.width = 1000.0;
-    config.window.height = 700.0;
-    config.validate()?;
     config.save(&root.join("winia.toml"))?;
     crate::generated::write(&root, &config)?;
     println!("Wrote winia.toml");
@@ -137,7 +174,7 @@ pub fn run(args: InitArgs) -> Result<()> {
 /// winia.toml. Shared by 'winia init --platforms android' and 'winia android init'.
 pub(crate) fn scaffold_android(root: &Path, config: &WiniaConfig) -> Result<()> {
     let package = cargo_package_name(root, config);
-    let lib_name = package.replace('-', "_");
+    let lib_name = cargo_lib_name(root).unwrap_or_else(|| package.replace('-', "_"));
     let app_id = if config.android.package.trim().is_empty() {
         config.app.id.clone()
     } else {
@@ -162,9 +199,14 @@ pub(crate) fn scaffold_android(root: &Path, config: &WiniaConfig) -> Result<()> 
         ),
     ];
     // Respect an existing [lib] path: a crate whose library lives in src/core.rs must not grow a
-    // second, unused src/lib.rs.
+    // second, unused src/lib.rs. Reject paths that escape the project before creating anything.
     let lib_path = cargo_lib_path(root);
-    let lib_file = root.join(&lib_path);
+    let lib_file = checked_lib_path(root, &lib_path)?;
+    let lib_path = lib_file
+        .strip_prefix(root)
+        .unwrap_or(&lib_file)
+        .display()
+        .to_string();
     if !lib_file.is_file() {
         if let Some(parent) = lib_file.parent() {
             std::fs::create_dir_all(parent)
@@ -193,8 +235,14 @@ pub(crate) fn scaffold_android(root: &Path, config: &WiniaConfig) -> Result<()> 
     if let Ok(existing) = std::fs::read_to_string(&lib_file)
         && !existing.contains("mod winia_config")
     {
-        std::fs::write(&lib_file, format!("{existing}\npub mod winia_config;\n"))
-            .with_context(|| format!("writing {}", lib_file.display()))?;
+        let target = std::path::absolute(root.join(crate::generated::FILE))
+            .with_context(|| "resolving the generated config path")?;
+        let module_path = relative_module_path(&lib_file, &target)?;
+        std::fs::write(
+            &lib_file,
+            format!("{existing}\n#[path = \"{module_path}\"]\npub mod winia_config;\n"),
+        )
+        .with_context(|| format!("writing {}", lib_file.display()))?;
     }
     for file in new::android_files(config.android.activity) {
         new::write_rendered(root, &file, &vars)?;
@@ -235,7 +283,12 @@ pub(crate) fn ensure_android_cargo(
         .is_some();
     let backend = new::android_feature(activity);
     let features = [backend, "vulkan"];
-    if present && replace {
+    if let Some((_, mut plain)) = dependency_spec(&doc, None) {
+        // A plain [dependencies] winia applies to every target; adding a target-specific entry
+        // would make Cargo reject the manifest for having two sources.
+        merge_dependency_features(&mut plain, &features)?;
+        insert_dependency_spec(&mut doc, None, "winia", plain)?;
+    } else if present && replace {
         // Keep the existing path/version; only the backend feature changes.
         set_dependency_features(&mut doc, cfg, "winia", &features, true)?;
         // The direct winia-winit dependency must use the same backend, but keep its own
@@ -318,6 +371,92 @@ fn cargo_lib_path(root: &Path) -> String {
         .to_owned()
 }
 
+/// The library target name declared in Cargo.toml, or None when it defaults to the package name.
+fn cargo_lib_name(root: &Path) -> Option<String> {
+    let parsed = std::fs::read_to_string(root.join("Cargo.toml"))
+        .ok()
+        .and_then(|text| text.parse::<toml::Value>().ok());
+    parsed
+        .as_ref()
+        .and_then(|value| value.get("lib"))
+        .and_then(|lib| lib.get("name"))
+        .and_then(|name| name.as_str())
+        .map(str::to_owned)
+}
+
+/// Resolve the manifest-declared lib path and keep it inside the project root.
+fn checked_lib_path(root: &Path, lib_path: &str) -> Result<PathBuf> {
+    let root = normalize_path(
+        &std::path::absolute(root).with_context(|| format!("resolving {}", root.display()))?,
+    );
+    let candidate = Path::new(lib_path);
+    if candidate.is_absolute() {
+        bail!(
+            "[lib] path must be relative to the project, got '{}'",
+            candidate.display()
+        );
+    }
+    let absolute = normalize_path(
+        &std::path::absolute(root.join(candidate))
+            .with_context(|| format!("resolving [lib] path '{}'", candidate.display()))?,
+    );
+    if !absolute.starts_with(&root) || absolute == root {
+        bail!(
+            "[lib] path '{}' escapes the project root; refusing to write outside {}",
+            lib_path,
+            root.display()
+        );
+    }
+    Ok(absolute)
+}
+
+/// Lexically remove '.' and '..' components; absolute() alone does not guarantee that a path
+/// such as root/../victim stops being reported as a child of root.
+fn normalize_path(path: &Path) -> PathBuf {
+    use std::path::Component;
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                normalized.pop();
+            }
+            other => normalized.push(other.as_os_str()),
+        }
+    }
+    normalized
+}
+
+/// Relative path from the module file to the generated config file, in Rust #[path] form.
+fn relative_module_path(module: &Path, target: &Path) -> Result<String> {
+    use std::path::Component;
+    let from = module
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("{} has no parent directory", module.display()))?;
+    let from_components: Vec<Component<'_>> = from.components().collect();
+    let target_components: Vec<Component<'_>> = target.components().collect();
+    let common = from_components
+        .iter()
+        .zip(&target_components)
+        .take_while(|(left, right)| left == right)
+        .count();
+    if common == 0 {
+        bail!(
+            "cannot express {} relative to {}",
+            target.display(),
+            from.display()
+        );
+    }
+    let mut parts = Vec::new();
+    for _ in common..from_components.len() {
+        parts.push("..".to_owned());
+    }
+    for component in &target_components[common..] {
+        parts.push(component.as_os_str().to_string_lossy().into_owned());
+    }
+    Ok(parts.join("/"))
+}
+
 /// The Cargo package name; falls back to the last segment of the app id.
 fn cargo_package_name(root: &Path, config: &WiniaConfig) -> String {
     let parsed = std::fs::read_to_string(root.join("Cargo.toml"))
@@ -397,6 +536,141 @@ fn implicit_table() -> Item {
     let mut table = Table::new();
     table.set_implicit(true);
     Item::Table(table)
+}
+
+/// Locate the winia dependency for all targets (None) or a target-specific table.
+fn dependency_spec(doc: &DocumentMut, android: Option<bool>) -> Option<(String, Item)> {
+    match android {
+        None => doc
+            .get("dependencies")
+            .and_then(|dependencies| dependencies.get("winia"))
+            .cloned()
+            .map(|item| ("dependencies".to_owned(), item)),
+        Some(android) => {
+            for (key, entry) in doc.get("target")?.as_table()? {
+                let mentions_android = key.contains("android");
+                let is_desktop = mentions_android && key.contains("not(");
+                if mentions_android
+                    && (is_desktop != android)
+                    && let Some(item) = entry.get("dependencies").and_then(|deps| deps.get("winia"))
+                {
+                    return Some((key.to_owned(), item.clone()));
+                }
+            }
+            None
+        }
+    }
+}
+
+fn canonical_target(android: bool) -> &'static str {
+    if android {
+        "cfg(target_os = \"android\")"
+    } else {
+        "cfg(not(target_os = \"android\"))"
+    }
+}
+
+/// Merge a missing target's dependency from the other target, preserving its source (path,
+/// version, git) and other keys. This avoids Cargo's "different source paths depending on the
+/// build target" error when a project already declares winia for only one target.
+fn merge_existing_target_dependency(
+    doc: &mut DocumentMut,
+    android: bool,
+    name: &str,
+    features: &[&str],
+    fallback: Option<&Item>,
+) -> Result<()> {
+    if let Some((key, mut spec)) = dependency_spec(doc, Some(android)) {
+        merge_dependency_features(&mut spec, features)?;
+        insert_dependency_spec(doc, Some(&key), name, spec)?;
+    } else if let Some(fallback) = fallback {
+        // The target had no winia entry: copy the other target's source, then use exactly the
+        // features this target needs instead of inheriting desktop-only features such as gl.
+        let spec = fallback.clone();
+        let cfg = canonical_target(android);
+        insert_dependency_spec(doc, Some(cfg), name, spec)?;
+        set_dependency_features(doc, cfg, name, features, true)?;
+    }
+    Ok(())
+}
+
+fn merge_dependency_features(spec: &mut Item, features: &[&str]) -> Result<()> {
+    match spec {
+        Item::Value(Value::String(version)) => {
+            let mut table = InlineTable::new();
+            table.insert("version", Value::from(version.value().clone()));
+            add_inline_features(&mut table, features)?;
+            *spec = Item::Value(Value::InlineTable(table));
+        }
+        Item::Value(Value::InlineTable(table)) => add_inline_features(table, features)?,
+        Item::Table(table) => {
+            let mut array = table
+                .get("features")
+                .and_then(|item| item.as_array())
+                .cloned()
+                .unwrap_or_default();
+            for feature in features {
+                if !array.iter().any(|value| value.as_str() == Some(*feature)) {
+                    array.push(*feature);
+                }
+            }
+            table.insert("features", Item::Value(Value::Array(array)));
+        }
+        _ => bail!(
+            "the existing winia dependency has an unsupported shape; edit Cargo.toml manually"
+        ),
+    }
+    Ok(())
+}
+
+fn add_inline_features(table: &mut InlineTable, features: &[&str]) -> Result<()> {
+    let mut array = table
+        .get("features")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    for feature in features {
+        if !array.iter().any(|value| value.as_str() == Some(*feature)) {
+            array.push(*feature);
+        }
+    }
+    table.insert("features", Value::Array(array));
+    Ok(())
+}
+
+fn insert_dependency_spec(
+    doc: &mut DocumentMut,
+    target: Option<&str>,
+    name: &str,
+    spec: Item,
+) -> Result<()> {
+    match target {
+        None => {
+            let dependencies = doc.entry("dependencies").or_insert_with(implicit_table);
+            let dependencies = dependencies
+                .as_table_mut()
+                .ok_or_else(|| anyhow::anyhow!("Cargo.toml [dependencies] is not a table"))?;
+            dependencies.insert(name, spec);
+        }
+        Some(cfg) => {
+            let target = doc.entry("target").or_insert_with(implicit_table);
+            let target = target
+                .as_table_mut()
+                .ok_or_else(|| anyhow::anyhow!("Cargo.toml [target] is not a table"))?;
+            let entry = target.entry(cfg).or_insert_with(implicit_table);
+            let entry = entry
+                .as_table_mut()
+                .ok_or_else(|| anyhow::anyhow!("Cargo.toml target.{cfg} is not a table"))?;
+            let dependencies = entry
+                .entry("dependencies")
+                .or_insert(Item::Table(Table::new()));
+            let dependencies = dependencies.as_table_mut().ok_or_else(|| {
+                anyhow::anyhow!("Cargo.toml target.{cfg}.dependencies is not a table")
+            })?;
+            dependencies.insert(name, spec);
+        }
+    }
+    Ok(())
 }
 
 fn set_target_dependency(doc: &mut DocumentMut, cfg: &str, name: &str, spec: &str) -> Result<()> {
@@ -489,6 +763,57 @@ mod tests {
         assert_eq!(title_case("my-app"), "My App");
         assert_eq!(title_case("winia_blank"), "Winia Blank");
         assert_eq!(title_case("simple"), "Simple");
+    }
+
+    #[test]
+    fn lib_paths_must_stay_inside_the_project() {
+        let root = std::env::temp_dir().join(format!("winia-lib-path-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        assert!(checked_lib_path(&root, "src/lib.rs").is_ok());
+        assert!(checked_lib_path(&root, "../outside.rs").is_err());
+        assert!(checked_lib_path(&root, "src/../../outside.rs").is_err());
+        assert!(checked_lib_path(&root, "D:/outside.rs").is_err());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn generated_module_path_is_relative_to_the_lib_file() {
+        let root = std::env::temp_dir().join(format!("winia-lib-mod-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("src/core")).unwrap();
+        let root = std::path::absolute(&root).unwrap();
+        let target = root.join("src/winia_config.rs");
+        assert_eq!(
+            relative_module_path(&root.join("src/lib.rs"), &target).unwrap(),
+            "winia_config.rs"
+        );
+        assert_eq!(
+            relative_module_path(&root.join("src/core/mod.rs"), &target).unwrap(),
+            "../winia_config.rs"
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn existing_target_source_is_copied_to_the_missing_target() {
+        let mut doc: DocumentMut = "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[target.'cfg(not(target_os = \"android\"))'.dependencies]\nwinia = { path = \"../winia\", default-features = false, features = [\"gl\"] }\n"
+            .parse()
+            .unwrap();
+        let desktop = dependency_spec(&doc, Some(false));
+        merge_existing_target_dependency(
+            &mut doc,
+            true,
+            "winia",
+            &["android-game-activity", "vulkan"],
+            desktop.as_ref().map(|(_, spec)| spec),
+        )
+        .unwrap();
+        let text = doc.to_string();
+        assert!(text.contains("path = \"../winia\""), "{text}");
+        assert!(text.contains("cfg(target_os = \"android\")"), "{text}");
+        assert!(!text.contains("features = [\"gl\", \"android-game-activity\""));
+        let _ = doc;
     }
 
     #[test]

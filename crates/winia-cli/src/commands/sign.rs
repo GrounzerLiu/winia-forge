@@ -42,11 +42,22 @@ pub fn run(args: SignArgs) -> Result<()> {
             "signing for {unsupported} is not implemented yet; only android, windows and macos are supported"
         );
     }
-    if macos && !android && !windows {
-        return super::sign_macos::run(&root, &cwd, &args);
+    if targets.len() > 1 && args.json {
+        bail!("--json currently supports one signing target per invocation");
     }
-    if windows && !android {
-        return super::sign_windows::run(&root, &cwd, &args);
+    // Run every requested signer instead of silently dropping a target when Android is also
+    // present. Each signer prints its own human-readable report.
+    if macos {
+        super::sign_macos::run(&root, &cwd, &args)?;
+    }
+    if windows {
+        super::sign_windows::run(&root, &cwd, &args)?;
+    }
+    if !android {
+        if macos || windows {
+            return Ok(());
+        }
+        bail!("no signing target selected; pass --target android, windows or macos");
     }
     if !root.join("android").is_dir() {
         bail!("no Android project found; create it with --platforms android");

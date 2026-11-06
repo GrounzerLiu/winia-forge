@@ -195,10 +195,13 @@ pub fn run(args: ReleaseArgs) -> Result<()> {
                 }
             }
             let mut add = vec!["add".to_owned()];
-            add.extend(files);
+            add.extend(files.iter().cloned());
             let add_args: Vec<&str> = add.iter().map(String::as_str).collect();
             git(&root, &add_args)?;
-            git(&root, &["commit", "-m", &format!("chore(release): {tag}")])?;
+            let message = format!("chore(release): {tag}");
+            let mut commit = vec!["commit", "-m", message.as_str(), "--"];
+            commit.extend(files.iter().map(String::as_str));
+            git(&root, &commit)?;
             Ok(())
         })();
         if let Err(error) = outcome {
@@ -411,12 +414,12 @@ pub fn run(args: ReleaseArgs) -> Result<()> {
                     .iter()
                     .filter(|path| extension(path) == Some("zip"))
                 {
-                    if let Err(error) = replace_zip_executable(zip, &exe) {
-                        eprintln!(
-                            "warning: could not refresh {} with the signed executable: {error:#}",
+                    replace_zip_executable(zip, &exe).with_context(|| {
+                        format!(
+                            "refreshing {} with the signed executable failed; refusing to publish a zip containing the unsigned binary",
                             zip.display()
-                        );
-                    }
+                        )
+                    })?;
                 }
             }
         }
@@ -682,12 +685,29 @@ fn available_formats(formats: &[String]) -> Vec<String> {
 
 /// Formats for one target, taken from the matching section of winia.toml.
 fn formats_for(config: &WiniaConfig, target: &str) -> Vec<String> {
-    match target {
+    let configured = match target {
         "windows" => config.package.windows.formats.clone(),
         "macos" => config.package.macos.formats.clone(),
         "linux" => config.package.linux.formats.clone(),
         _ => config.package.android.formats.clone(),
+    };
+    if target == "android" {
+        return configured;
     }
+    let supported = crate::commands::package::supported_desktop_formats(target);
+    let mut filtered: Vec<String> = configured
+        .into_iter()
+        .filter_map(|format| {
+            let format = format.to_lowercase();
+            supported.contains(&format.as_str()).then_some(format)
+        })
+        .collect();
+    if filtered.is_empty()
+        && let Some(default) = supported.first()
+    {
+        filtered.push((*default).to_owned());
+    }
+    filtered
 }
 
 fn planned_artifacts(
@@ -1086,6 +1106,17 @@ fn display_relative(root: &Path, path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unsupported_configured_formats_are_filtered_before_packaging() {
+        let config = WiniaConfig::default();
+        let desktop = formats_for(&config, "linux");
+        assert!(desktop.contains(&"tar.gz".to_owned()), "{desktop:?}");
+        assert!(desktop.contains(&"deb".to_owned()), "{desktop:?}");
+        assert!(!desktop.contains(&"appimage".to_owned()), "{desktop:?}");
+        let android = formats_for(&config, "android");
+        assert_eq!(android, vec!["apk".to_owned(), "aab".to_owned()]);
+    }
 
     #[test]
     fn manifest_omits_the_tag_when_no_tag_was_created() {

@@ -114,6 +114,9 @@ pub struct InitArgs {
     /// Display name. Defaults to the package name in title case.
     #[arg(long)]
     pub name: Option<String>,
+    /// Regenerate android/ even when it already exists.
+    #[arg(long)]
+    pub force: bool,
 }
 
 #[derive(Debug, Args)]

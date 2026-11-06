@@ -1,6 +1,5 @@
 /target
 /dist
-/src/winia_config.rs
 *.apk
 *.aab
 *.pdb

@@ -47,8 +47,11 @@ pub(crate) fn apksigner_command(build_tools: &Path) -> Result<Command> {
         bail!("apksigner not found under {}", build_tools.display());
     }
     if cfg!(windows) {
+        // cmd /c treats a quoted batch path with additional arguments as its own command line
+        // and can drop those arguments. "call" preserves the batch arguments while still
+        // accepting a launcher path that contains spaces.
         let mut command = Command::new("cmd");
-        command.arg("/c").arg(launcher);
+        command.args(["/c", "call"]).arg(launcher);
         Ok(command)
     } else {
         Ok(Command::new(launcher))

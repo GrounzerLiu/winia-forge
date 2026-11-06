@@ -39,7 +39,7 @@
 ```bash
 winia new my-app
 winia new my-app --platforms windows,macos,linux,android
-winia new my-app --template counter --no-git
+winia new my-app --template blank --no-git
 ```
 
 Requirements:
@@ -47,28 +47,20 @@ Requirements:
 - The default directory is `./<name>`; `--path` overrides it.
 - `winia` 0.1 is published on crates.io; the generated `Cargo.toml` uses `winia = "0.1"`.
   `--winia-path` (or `WINIA_PATH`) overrides it with a local checkout for framework development.
-- Interactive wizard: template, target platforms, Rust edition, whether to initialise git.
-- Non-interactive mode: every option can be passed as a flag, suitable for scripts and CI.
-- A non-empty target directory is refused by default; with `--force`, the files that would be overwritten
-  are listed first.
+- Only the `blank` template exists today; an unknown template is rejected.
+- A non-empty target directory is refused. There is no overwrite flag; choose another directory.
+- `--no-git` skips `git init`; otherwise `new` initialises a repository unless it is already
+  inside an existing git worktree.
 
 ### 1.2 Built-in templates
 
 | Template | Contents |
 | --- | --- |
 | `blank` | Minimal runnable window |
-| `counter` | Introductory example with state, a button, and text |
-| `multi-window` | Multi-window application |
-| `navigation` | Navigation 3 page stack |
-| `dashboard` / `settings` | Full application skeleton with a sidebar and pages |
-| `tray` | Tray/background application (needs window icons and the hidden-main-window API) |
-| `gallery` | Component browser and debugging surface |
 
-Later support:
-
-- `--template <git-url>` to pull a template from a remote.
-- Template variables: application name, package name, author, license, version, target platforms.
-- Template cache and offline mode.
+Planned (not implemented): `counter`, `multi-window`, `navigation`, dashboard/settings, tray and
+gallery templates; remote `--template <git-url>`; template cache and offline mode. The CLI currently
+has no interactive wizard and no `--force` overwrite for `new`.
 
 ### 1.3 Generated contents
 
@@ -79,19 +71,15 @@ my-app/
 ├── README.md
 ├── .gitignore
 ├── assets/
-│   └── icon.png
 └── src/
     ├── main.rs          # desktop entry point
     ├── lib.rs           # Android entry point (when the Android target is enabled)
     └── ui.rs            # UI shared by desktop and mobile
 ```
 
-Also generated:
-
-- `rust-toolchain.toml`: pins the MSRV.
-- `.cargo/config.toml`: optional settings such as sccache.
-- CI workflow (optional).
-- Recommended VSCode settings (optional).
+Also generated when the Android target is enabled: `android/` with the Gradle wrapper and
+activity sources, and a `src/lib.rs` Android entry point. A CI workflow can be generated separately
+with `winia ci init`.
 
 ### 1.4 Adding Winia to an existing project
 
@@ -100,15 +88,18 @@ winia init
 winia init --path ../my-app --platforms windows,android
 ```
 
-Implemented: `winia init` never rewrites the user's sources.
+Implemented behaviour:
 
 - Adds the `winia` dependency under `[target.'cfg(not(target_os = "android"))'.dependencies]`
   (desktop) and `[target.'cfg(target_os = "android")'.dependencies]` (Android), editing
-  `Cargo.toml` with `toml_edit` so comments and formatting survive.
+  `Cargo.toml` with `toml_edit` so comments and formatting survive. If the project already has a
+  `winia` dependency, its source and extra features are preserved: a plain dependency is merged in
+  place, and a missing target copies the existing target's source.
 - Writes `winia.toml` from the Cargo package name and version, and creates `assets/`.
-- With `--platforms ...,android`: adds `[lib] crate-type = ["rlib", "cdylib"]`, writes
-  `src/lib.rs` with an `android_main` entry point (only when the file does not exist yet), and
-  generates the Gradle project plus the wrapper.
+- With `--platforms ...,android`: adds `[lib] crate-type = ["rlib", "cdylib"]`, appends an
+  `android_main` entry point and a `winia_config` module declaration to the existing library
+  source (creating the lib file when absent), and generates the Gradle project plus the wrapper.
+  An existing `android/` tree is refused unless `--force` is passed.
 - Refuses to run twice (`winia.toml` already present) or when `Cargo.toml` is missing, and
   rejects a `--winia-path` that points at a workspace manifest instead of the crate.
 - `ios` is rejected explicitly.
@@ -122,10 +113,11 @@ winia init --platforms android
 
 Behaviour:
 
-- Read the existing `Cargo.toml` and add the Winia dependency.
+- Read the existing `Cargo.toml` and add or merge the Winia dependency.
 - Generate `winia.toml` and `assets/`.
-- Do not overwrite existing source; only add files and a small amount of configuration.
-- `--dry-run` shows the files that would be added or modified.
+- With Android, append the entry point/module declaration to the existing library source; never
+  replace the whole file. Existing `android/` files are only rewritten with `--force`.
+- A dry-run is not implemented yet.
 
 ### 1.6 Templates and version management
 
