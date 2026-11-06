@@ -78,6 +78,7 @@ pub fn build(spec: &MsiSpec<'_>) -> Result<PathBuf> {
     if !spec.payload.is_dir() {
         bail!("payload directory not found: {}", spec.payload.display());
     }
+    crate::validate_app_name(spec.app_name)?;
     let files = collect(spec.payload)?;
     if files.is_empty() {
         bail!("payload directory is empty: {}", spec.payload.display());
@@ -184,7 +185,7 @@ fn generate(
     s.push_str("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n");
     s.push_str("<Wix xmlns=\"http://schemas.microsoft.com/wix/2006/wi\">\n");
     s.push_str(&format!(
-        "  <Product Id=\"{product_code}\" Name=\"{}\" Language=\"1033\" Version=\"{version}\" Manufacturer=\"{}\" UpgradeCode=\"{upgrade_code}\">\n",
+        "  <Product Id=\"{product_code}\" Name=\"{}\" Language=\"1033\" Codepage=\"65001\" Version=\"{version}\" Manufacturer=\"{}\" UpgradeCode=\"{upgrade_code}\">\n",
         xml(spec.app_name),
         xml(publisher)
     ));
@@ -472,6 +473,10 @@ mod tests {
         assert!(wxs.contains("Name=\"icon.png\""));
         assert!(wxs.contains("<ComponentRef Id=\"cmp_shortcut\" />"));
         assert!(wxs.contains("ProgramFiles64Folder"));
+        assert!(
+            wxs.contains("Codepage=\"65001\""),
+            "MSI database must be Unicode: {wxs}"
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 

@@ -24,13 +24,23 @@ pub fn run(args: AssetsArgs) -> Result<()> {
             } else {
                 cwd.join(icon.source)
             };
+            let source = std::fs::canonicalize(&source)
+                .with_context(|| format!("reading icon source {}", source.display()))?;
+            let canonical_root = std::fs::canonicalize(&root)
+                .with_context(|| format!("reading project root {}", root.display()))?;
+            let relative = source
+                .strip_prefix(&canonical_root)
+                .map(|path| path.to_string_lossy().replace('\\', "/"))
+                .map_err(|_| {
+                    anyhow::anyhow!(
+                        "icon source {} must be inside the project {}",
+                        source.display(),
+                        canonical_root.display()
+                    )
+                })?;
             let icons = crate::icons::generate(&root, &config, Some(&source))?;
             // Persist the choice: otherwise the next build falls back to the built-in default and
             // silently replaces these icons.
-            let relative = source
-                .strip_prefix(&root)
-                .map(|path| path.to_string_lossy().replace('\\', "/"))
-                .unwrap_or_else(|_| source.to_string_lossy().into_owned());
             crate::config::set_app_icon(&config_path, &relative)?;
             println!("Updated app.icon = \"{relative}\" in winia.toml");
             print_icons(&icons);

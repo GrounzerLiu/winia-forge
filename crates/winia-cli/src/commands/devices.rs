@@ -67,8 +67,15 @@ pub fn parse(output: &str) -> Vec<Device> {
         let Some(serial) = fields.next() else {
             continue;
         };
-        let Some(state) = fields.next() else {
-            continue;
+        // "no permissions (user ...)" is a two-word state; taking one token reports "no".
+        let rest = &line[serial.len()..];
+        let state = if rest.trim_start().starts_with("no permissions") {
+            "no permissions".to_owned()
+        } else {
+            match fields.next() {
+                Some(state) => state.to_owned(),
+                None => continue,
+            }
         };
         let mut model = None;
         let mut product = None;

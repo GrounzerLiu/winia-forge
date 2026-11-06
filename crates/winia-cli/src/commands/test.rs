@@ -188,15 +188,29 @@ fn android_smoke(root: &Path, config: &WiniaConfig, args: &TestArgs) -> Result<(
         };
         if current.contains("panicked at")
             || current.contains("FATAL EXCEPTION")
+            || current.contains("Fatal signal")
+            || current.contains("Abort message")
+            || current.contains("backtrace:")
             || std::time::Instant::now() >= deadline
         {
             break current;
         }
         std::thread::sleep(Duration::from_millis(500));
     };
-    let panic = logcat
-        .lines()
-        .find(|line| line.contains("panicked at") || line.contains("FATAL EXCEPTION"));
+    let crash = logcat.lines().find(|line| {
+        line.contains("panicked at")
+            || line.contains("FATAL EXCEPTION")
+            || line.contains("Fatal signal")
+            || line.contains("Abort message")
+            || line.contains("backtrace:")
+    });
+    // A Rust app that segfaults or exits immediately produces none of the panic markers above.
+    let alive = run::app_pid(&device, &package).is_some();
+    let failure = crash.or(if alive {
+        None
+    } else {
+        Some("application process is not running")
+    });
 
     let png = run::screencap(&device)?;
     let directory = root.join("target").join("winia-test");
@@ -210,24 +224,24 @@ fn android_smoke(root: &Path, config: &WiniaConfig, args: &TestArgs) -> Result<(
         let value = serde_json::json!({
             "target": "android",
             "device": device,
-            "passed": if panic.is_some() { 0 } else { 1 },
-            "failed": if panic.is_some() { 1 } else { 0 },
+            "passed": if failure.is_some() { 0 } else { 1 },
+            "failed": if failure.is_some() { 1 } else { 0 },
             "ignored": 0,
-            "success": panic.is_none(),
+            "success": failure.is_none(),
             "screenshot": screenshot,
             "duration_ms": started.elapsed().as_millis(),
         });
         println!("{}", serde_json::to_string_pretty(&value)?);
-    } else if let Some(line) = panic {
+    } else if let Some(line) = failure {
         eprintln!("logcat: {line}");
         eprintln!("Screenshot: {}", screenshot.display());
-        bail!("Android smoke detected a panic");
+        bail!("Android smoke detected a failure");
     } else {
         println!("Android smoke passed; screenshot: {}", screenshot.display());
     }
 
-    if let Some(line) = panic {
-        bail!("Android smoke detected a panic: {line}");
+    if let Some(line) = failure {
+        bail!("Android smoke detected a failure: {line}");
     }
     Ok(())
 }

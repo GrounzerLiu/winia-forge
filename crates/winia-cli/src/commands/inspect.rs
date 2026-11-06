@@ -83,8 +83,11 @@ fn connect_with_timeout(port: u16, timeout: Duration) -> Result<Socket> {
         .with_context(|| {
             format!("connecting to debug server at 127.0.0.1:{port} (is 'winia dev' running?)")
         })?;
-    stream.set_read_timeout(Some(timeout))?;
-    stream.set_write_timeout(Some(timeout))?;
+    // --timeout is the discovery/connect budget; a large tree or screenshot needs more time to
+    // answer than a handshake does.
+    let io_timeout = timeout.max(Duration::from_secs(30));
+    stream.set_read_timeout(Some(io_timeout))?;
+    stream.set_write_timeout(Some(io_timeout))?;
     let (socket, _) = client(format!("ws://127.0.0.1:{port}"), stream)
         .map_err(|error| anyhow::anyhow!("WebSocket handshake failed: {error}"))?;
     Ok(socket)

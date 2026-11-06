@@ -27,7 +27,7 @@ android {
         versionCode = (project.findProperty("winiaVersionCode") as String?)?.toIntOrNull() ?: 1
         versionName = (project.findProperty("winiaVersionName") as String?) ?: "__VERSION__"
         // android:label="@string/app_name" resolves to winia.toml's [android].label, or app.name.
-        resValue("string", "app_name", (project.findProperty("winiaAppLabel") as String?) ?: "__APP_NAME__")
+        resValue("string", "app_name", (project.findProperty("winiaAppLabel") as String?) ?: "__APP_NAME_KOTLIN__")
     }
 
     compileOptions {

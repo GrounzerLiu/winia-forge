@@ -162,6 +162,10 @@ fn marker_matches(icons: &Path, digest: &str, app_id: &str) -> bool {
         && icons.join("windows/app.ico").is_file()
         && icons.join("macos/app.icns").is_file()
         && icons.join("store/icon-512.png").is_file()
+        && icons.join("linux/share/icons").is_dir()
+        && icons
+            .join("android/res/values/ic_launcher_background.xml")
+            .is_file()
         && icons
             .join("android/res/mipmap-anydpi-v26/ic_launcher.xml")
             .is_file()

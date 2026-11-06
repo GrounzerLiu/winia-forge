@@ -41,6 +41,7 @@ pub fn build(spec: &InstallerSpec<'_>) -> Result<PathBuf> {
     if !spec.payload.is_dir() {
         bail!("payload directory not found: {}", spec.payload.display());
     }
+    crate::validate_app_name(spec.app_name)?;
     let script = generate(spec)?;
     let stem = spec
         .output
@@ -167,9 +168,16 @@ pub fn generate(spec: &InstallerSpec<'_>) -> Result<String> {
 
     s.push_str("Function .onInit\n");
     s.push_str("  SetShellVarContext all\n");
+    if spec.program_files_64 {
+        // The NSIS stub is 32-bit; without this the ARP entry lands in WOW6432Node.
+        s.push_str("  SetRegView 64\n");
+    }
     s.push_str("FunctionEnd\n\n");
     s.push_str("Function un.onInit\n");
     s.push_str("  SetShellVarContext all\n");
+    if spec.program_files_64 {
+        s.push_str("  SetRegView 64\n");
+    }
     s.push_str("FunctionEnd\n\n");
 
     s.push_str("Section \"Program files\"\n");
@@ -222,7 +230,7 @@ pub fn generate(spec: &InstallerSpec<'_>) -> Result<String> {
 
     s.push_str("Section \"Start Menu shortcut\"\n");
     s.push_str(&format!(
-        "  CreateShortcut /NoWorkingDir \"$SMPROGRAMS\\{name}.lnk\" \"$INSTDIR\\{exe}\"\n"
+        "  CreateShortcut \"$SMPROGRAMS\\{name}.lnk\" \"$INSTDIR\\{exe}\"\n"
     ));
     s.push_str("SectionEnd\n\n");
 
@@ -481,6 +489,7 @@ mod tests {
         );
         assert!(!directives.iter().any(|line| line.starts_with("Unicode ")));
         assert!(script.contains("InstallDir \"$PROGRAMFILES64\\Winia Blank\""));
+        assert!(script.contains("SetRegView 64"));
         assert!(script.contains("Delete \"$INSTDIR\\app.exe\""));
         assert!(script.contains("Delete \"$INSTDIR\\assets\\logo.png\""));
         assert!(script.contains("RMDir \"$INSTDIR\\assets\""));
@@ -494,7 +503,7 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn a_quoted_app_name_still_compiles() {
+    fn a_dollar_name_still_compiles() {
         // makensis is optional on developer machines and CI; skip when it is absent.
         if find_makensis().is_err() {
             return;
@@ -506,10 +515,10 @@ mod tests {
         std::fs::write(payload.join("app.exe"), b"MZ").unwrap();
         let output = dir.join("out.exe");
         let spec = InstallerSpec {
-            app_name: "Say \"Hi\"",
+            app_name: "Cost $5",
             app_version: "0.1.0",
-            app_id: "com.example.quote",
-            publisher: "A \"Publisher\"",
+            app_id: "com.example.dollar",
+            publisher: "A $ Publisher",
             license: Some("Apache-2.0"),
             executable: "app.exe",
             payload: &payload,
@@ -517,7 +526,7 @@ mod tests {
             icon: None,
             program_files_64: true,
         };
-        build(&spec).unwrap_or_else(|error| panic!("quote in name broke the script: {error}"));
+        build(&spec).unwrap_or_else(|error| panic!("dollar in name broke the script: {error}"));
         assert!(output.is_file());
         let _ = std::fs::remove_dir_all(dir);
     }

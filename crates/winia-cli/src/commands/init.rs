@@ -50,10 +50,7 @@ pub fn run(args: InitArgs) -> Result<()> {
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("Cargo.toml has no [package] name"))?
         .to_owned();
-    let package_version = doc["package"]["version"]
-        .as_str()
-        .unwrap_or("0.1.0")
-        .to_owned();
+    let package_version = package_version(&root, &doc).unwrap_or_else(|| "0.1.0".to_owned());
 
     let package = new::package_name(&package_name)?;
     let lib_name = package.replace('-', "_");
@@ -83,14 +80,21 @@ pub fn run(args: InitArgs) -> Result<()> {
     set_target_dependency(
         &mut doc,
         "cfg(not(target_os = \"android\"))",
+        "winia",
         &winia_desktop,
     )?;
-    set_target_dependency(&mut doc, "cfg(target_os = \"android\")", &winia_android)?;
+    set_target_dependency(
+        &mut doc,
+        "cfg(target_os = \"android\")",
+        "winia",
+        &winia_android,
+    )?;
     if android {
         // The Android entry point names winit directly, so the fork must be a dependency.
         set_target_dependency(
             &mut doc,
             "cfg(target_os = \"android\")",
+            "winit",
             &new::winit_dependency(activity),
         )?;
         ensure_crate_types(&mut doc)?;
@@ -110,6 +114,7 @@ pub fn run(args: InitArgs) -> Result<()> {
     config.window.title = app_name;
     config.window.width = 1000.0;
     config.window.height = 700.0;
+    config.validate()?;
     config.save(&root.join("winia.toml"))?;
     crate::generated::write(&root, &config)?;
     println!("Wrote winia.toml");
@@ -139,8 +144,10 @@ pub(crate) fn scaffold_android(root: &Path, config: &WiniaConfig) -> Result<()> 
         config.android.package.clone()
     };
     let package_path = app_id.replace('.', "/");
+    let app_name_kotlin = new::kotlin_string(&config.app.name);
     let vars: Vec<(&str, &str)> = vec![
         ("__APP_NAME__", config.app.name.as_str()),
+        ("__APP_NAME_KOTLIN__", app_name_kotlin.as_str()),
         ("__PACKAGE_NAME__", package.as_str()),
         ("__LIB_NAME__", lib_name.as_str()),
         ("__APP_ID__", app_id.as_str()),
@@ -180,6 +187,14 @@ pub(crate) fn scaffold_android(root: &Path, config: &WiniaConfig) -> Result<()> 
                 .with_context(|| format!("writing {}", lib_file.display()))?;
             println!("Appended android_main to {lib_path}");
         }
+    }
+    // 'winia init' writes src/winia_config.rs, so the library must declare the module or the
+    // generated window values are silently unused.
+    if let Ok(existing) = std::fs::read_to_string(&lib_file)
+        && !existing.contains("mod winia_config")
+    {
+        std::fs::write(&lib_file, format!("{existing}\npub mod winia_config;\n"))
+            .with_context(|| format!("writing {}", lib_file.display()))?;
     }
     for file in new::android_files(config.android.activity) {
         new::write_rendered(root, &file, &vars)?;
@@ -228,7 +243,7 @@ pub(crate) fn ensure_android_cargo(
         let _ = set_dependency_features(&mut doc, cfg, "winit", &[backend], false);
     } else if !present {
         let spec = new::winia_dependency(winia_path, &features)?;
-        set_target_dependency(&mut doc, cfg, &spec)?;
+        set_target_dependency(&mut doc, cfg, "winia", &spec)?;
     }
     let winit_present = doc
         .get("target")
@@ -237,7 +252,7 @@ pub(crate) fn ensure_android_cargo(
         .and_then(|dependencies| dependencies.get("winit"))
         .is_some();
     if !winit_present {
-        set_target_dependency(&mut doc, cfg, &new::winit_dependency(activity))?;
+        set_target_dependency(&mut doc, cfg, "winit", &new::winit_dependency(activity))?;
     }
     ensure_crate_types(&mut doc)?;
     std::fs::write(&path, doc.to_string())
@@ -346,6 +361,37 @@ fn title_case(package: &str) -> String {
         .join(" ")
 }
 
+/// The package version, following `version.workspace = true` into the workspace manifest.
+fn package_version(root: &Path, doc: &DocumentMut) -> Option<String> {
+    let item = doc.get("package")?.get("version")?;
+    if let Some(value) = item.as_str() {
+        return Some(value.to_owned());
+    }
+    let inherits = item
+        .get("workspace")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+    if !inherits {
+        return None;
+    }
+    let mut directory = Some(root);
+    while let Some(current) = directory {
+        let manifest = current.join("Cargo.toml");
+        if let Ok(text) = std::fs::read_to_string(&manifest)
+            && let Ok(value) = text.parse::<toml::Value>()
+            && let Some(version) = value
+                .get("workspace")
+                .and_then(|workspace| workspace.get("package"))
+                .and_then(|package| package.get("version"))
+                .and_then(|version| version.as_str())
+        {
+            return Some(version.to_owned());
+        }
+        directory = current.parent();
+    }
+    None
+}
+
 /// A parent table that renders only when it has to, so the file shows just the leaf headers.
 fn implicit_table() -> Item {
     let mut table = Table::new();
@@ -353,7 +399,7 @@ fn implicit_table() -> Item {
     Item::Table(table)
 }
 
-fn set_target_dependency(doc: &mut DocumentMut, cfg: &str, spec: &str) -> Result<()> {
+fn set_target_dependency(doc: &mut DocumentMut, cfg: &str, name: &str, spec: &str) -> Result<()> {
     let target = doc.entry("target").or_insert_with(implicit_table);
     let target = target
         .as_table_mut()
@@ -368,15 +414,15 @@ fn set_target_dependency(doc: &mut DocumentMut, cfg: &str, spec: &str) -> Result
     let dependencies = dependencies
         .as_table_mut()
         .ok_or_else(|| anyhow::anyhow!("Cargo.toml target.{cfg}.dependencies is not a table"))?;
-    dependencies.insert("winia", dependency_item(spec)?);
+    dependencies.insert(name, dependency_item(name, spec)?);
     Ok(())
 }
 
-fn dependency_item(spec: &str) -> Result<Item> {
-    let parsed: DocumentMut = format!("[dependencies]\nwinia = {spec}\n")
+fn dependency_item(name: &str, spec: &str) -> Result<Item> {
+    let parsed: DocumentMut = format!("[dependencies]\n{name} = {spec}\n")
         .parse()
-        .with_context(|| format!("building the winia dependency from {spec}"))?;
-    Ok(parsed["dependencies"]["winia"].clone())
+        .with_context(|| format!("building the {name} dependency from {spec}"))?;
+    Ok(parsed["dependencies"][name].clone())
 }
 
 fn ensure_crate_types(doc: &mut DocumentMut) -> Result<()> {
@@ -409,8 +455,12 @@ mod tests {
         ensure_android_cargo(&root, None, AndroidActivity::Game, false).unwrap();
         let manifest = std::fs::read_to_string(root.join("Cargo.toml")).unwrap();
         assert!(
-            manifest.contains("package = \"winia-winit\""),
+            manifest.contains("winit = { package = \"winia-winit\""),
             "winit fork missing from {manifest}"
+        );
+        assert!(
+            manifest.contains("winia = { path = \"../winia\""),
+            "winia path dependency was clobbered: {manifest}"
         );
         assert!(manifest.contains("crate-type"));
         let _ = std::fs::remove_dir_all(root);
@@ -446,8 +496,8 @@ mod tests {
         let mut doc: DocumentMut = "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n"
             .parse()
             .unwrap();
-        set_target_dependency(&mut doc, "cfg(unix)", "{ version = \"0.1\" }").unwrap();
-        set_target_dependency(&mut doc, "cfg(unix)", "{ version = \"0.2\" }").unwrap();
+        set_target_dependency(&mut doc, "cfg(unix)", "winia", "{ version = \"0.1\" }").unwrap();
+        set_target_dependency(&mut doc, "cfg(unix)", "winia", "{ version = \"0.2\" }").unwrap();
         let text = doc.to_string();
         assert!(text.contains("[target.\"cfg(unix)\".dependencies]"));
         assert!(text.contains("version = \"0.2\""));

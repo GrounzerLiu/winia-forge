@@ -10,6 +10,7 @@ use crate::commands::{package, sign};
 use crate::config::WiniaConfig;
 use anyhow::{Context, Result, bail};
 use sha2::{Digest, Sha256};
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
@@ -149,11 +150,18 @@ pub fn run(args: ReleaseArgs) -> Result<()> {
             config.android.version_code,
         )?;
         let mut files = vec!["winia.toml".to_owned()];
-        if update_cargo_version(&root, &version)? {
-            files.push("Cargo.toml".to_owned());
-            // Refresh Cargo.lock so the tagged commit builds with --locked.
+        if let Some(changed) = update_cargo_version(&root, &version)? {
+            let changed = changed
+                .strip_prefix(&root)
+                .map(Path::to_path_buf)
+                .unwrap_or(changed);
+            files.push(changed.to_string_lossy().replace('\\', "/"));
+            // Refresh Cargo.lock so the tagged commit builds with --locked. --no-deps would not
+            // rewrite the root package version, so it must resolve dependencies here.
+            let lock_path = root.join("Cargo.lock");
+            let previous_lock = std::fs::read(&lock_path).ok();
             let refreshed = std::process::Command::new("cargo")
-                .args(["metadata", "--format-version", "1", "--no-deps"])
+                .args(["metadata", "--format-version", "1"])
                 .current_dir(&root)
                 .output()
                 .context("refreshing Cargo.lock after the version bump")?;
@@ -163,7 +171,12 @@ pub fn run(args: ReleaseArgs) -> Result<()> {
                     String::from_utf8_lossy(&refreshed.stderr).trim()
                 );
             }
-            if root.join("Cargo.lock").is_file() {
+            if lock_path.is_file() {
+                if previous_lock.as_deref() == std::fs::read(&lock_path).ok().as_deref() {
+                    bail!(
+                        "Cargo.toml was bumped but Cargo.lock did not change; the version may be inherited from a workspace"
+                    );
+                }
                 files.push("Cargo.lock".to_owned());
             }
         }
@@ -174,9 +187,11 @@ pub fn run(args: ReleaseArgs) -> Result<()> {
         git(&root, &["commit", "-m", &format!("chore(release): {tag}")])?;
     }
 
-    // Anything already in dist before this point was produced by an earlier run (or copied in by
-    // hand); it must not end up in this release just because the name matches.
-    let run_started = std::time::SystemTime::now();
+    // Anything already in dist before packaging was produced by an earlier run (or copied in by
+    // hand); it must not end up in this release just because the name matches. Compare against a
+    // snapshot instead of relying on mtime slack, which would also accept a foreign file written
+    // seconds before the release.
+    let before = snapshot_directory(&out_dir);
 
     for target in &targets {
         let mut formats = available_formats(&formats_for(&config, target));
@@ -187,6 +202,14 @@ pub fn run(args: ReleaseArgs) -> Result<()> {
         {
             eprintln!("note: adding zip to the macOS release so the .app bundle can be published");
             formats.push("zip".to_owned());
+        }
+        if target == "macos"
+            && !macos_identity_configured()
+            && formats
+                .iter()
+                .any(|format| format == "app" || format == "dmg")
+        {
+            eprintln!("warning: no macOS signing identity configured; the bundle is unsigned");
         }
         // A bundle packed before signing would stay unsigned, so build those formats after signing.
         let deferred: Vec<String> = if target == "macos" && macos_identity_configured() {
@@ -220,6 +243,7 @@ pub fn run(args: ReleaseArgs) -> Result<()> {
                 dry_run: false,
                 clean: false,
                 reuse_app: false,
+                quiet: args.json,
             })?;
         }
         if !deferred.is_empty() {
@@ -238,6 +262,7 @@ pub fn run(args: ReleaseArgs) -> Result<()> {
                         dry_run: false,
                         release: true,
                         json: false,
+                        quiet: args.json,
                     },
                 )?;
             }
@@ -252,6 +277,7 @@ pub fn run(args: ReleaseArgs) -> Result<()> {
                 clean: false,
                 // The bundle was just signed; rebuilding it would drop the signature.
                 reuse_app: true,
+                quiet: args.json,
             })?;
         }
     }
@@ -259,12 +285,12 @@ pub fn run(args: ReleaseArgs) -> Result<()> {
     let scanned = version_artifacts(&out_dir, &stem, &version)?;
     let mut artifacts: Vec<PathBuf> = scanned
         .iter()
-        .filter(|path| is_fresh(path, run_started))
+        .filter(|path| produced_by_run(path, &before))
         .cloned()
         .collect();
     let stale: Vec<&PathBuf> = scanned
         .iter()
-        .filter(|path| !is_fresh(path, run_started))
+        .filter(|path| !produced_by_run(path, &before))
         .collect();
     if !stale.is_empty() {
         eprintln!(
@@ -306,6 +332,7 @@ pub fn run(args: ReleaseArgs) -> Result<()> {
                     dry_run: false,
                     release: false,
                     json: false,
+                    quiet: args.json,
                 })?;
             }
             let signed = signed_path(&apk);
@@ -323,6 +350,10 @@ pub fn run(args: ReleaseArgs) -> Result<()> {
             .cloned()
             .collect();
         if !files.is_empty() {
+            let signed_exe = files
+                .iter()
+                .find(|path| extension(path) == Some("exe"))
+                .cloned();
             super::sign_windows::run(
                 &root,
                 &root,
@@ -336,8 +367,24 @@ pub fn run(args: ReleaseArgs) -> Result<()> {
                     dry_run: false,
                     release: true,
                     json: false,
+                    quiet: args.json,
                 },
             )?;
+            // The portable zip was built from the unsigned staged executable; replace that entry
+            // so a "signed" release does not ship an unsigned binary inside the archive.
+            if let Some(exe) = signed_exe {
+                for zip in artifacts
+                    .iter()
+                    .filter(|path| extension(path) == Some("zip"))
+                {
+                    if let Err(error) = replace_zip_executable(zip, &exe) {
+                        eprintln!(
+                            "warning: could not refresh {} with the signed executable: {error:#}",
+                            zip.display()
+                        );
+                    }
+                }
+            }
         }
     } else if artifacts
         .iter()
@@ -359,7 +406,12 @@ pub fn run(args: ReleaseArgs) -> Result<()> {
     }
 
     // Write latest.json before publishing so the release carries it.
-    let manifest = write_manifest(&out_dir, &version, &tag, &artifacts)?;
+    let manifest = write_manifest(
+        &out_dir,
+        &version,
+        if args.no_tag { None } else { Some(&tag) },
+        &artifacts,
+    )?;
 
     if track == Some("github") {
         let mut assets = artifacts.clone();
@@ -450,43 +502,62 @@ fn run_sign_json(root: &Path, apk: &Path) -> Result<()> {
     Ok(())
 }
 
-fn update_cargo_version(root: &Path, version: &str) -> Result<bool> {
+fn update_cargo_version(root: &Path, version: &str) -> Result<Option<PathBuf>> {
+    use toml_edit::{DocumentMut, Item, value};
     let path = root.join("Cargo.toml");
     if !path.is_file() {
-        return Ok(false);
+        return Ok(None);
     }
     let text =
         std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-    let mut output = String::new();
-    let mut in_package = false;
-    let mut changed = false;
-    for line in text.lines() {
-        let trimmed = line.trim_start();
-        if trimmed == "[package]" {
-            in_package = true;
-            output.push_str(line);
-            output.push('\n');
-            continue;
-        }
-        if in_package && !changed && trimmed.starts_with("version = \"") {
-            let indent = &line[..line.len() - trimmed.len()];
-            output.push_str(indent);
-            output.push_str(&format!("version = \"{version}\""));
-            output.push('\n');
-            changed = true;
-            in_package = false;
-            continue;
-        }
-        if in_package && trimmed.starts_with('[') {
-            in_package = false;
-        }
-        output.push_str(line);
-        output.push('\n');
+    let mut doc: DocumentMut = text
+        .parse()
+        .with_context(|| format!("parsing {}", path.display()))?;
+    let package = doc
+        .get_mut("package")
+        .and_then(Item::as_table_mut)
+        .ok_or_else(|| anyhow::anyhow!("Cargo.toml has no [package] table to bump"))?;
+
+    let inherits_workspace = package
+        .get("version")
+        .and_then(|version| version.get("workspace"))
+        .and_then(|workspace| workspace.as_bool())
+        .unwrap_or(false);
+    if inherits_workspace {
+        let (workspace_path, mut workspace) = find_workspace_manifest(root)?;
+        workspace["workspace"]["package"]["version"] = value(version);
+        std::fs::write(&workspace_path, workspace.to_string())
+            .with_context(|| format!("writing {}", workspace_path.display()))?;
+        return Ok(Some(workspace_path));
     }
-    if changed {
-        std::fs::write(&path, output).with_context(|| format!("writing {}", path.display()))?;
+
+    match package.get("version") {
+        Some(Item::Value(existing)) if existing.as_str().is_some() => {
+            package["version"] = value(version);
+            std::fs::write(&path, doc.to_string())
+                .with_context(|| format!("writing {}", path.display()))?;
+            Ok(Some(path))
+        }
+        Some(_) => bail!(
+            "Cargo.toml [package].version is not a plain version string; set it explicitly or bump the workspace version"
+        ),
+        None => bail!("Cargo.toml [package] has no version to bump"),
     }
-    Ok(changed)
+}
+
+fn find_workspace_manifest(root: &Path) -> Result<(PathBuf, toml_edit::DocumentMut)> {
+    let mut directory = Some(root);
+    while let Some(current) = directory {
+        let path = current.join("Cargo.toml");
+        if let Ok(text) = std::fs::read_to_string(&path)
+            && let Ok(document) = text.parse::<toml_edit::DocumentMut>()
+            && document.get("workspace").is_some()
+        {
+            return Ok((path, document));
+        }
+        directory = current.parent();
+    }
+    bail!("Cargo.toml inherits the package version, but no workspace manifest was found")
 }
 
 fn push_release(root: &Path, tag: Option<&str>) -> Result<()> {
@@ -505,23 +576,12 @@ fn push_release(root: &Path, tag: Option<&str>) -> Result<()> {
 }
 
 fn bump_version(version: &str, bump: Bump) -> Result<String> {
-    let mut parts = version.split('.');
-    let major: u64 = parts
-        .next()
-        .and_then(|part| part.parse().ok())
-        .ok_or_else(|| anyhow::anyhow!("app.version '{version}' is not semver"))?;
-    let minor: u64 = parts
-        .next()
-        .and_then(|part| part.parse().ok())
-        .ok_or_else(|| anyhow::anyhow!("app.version '{version}' is not semver"))?;
-    let patch: u64 = parts
-        .next()
-        .and_then(|part| part.parse().ok())
-        .ok_or_else(|| anyhow::anyhow!("app.version '{version}' is not semver"))?;
+    let parsed = semver::Version::parse(version)
+        .with_context(|| format!("app.version '{version}' is not semver"))?;
     let (major, minor, patch) = match bump {
-        Bump::Major => (major + 1, 0, 0),
-        Bump::Minor => (major, minor + 1, 0),
-        Bump::Patch => (major, minor, patch + 1),
+        Bump::Major => (parsed.major + 1, 0, 0),
+        Bump::Minor => (parsed.major, parsed.minor + 1, 0),
+        Bump::Patch => (parsed.major, parsed.minor, parsed.patch + 1),
     };
     Ok(format!("{major}.{minor}.{patch}"))
 }
@@ -622,14 +682,35 @@ fn planned_artifacts(
     paths
 }
 
-/// A file counts as produced by this run when it is new or was rewritten after `started`. The
-/// two-second slack covers filesystems with coarse timestamps (FAT), where a freshly written file
-/// can still report a time slightly before the call that created it.
-fn is_fresh(path: &Path, started: std::time::SystemTime) -> bool {
+fn snapshot_directory(
+    directory: &Path,
+) -> std::collections::HashMap<PathBuf, std::time::SystemTime> {
+    let mut files = std::collections::HashMap::new();
+    if let Ok(entries) = std::fs::read_dir(directory) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file()
+                && let Ok(modified) = entry.metadata().and_then(|meta| meta.modified())
+            {
+                files.insert(path, modified);
+            }
+        }
+    }
+    files
+}
+
+/// A file belongs to this run when it did not exist before packaging, or was rewritten since.
+fn produced_by_run(
+    path: &Path,
+    before: &std::collections::HashMap<PathBuf, std::time::SystemTime>,
+) -> bool {
+    let Some(previous) = before.get(path) else {
+        return true;
+    };
     let Ok(modified) = std::fs::metadata(path).and_then(|meta| meta.modified()) else {
         return false;
     };
-    modified + std::time::Duration::from_secs(2) >= started
+    modified > *previous
 }
 
 fn version_artifacts(dist: &Path, stem: &str, version: &str) -> Result<Vec<PathBuf>> {
@@ -803,6 +884,52 @@ fn keystore_configured() -> bool {
         .is_some()
 }
 
+/// Rewrite a portable zip so its executable entry is the signed one.
+fn replace_zip_executable(zip_path: &Path, signed_exe: &Path) -> Result<()> {
+    use zip::write::SimpleFileOptions;
+    let exe_name = signed_exe
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| anyhow::anyhow!("signed executable has no file name"))?
+        .to_owned();
+    let bytes =
+        std::fs::read(signed_exe).with_context(|| format!("reading {}", signed_exe.display()))?;
+    let file =
+        std::fs::File::open(zip_path).with_context(|| format!("reading {}", zip_path.display()))?;
+    let mut archive =
+        zip::ZipArchive::new(file).with_context(|| format!("opening {}", zip_path.display()))?;
+    let temporary = zip_path.with_extension("zip.tmp");
+    {
+        let output = std::fs::File::create(&temporary)
+            .with_context(|| format!("creating {}", temporary.display()))?;
+        let mut writer = zip::ZipWriter::new(output);
+        for index in 0..archive.len() {
+            let mut entry = archive.by_index(index)?;
+            let name = entry.name().to_owned();
+            let options =
+                SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+            if entry.is_dir() {
+                writer.add_directory(name, options)?;
+                continue;
+            }
+            let mut data = Vec::new();
+            entry.read_to_end(&mut data)?;
+            writer.start_file(name.clone(), options)?;
+            let is_executable = Path::new(&name).file_name().and_then(|name| name.to_str())
+                == Some(exe_name.as_str());
+            if is_executable {
+                writer.write_all(&bytes)?;
+            } else {
+                writer.write_all(&data)?;
+            }
+        }
+        writer.finish()?;
+    }
+    std::fs::rename(&temporary, zip_path)
+        .with_context(|| format!("replacing {}", zip_path.display()))?;
+    Ok(())
+}
+
 fn upload_github(root: &Path, tag: &str, notes: &str, artifacts: &[PathBuf]) -> Result<()> {
     if !command_exists("gh") {
         bail!("GitHub release upload requires the gh CLI on PATH");
@@ -846,7 +973,12 @@ fn command_exists(program: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn write_manifest(dist: &Path, version: &str, tag: &str, artifacts: &[PathBuf]) -> Result<PathBuf> {
+fn write_manifest(
+    dist: &Path,
+    version: &str,
+    tag: Option<&str>,
+    artifacts: &[PathBuf],
+) -> Result<PathBuf> {
     let entries: Vec<_> = artifacts
         .iter()
         .map(|path| {
@@ -861,7 +993,10 @@ fn write_manifest(dist: &Path, version: &str, tag: &str, artifacts: &[PathBuf]) 
         .collect();
     let value = serde_json::json!({
         "version": version,
-        "tag": tag,
+        "tag": match tag {
+            Some(tag) => serde_json::Value::String(tag.to_owned()),
+            None => serde_json::Value::Null,
+        },
         "artifacts": entries,
     });
     let path = dist.join("latest.json");
@@ -919,6 +1054,83 @@ mod tests {
     use super::*;
 
     #[test]
+    fn manifest_omits_the_tag_when_no_tag_was_created() {
+        let dir = std::env::temp_dir().join(format!("winia-manifest-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let artifact = dir.join("app.zip");
+        std::fs::write(&artifact, b"zip").unwrap();
+        let path = write_manifest(&dir, "0.1.0", None, std::slice::from_ref(&artifact)).unwrap();
+        let value: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert!(value["tag"].is_null(), "{value}");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn bumps_a_workspace_inherited_version() {
+        let dir = std::env::temp_dir().join(format!("winia-ws-version-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let manifest = dir.join("Cargo.toml");
+        std::fs::write(
+            &manifest,
+            "[package]\nname = \"app\"\nversion.workspace = true\n\n[workspace.package]\nversion = \"0.1.0\"\n# keep\n",
+        )
+        .unwrap();
+        let changed = update_cargo_version(&dir, "0.2.0").unwrap();
+        assert_eq!(changed.as_deref(), Some(manifest.as_path()));
+        let text = std::fs::read_to_string(&manifest).unwrap();
+        assert!(text.contains("version = \"0.2.0\""), "{text}");
+        assert!(text.contains("# keep"), "{text}");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn reseals_a_zip_with_the_signed_executable() {
+        use std::io::{Read, Write};
+        use zip::write::SimpleFileOptions;
+        let dir = std::env::temp_dir().join(format!("winia-zip-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let zip_path = dir.join("app.zip");
+        {
+            let file = std::fs::File::create(&zip_path).unwrap();
+            let mut writer = zip::ZipWriter::new(file);
+            writer
+                .start_file("app.exe", SimpleFileOptions::default())
+                .unwrap();
+            writer.write_all(b"unsigned").unwrap();
+            writer
+                .start_file("assets/data.txt", SimpleFileOptions::default())
+                .unwrap();
+            writer.write_all(b"data").unwrap();
+            writer.finish().unwrap();
+        }
+        let signed = dir.join("app.exe");
+        std::fs::write(&signed, b"signed").unwrap();
+        replace_zip_executable(&zip_path, &signed).unwrap();
+
+        let file = std::fs::File::open(&zip_path).unwrap();
+        let mut archive = zip::ZipArchive::new(file).unwrap();
+        let mut exe = Vec::new();
+        archive
+            .by_name("app.exe")
+            .unwrap()
+            .read_to_end(&mut exe)
+            .unwrap();
+        let mut data = Vec::new();
+        archive
+            .by_name("assets/data.txt")
+            .unwrap()
+            .read_to_end(&mut data)
+            .unwrap();
+        assert_eq!(exe, b"signed");
+        assert_eq!(data, b"data");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn macos_bundles_and_images_are_publishable() {
         assert!(is_release_file(Path::new(
             "dist/app-0.1.0-macos-x86_64.dmg"
@@ -933,14 +1145,18 @@ mod tests {
     }
 
     #[test]
-    fn freshness_requires_a_file_written_by_this_run() {
+    fn snapshots_distinguish_new_and_rewritten_files() {
         let dir = std::env::temp_dir().join(format!("winia-release-fresh-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("artifact.zip");
+        let before = snapshot_directory(&dir);
         std::fs::write(&file, b"x").unwrap();
-        let started = std::time::SystemTime::now();
-        assert!(is_fresh(&file, started));
-        assert!(!is_fresh(&dir.join("missing.zip"), started));
+        assert!(produced_by_run(&file, &before));
+
+        let before = snapshot_directory(&dir);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(&file, b"y").unwrap();
+        assert!(produced_by_run(&file, &before));
         let _ = std::fs::remove_dir_all(dir);
     }
 

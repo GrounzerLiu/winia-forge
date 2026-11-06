@@ -67,7 +67,8 @@ It would only be depended on by the Android target and would never enter desktop
 1. **Do not reimplement Cargo**: building, testing, and cleaning all call `cargo`.
 2. **Do not reimplement Gradle**: Android resources, the Manifest, and the AAB are all left to Gradle.
 3. **Do not reimplement packaging formats**: Windows calls WiX/NSIS, macOS calls hdiutil/codesign/notarytool,
-   Linux calls dpkg-deb/rpmbuild/AppImage tooling.
+   Linux calls rpmbuild/AppImage tooling; deb is the deliberate exception and is written directly
+   as an ar archive (see docs/02).
 4. **Machine-readable output where it matters**: `build`, `package`, `sign`, `release`, `doctor`,
    `test`, `clean`, `android sync`, `devices`, `screenshot` and `config show` support `--json`;
    `--dry-run` exists on `build`, `package`, `sign`, `release`, `clean` and `android sync --check`.

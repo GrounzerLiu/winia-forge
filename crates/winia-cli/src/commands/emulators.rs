@@ -67,11 +67,23 @@ fn start(name: &str, headless: bool) -> Result<()> {
             .arg("-no-audio")
             .arg("-no-boot-anim");
     }
-    let child = command
+    let log_path = std::env::temp_dir().join(format!("winia-emulator-{name}.log"));
+    let log = std::fs::File::create(&log_path)
+        .with_context(|| format!("creating {}", log_path.display()))?;
+    let mut child = command
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stderr(Stdio::from(log))
         .spawn()
         .with_context(|| format!("starting the emulator for '{name}'"))?;
+    // The emulator commonly exits immediately (missing system image, no KVM); do not report a
+    // successful start for a process that is already gone.
+    std::thread::sleep(std::time::Duration::from_millis(800));
+    if let Some(status) = child.try_wait()? {
+        bail!(
+            "the emulator for '{name}' exited immediately with {status}; see {}",
+            log_path.display()
+        );
+    }
     println!(
         "Started {name} (pid {}). Use 'winia devices' to wait for it to come online.",
         child.id()

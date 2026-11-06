@@ -147,7 +147,11 @@ fn config(args: ConfigArgs) -> Result<()> {
                     Some(next) => current = next,
                     // Optional keys vanish from the serialised config when unset; saying "unknown"
                     // would be indistinguishable from a typo.
-                    None if matches!(key.as_str(), "app.icon" | "app.license") => {
+                    None if matches!(
+                        key.as_str(),
+                        "app.icon" | "app.license" | "android.label"
+                    ) =>
+                    {
                         println!();
                         return Ok(());
                     }
@@ -189,7 +193,9 @@ fn platform(args: PlatformArgs) -> Result<()> {
     match args.command {
         PlatformCommand::Add(add) => match add.platform {
             // Adding the platform and initialising the Android project are the same operation.
-            crate::cli::Platform::Android => crate::commands::android::android_init(false),
+            crate::cli::Platform::Android => {
+                crate::commands::android::android_init(add.force, add.winia_path)
+            }
             crate::cli::Platform::Ios => bail!("iOS support is not designed yet"),
             crate::cli::Platform::Windows
             | crate::cli::Platform::Macos

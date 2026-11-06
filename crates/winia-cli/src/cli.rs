@@ -325,6 +325,9 @@ pub struct PackageArgs {
     /// signing the bundle, so the signature is preserved).
     #[arg(skip)]
     pub reuse_app: bool,
+    /// Suppress human-readable progress (release --json uses this for internal package runs).
+    #[arg(skip)]
+    pub quiet: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -359,6 +362,9 @@ pub struct SignArgs {
     /// Only sign APKs that are not debuggable.
     #[arg(long)]
     pub release: bool,
+    /// Suppress human-readable progress (release --json uses this for internal signing).
+    #[arg(skip)]
+    pub quiet: bool,
     /// Emit machine-readable output.
     #[arg(long)]
     pub json: bool,
@@ -613,6 +619,12 @@ pub enum PlatformCommand {
 #[derive(Debug, Args)]
 pub struct PlatformAddArgs {
     pub platform: Platform,
+    /// Regenerate even when android/ already exists.
+    #[arg(long)]
+    pub force: bool,
+    /// Path to a local winia checkout when Cargo.toml has no Android dependency yet.
+    #[arg(long)]
+    pub winia_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -628,6 +640,9 @@ pub enum AndroidCommand {
         /// Regenerate even when android/ already exists.
         #[arg(long)]
         force: bool,
+        /// Path to a local winia checkout when Cargo.toml has no Android dependency yet.
+        #[arg(long)]
+        winia_path: Option<PathBuf>,
     },
     /// Regenerate the Gradle files Winia owns from winia.toml.
     Sync {

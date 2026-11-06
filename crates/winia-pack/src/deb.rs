@@ -41,6 +41,7 @@ pub fn build(spec: &DebSpec<'_>) -> Result<PathBuf> {
     if !spec.payload.is_dir() {
         bail!("payload directory not found: {}", spec.payload.display());
     }
+    crate::validate_app_name(spec.app_name)?;
     let package = debian_name(spec.app_id);
     let version = debian_version(spec.app_version)?;
     let arch = debian_arch(spec.arch)?;
@@ -61,12 +62,12 @@ pub fn build(spec: &DebSpec<'_>) -> Result<PathBuf> {
             .file_stem()
             .map(|value| value.to_string_lossy().into_owned())
     });
+    // dpkg counts 1 KiB blocks: files smaller than 4 KiB still occupy one block.
     let install_size_kib: u64 = files
         .iter()
-        .map(|file| file.bytes.len() as u64)
+        .map(|file| (file.bytes.len() as u64).max(4096).div_ceil(1024))
         .sum::<u64>()
-        / 1024
-        + 1;
+        + 4;
 
     let mut data = Vec::new();
     {
@@ -176,7 +177,9 @@ fn debian_version(version: &str) -> Result<String> {
     if !value.chars().next().is_some_and(|c| c.is_ascii_digit()) {
         bail!("app.version '{value}' must start with a digit for a Debian package");
     }
-    Ok(value.to_owned())
+    // Debian treats text after '-' as a revision, which sorts after the bare upstream version.
+    // '~' is the documented pre-release marker, so 1.0.0-beta.1 sorts below 1.0.0.
+    Ok(value.replacen('-', "~", 1))
 }
 
 fn debian_arch(arch: &str) -> Result<&'static str> {
@@ -206,7 +209,7 @@ fn control_file(
         format!("{} <noreply@example.com>", spec.publisher.trim())
     };
     format!(
-        "Package: {package}\nVersion: {version}\nArchitecture: {arch}\nMaintainer: {maintainer}\nInstalled-Size: {installed_size_kib}\nSection: utils\nPriority: optional\nDescription: {}\n A Winia desktop application.\n",
+        "Package: {package}\nVersion: {version}\nArchitecture: {arch}\nMaintainer: {maintainer}\nInstalled-Size: {installed_size_kib}\nDepends: libc6, libx11-6, libxkbcommon0, libfontconfig1\nSection: utils\nPriority: optional\nDescription: {}\n A Winia desktop application.\n",
         spec.app_name
     )
 }
@@ -296,8 +299,10 @@ fn copyright_file(spec: &DebSpec<'_>) -> String {
         "Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/\n\
          Upstream-Name: {}\n\
          Upstream-Contact: {}\n\
+         Files: *\n\
+         Copyright: {}\n\
          License: {}\n",
-        spec.app_name, spec.publisher, license
+        spec.app_name, spec.publisher, spec.publisher, license
     )
 }
 

@@ -69,7 +69,9 @@ fn run_desktop(root: &Path, config: &WiniaConfig, args: &RunArgs, target: &str) 
         .status()
         .with_context(|| format!("running {}", executable.path.display()))?;
     if !status.success() {
-        bail!("application exited with {status}");
+        // Thin launcher: preserve the app's exit code so scripts can react to it.
+        eprintln!("application exited with {status}");
+        std::process::exit(status.code().unwrap_or(1));
     }
     Ok(())
 }
@@ -123,6 +125,12 @@ pub(crate) fn adb(args: &[&str]) -> Result<String> {
         );
     }
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+fn adb_output(args: &[&str], timeout: Duration) -> Result<std::process::Output> {
+    let mut command = Command::new(adb_program());
+    command.args(args);
+    output_with_timeout(command, timeout)
 }
 
 /// Run adb and return raw stdout, for binary payloads such as screencap PNGs.
@@ -295,7 +303,7 @@ fn install_impl(device: &str, apk: &Path, quiet: bool) -> Result<()> {
         .is_some_and(|name| name.ends_with("-unsigned.apk"))
     {
         bail!(
-            "{} is unsigned and cannot be installed; configure signing (WINIA_ANDROID_KEYSTORE) or use a debug build",
+            "{} is unsigned and cannot be installed; add a signingConfig to android/app/build.gradle.kts, or use a debug build (winia sign only signs packaged APKs)",
             apk.display()
         );
     }
@@ -319,10 +327,10 @@ fn install_impl(device: &str, apk: &Path, quiet: bool) -> Result<()> {
 pub(crate) fn adb_forward(device: &str, host_port: u16, device_port: u16) -> Result<()> {
     let host_mapping = format!("tcp:{host_port}");
     let device_mapping = format!("tcp:{device_port}");
-    let list = Command::new(adb_program())
-        .args(["-s", device, "forward", "--list"])
-        .output()
-        .context("running adb forward --list")?;
+    let list = adb_output(
+        &["-s", device, "forward", "--list"],
+        Duration::from_secs(10),
+    )?;
     let listing = String::from_utf8_lossy(&list.stdout);
     if listing.lines().any(|line| {
         let fields: Vec<&str> = line.split_whitespace().collect();
@@ -333,20 +341,16 @@ pub(crate) fn adb_forward(device: &str, host_port: u16, device_port: u16) -> Res
     }) {
         return Ok(());
     }
-    if listing.lines().any(|line| {
-        let fields: Vec<&str> = line.split_whitespace().collect();
-        fields.len() >= 2 && fields[1] == host_mapping
-    }) {
-        bail!("adb forward {host_mapping} is already used by another mapping; remove it first");
-    }
-
-    let _ = Command::new(adb_program())
-        .args(["-s", device, "forward", "--remove", &host_mapping])
-        .output();
-    let output = Command::new(adb_program())
-        .args(["-s", device, "forward", &host_mapping, &device_mapping])
-        .output()
-        .context("running adb forward")?;
+    // Re-point an existing mapping for this host port instead of failing on it: the device-side
+    // debug port can change between app restarts.
+    let _ = adb_output(
+        &["-s", device, "forward", "--remove", &host_mapping],
+        Duration::from_secs(10),
+    );
+    let output = adb_output(
+        &["-s", device, "forward", &host_mapping, &device_mapping],
+        Duration::from_secs(15),
+    )?;
     if !output.status.success() {
         bail!(
             "adb forward failed: {}",
@@ -358,10 +362,10 @@ pub(crate) fn adb_forward(device: &str, host_port: u16, device_port: u16) -> Res
 
 pub(crate) fn adb_remove_forward(device: &str, host_port: u16) -> Result<()> {
     let mapping = format!("tcp:{host_port}");
-    let output = Command::new(adb_program())
-        .args(["-s", device, "forward", "--remove", &mapping])
-        .output()
-        .context("running adb forward --remove")?;
+    let output = adb_output(
+        &["-s", device, "forward", "--remove", &mapping],
+        Duration::from_secs(10),
+    )?;
     if !output.status.success() {
         let text = String::from_utf8_lossy(&output.stderr);
         if !text.contains("not found") && !text.contains("cannot remove") {
@@ -378,10 +382,9 @@ pub(crate) fn push_android_debug_info(device: &str, package: &str, json: &str) -
         format!("run-as {package} sh -c 'mkdir -p files; cat > files/winia-debug-info.json'");
     let stdin =
         std::fs::File::open(&local).with_context(|| format!("opening {}", local.display()))?;
-    let output = Command::new(adb_program())
-        .args(["-s", device, "shell", &shell])
-        .stdin(stdin)
-        .output()
+    let mut command = Command::new(adb_program());
+    command.args(["-s", device, "shell", &shell]).stdin(stdin);
+    let output = output_with_timeout(command, Duration::from_secs(15))
         .context("running adb shell run-as")?;
     let _ = std::fs::remove_file(&local);
     if !output.status.success() {
@@ -394,16 +397,15 @@ pub(crate) fn push_android_debug_info(device: &str, package: &str, json: &str) -
 }
 
 pub(crate) fn clear_logcat(device: &str) {
-    let _ = Command::new(adb_program())
-        .args(["-s", device, "logcat", "-c"])
-        .output();
+    let _ = adb_output(&["-s", device, "logcat", "-c"], Duration::from_secs(10));
 }
 
 pub(crate) fn app_pid(device: &str, package: &str) -> Option<u32> {
-    let output = Command::new(adb_program())
-        .args(["-s", device, "shell", "pidof", package])
-        .output()
-        .ok()?;
+    let output = adb_output(
+        &["-s", device, "shell", "pidof", package],
+        Duration::from_secs(10),
+    )
+    .ok()?;
     if !output.status.success() {
         return None;
     }
@@ -414,10 +416,11 @@ pub(crate) fn app_pid(device: &str, package: &str) -> Option<u32> {
 }
 
 pub(crate) fn logcat_pid(device: &str, pid: u32) -> Result<String> {
-    let output = Command::new(adb_program())
-        .args(["-s", device, "logcat", "-d", "--pid", &pid.to_string()])
-        .output()
-        .context("running adb logcat --pid")?;
+    let output = adb_output(
+        &["-s", device, "logcat", "-d", "--pid", &pid.to_string()],
+        Duration::from_secs(30),
+    )
+    .context("running adb logcat --pid")?;
     Ok(format!(
         "{}{}",
         String::from_utf8_lossy(&output.stdout),
@@ -426,10 +429,11 @@ pub(crate) fn logcat_pid(device: &str, pid: u32) -> Result<String> {
 }
 
 pub(crate) fn logcat_dump(device: &str) -> Result<String> {
-    let output = Command::new(adb_program())
-        .args(["-s", device, "logcat", "-d", "-s", "RustStdoutStderr:I"])
-        .output()
-        .context("running adb logcat")?;
+    let output = adb_output(
+        &["-s", device, "logcat", "-d", "-s", "RustStdoutStderr:I"],
+        Duration::from_secs(30),
+    )
+    .context("running adb logcat")?;
     Ok(format!(
         "{}{}",
         String::from_utf8_lossy(&output.stdout),
@@ -438,10 +442,11 @@ pub(crate) fn logcat_dump(device: &str) -> Result<String> {
 }
 
 pub(crate) fn screencap(device: &str) -> Result<Vec<u8>> {
-    let output = Command::new(adb_program())
-        .args(["-s", device, "exec-out", "screencap", "-p"])
-        .output()
-        .context("running adb screencap")?;
+    let output = adb_output(
+        &["-s", device, "exec-out", "screencap", "-p"],
+        Duration::from_secs(60),
+    )
+    .context("running adb screencap")?;
     if !output.status.success() {
         bail!(
             "adb screencap failed: {}",
@@ -452,10 +457,11 @@ pub(crate) fn screencap(device: &str) -> Result<Vec<u8>> {
 }
 
 pub(crate) fn debug_server_port(device: &str) -> Result<Option<u16>> {
-    let output = Command::new(adb_program())
-        .args(["-s", device, "logcat", "-d", "-s", "RustStdoutStderr:I"])
-        .output()
-        .context("running adb logcat")?;
+    let output = adb_output(
+        &["-s", device, "logcat", "-d", "-s", "RustStdoutStderr:I"],
+        Duration::from_secs(30),
+    )
+    .context("running adb logcat")?;
     if !output.status.success() {
         return Ok(None);
     }
@@ -501,7 +507,8 @@ fn launch_impl(
     let _ = output_with_timeout(stop, Duration::from_secs(10));
 
     let mut start = Command::new(adb_program());
-    start.args(["-s", device, "shell", "am", "start", "-W", "-n", component]);
+    start.args(["-s", device, "shell", "am", "start", "-W", "-n"]);
+    start.arg(shell_quote(component));
     if !args.is_empty() {
         // `adb shell` joins argv and the device shell parses the line again, so values with spaces
         // or metacharacters must be quoted for that shell, not for adb.
@@ -523,7 +530,14 @@ fn launch_impl(
         String::from_utf8_lossy(&output.stderr)
     );
     if !output.status.success() || text.contains("Error") {
-        bail!("could not start {component}:\n{}", text.trim());
+        let logcat = logcat_dump(device).unwrap_or_default();
+        let tail: Vec<&str> = logcat.lines().rev().take(20).collect();
+        let tail: Vec<&str> = tail.into_iter().rev().collect();
+        bail!(
+            "could not start {component}:\n{}\nlogcat (last 20 lines):\n{}",
+            text.trim(),
+            tail.join("\n")
+        );
     }
     if !quiet {
         println!("Launched {component} on {device}");
@@ -538,13 +552,8 @@ pub(crate) fn activity_component(root: &Path, package: &str) -> String {
     if let Ok(text) = std::fs::read_to_string(&manifest)
         && let Some(name) = launcher_activity_name(&text)
     {
-        return if name.starts_with('.') {
-            format!("{package}/{name}")
-        } else if name.starts_with(package) {
-            name
-        } else {
-            format!("{package}/{name}")
-        };
+        // am expects pkg/class; a bare fully-qualified class is rejected by ComponentName.
+        return format!("{package}/{name}");
     }
     format!("{package}/.MainActivity")
 }
@@ -556,14 +565,34 @@ fn shell_quote(value: &str) -> String {
 
 /// Prefer the activity with MAIN/LAUNCHER; fall back to the first one.
 fn launcher_activity_name(manifest: &str) -> Option<String> {
-    for block in manifest.split("<activity").skip(1) {
-        let block = block.split("</activity>").next().unwrap_or(block);
+    let mut rest = manifest;
+    while let Some(start) = rest.find("<activity") {
+        let element = &rest[start..];
+        let Some(open_end) = element.find('>') else {
+            break;
+        };
+        // A self-closing <activity ... /> has no closing tag; skip it instead of ending the scan.
+        if element[..open_end].trim_end().ends_with('/') {
+            rest = &element[open_end + 1..];
+            continue;
+        }
+        let alias = element.starts_with("<activity-alias");
+        let close_tag = if alias {
+            "</activity-alias>"
+        } else {
+            "</activity>"
+        };
+        let Some(close) = element.find(close_tag) else {
+            break;
+        };
+        let block = &element[..close];
         if block.contains("android.intent.action.MAIN")
             && block.contains("android.intent.category.LAUNCHER")
             && let Some(name) = activity_name_in(block)
         {
             return Some(name);
         }
+        rest = &element[close + close_tag.len()..];
     }
     first_activity_name(manifest)
 }
@@ -625,6 +654,37 @@ mod tests {
         </application></manifest>"#;
         assert_eq!(first_activity_name(manifest), Some(".Launcher".to_owned()));
         assert!(first_activity_name("<manifest />").is_none());
+    }
+
+    #[test]
+    fn activity_alias_is_used_when_it_is_the_launcher() {
+        let manifest = r#"<manifest><application>
+  <activity android:name=".MainActivity" />
+  <activity-alias android:name=".Alias" android:targetActivity=".MainActivity">
+    <intent-filter>
+      <action android:name="android.intent.action.MAIN" />
+      <category android:name="android.intent.category.LAUNCHER" />
+    </intent-filter>
+  </activity-alias>
+</application></manifest>"#;
+        assert_eq!(launcher_activity_name(manifest).as_deref(), Some(".Alias"));
+    }
+
+    #[test]
+    fn absolute_activity_names_keep_the_component_slash() {
+        let root = std::env::temp_dir().join(format!("winia-component-{}", std::process::id()));
+        let directory = root.join("android/app/src/main");
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(
+            directory.join("AndroidManifest.xml"),
+            "<manifest><application><activity android:name=\"com.example.Main\" /></application></manifest>",
+        )
+        .unwrap();
+        assert_eq!(
+            activity_component(&root, "com.example"),
+            "com.example/com.example.Main"
+        );
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

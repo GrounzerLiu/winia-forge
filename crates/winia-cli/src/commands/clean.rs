@@ -128,6 +128,11 @@ pub fn run(args: CleanArgs) -> Result<()> {
         }
     }
 
+    let failed = entries
+        .iter()
+        .filter(|entry| entry.status == "failed")
+        .count();
+
     if args.json {
         let values: Vec<_> = entries
             .iter()
@@ -145,8 +150,12 @@ pub fn run(args: CleanArgs) -> Result<()> {
             "dry_run": args.dry_run,
             "removed": values,
             "total_bytes": total_bytes,
+            "failed": failed,
         });
         println!("{}", serde_json::to_string_pretty(&value)?);
+        if failed > 0 {
+            std::process::exit(1);
+        }
         return Ok(());
     }
 
@@ -175,10 +184,6 @@ pub fn run(args: CleanArgs) -> Result<()> {
             _ => {}
         }
     }
-    let failed = entries
-        .iter()
-        .filter(|entry| entry.status == "failed")
-        .count();
     if failed > 0 {
         eprintln!(
             "{failed} path(s) could not be removed; close whatever is using them and run again"
@@ -192,7 +197,7 @@ pub fn run(args: CleanArgs) -> Result<()> {
         println!("Nothing to clean.");
     } else if !args.dry_run {
         println!(
-            "Cleaned {} in {:.2}",
+            "Cleaned {} in {}",
             format_bytes(total_bytes),
             root.display()
         );

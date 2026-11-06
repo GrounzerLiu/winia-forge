@@ -28,9 +28,11 @@ pub fn run(root: &Path, cwd: &Path, args: &SignArgs) -> Result<()> {
     }
 
     if args.dry_run {
-        for file in &files {
-            println!("Would sign {}", relative(root, file));
-            println!("  {}", render_command(&signtool, &credentials, file));
+        if !args.quiet {
+            for file in &files {
+                println!("Would sign {}", relative(root, file));
+                println!("  {}", render_command(&signtool, &credentials, file));
+            }
         }
         return Ok(());
     }
@@ -83,6 +85,9 @@ pub fn run(root: &Path, cwd: &Path, args: &SignArgs) -> Result<()> {
         return Ok(());
     }
 
+    if args.quiet {
+        return Ok(());
+    }
     for file in &signed {
         println!("Signed {}", relative(root, file));
     }
@@ -362,6 +367,7 @@ mod tests {
             dry_run: true,
             release: false,
             json: false,
+            quiet: false,
         };
         let files = resolve_files(&root, &root, &args).unwrap();
         assert_eq!(files.len(), 2);

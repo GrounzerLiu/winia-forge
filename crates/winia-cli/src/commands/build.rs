@@ -25,8 +25,10 @@ pub(crate) struct Artifact {
 #[derive(Debug)]
 struct ProjectMetadata {
     target_directory: PathBuf,
-    binary_name: String,
+    /// None when the package has no single obvious binary (multiple bins without default-run).
+    binary_name: Option<String>,
     library_name: String,
+    binaries: Vec<String>,
 }
 
 pub fn run(args: BuildArgs) -> Result<()> {
@@ -58,8 +60,14 @@ pub fn run(args: BuildArgs) -> Result<()> {
     }
     let profile = if args.release { "release" } else { "debug" };
     if let Some(out_dir) = &args.out_dir {
-        copy_artifacts(&all, out_dir)?;
-        crate::assets::stage_desktop(&root, &config, out_dir)?;
+        // Match package: relative --out-dir is rooted at the project, not the caller's cwd.
+        let out_dir = if out_dir.is_absolute() {
+            out_dir.clone()
+        } else {
+            root.join(out_dir)
+        };
+        copy_artifacts(&all, &out_dir)?;
+        crate::assets::stage_desktop(&root, &config, &out_dir)?;
     }
     report(&root, &built, profile, started.elapsed(), args.json)
 }
@@ -71,12 +79,17 @@ pub(crate) fn build_all(
     config: &WiniaConfig,
     args: &BuildArgs,
 ) -> Result<Vec<(String, Vec<Artifact>)>> {
+    // Validate the package before touching the source tree: a failed build must not leave a new
+    // winia_config.rs or icon set behind.
+    let metadata = cargo_metadata(root)?;
     crate::icons::ensure(root, config)?;
     // The app reads window values from the generated module, so refresh it before compiling.
     crate::generated::write(root, config)?;
-    let metadata = cargo_metadata(root)?;
     let features = effective_features(config, args);
     let targets = resolve_targets(&args.target)?;
+    if targets.is_empty() {
+        bail!("no build target selected; --target was empty");
+    }
     let mut built = Vec::new();
     let profile = if args.release { "release" } else { "debug" };
     for target in &targets {
@@ -126,6 +139,9 @@ fn resolve_targets(requested: &[String]) -> Result<Vec<String>> {
             }
         }
     }
+    if targets.is_empty() {
+        bail!("no build target selected; --target was empty");
+    }
     Ok(targets)
 }
 
@@ -163,12 +179,22 @@ fn build_desktop(
     }
     run_command(&mut command, "cargo build", args.json)?;
 
+    let Some(binary_name) = &metadata.binary_name else {
+        if metadata.binaries.is_empty() {
+            bail!(
+                "the package has no [[bin]] target; winia build produces an executable, not a library"
+            );
+        }
+        bail!(
+            "the package declares several binaries ({}); set [package] default-run to the app binary or remove the extras",
+            metadata.binaries.join(", ")
+        );
+    };
     let profile = if args.release { "release" } else { "debug" };
-    let executable = metadata.target_directory.join(profile).join(format!(
-        "{}{}",
-        metadata.binary_name,
-        std::env::consts::EXE_SUFFIX
-    ));
+    let executable = metadata
+        .target_directory
+        .join(profile)
+        .join(format!("{binary_name}{}", std::env::consts::EXE_SUFFIX));
     Ok(vec![artifact(executable)?])
 }
 
@@ -215,7 +241,7 @@ fn build_android_libraries_with(
     crate::icons::ensure(root, config)?;
     let toolchain = AndroidToolchain::discover(config)?;
     let abis = selected_abis(config, args)?;
-    ensure_rust_targets(&abis)?;
+    ensure_rust_targets(root, &abis)?;
     toolchain.validate(&abis)?;
     clean_jni_libs(root, &abis)?;
 
@@ -366,10 +392,28 @@ fn clean_jni_libs(root: &Path, selected: &[Abi]) -> Result<()> {
         if selected.contains(&abi) {
             continue;
         }
-        let path = jni.join(abi.jni_libs_dir());
-        if path.is_dir() {
-            std::fs::remove_dir_all(&path)
-                .with_context(|| format!("removing stale {}", path.display()))?;
+        let directory = jni.join(abi.jni_libs_dir());
+        if !directory.is_dir() {
+            continue;
+        }
+        // Remove only libraries this tool copied (recorded in .winia-libs); a hand-vendored .so
+        // in the same directory must survive.
+        let marker = directory.join(".winia-libs");
+        if let Ok(previous) = std::fs::read_to_string(&marker) {
+            for name in previous.lines().filter(|line| !line.is_empty()) {
+                if name.ends_with(".so") {
+                    let _ = std::fs::remove_file(directory.join(name));
+                }
+            }
+            let _ = std::fs::remove_file(&marker);
+        }
+        let empty = std::fs::read_dir(&directory)
+            .map(|mut entries| entries.next().is_none())
+            .unwrap_or(false);
+        if empty {
+            let _ = std::fs::remove_dir(&directory);
+        } else {
+            eprintln!("note: kept unmanaged files in {}", directory.display());
         }
     }
     Ok(())
@@ -504,9 +548,10 @@ fn run_gradle(
     })
 }
 
-fn ensure_rust_targets(abis: &[Abi]) -> Result<()> {
+fn ensure_rust_targets(root: &Path, abis: &[Abi]) -> Result<()> {
     let output = match Command::new("rustup")
         .args(["target", "list", "--installed"])
+        .current_dir(root)
         .output()
     {
         Ok(output) if output.status.success() => output,
@@ -646,7 +691,10 @@ impl AndroidToolchain {
             {
                 environment.push((
                     "BINDGEN_EXTRA_CLANG_ARGS".to_owned(),
-                    format!("-resource-dir {}", display(&resource_dir)),
+                    format!(
+                        "-resource-dir \"{}\"",
+                        display(&resource_dir).replace('\\', "/")
+                    ),
                 ));
             }
         }
@@ -829,7 +877,11 @@ fn verify_alignment(toolchain: &AndroidToolchain, library: &Path) -> Result<()> 
         }
         saw_load = true;
         let alignment = line.split_whitespace().last().unwrap_or_default();
-        if alignment != "0x4000" {
+        let aligned = alignment
+            .strip_prefix("0x")
+            .and_then(|value| u64::from_str_radix(value, 16).ok());
+        // Android requires at least 16 KiB; larger page sizes (64 KiB) are compatible.
+        if aligned.is_none_or(|value| value < 0x4000) {
             bail!(
                 "{} has a LOAD segment aligned to {} (expected 0x4000)",
                 library.display(),
@@ -874,27 +926,38 @@ fn cargo_metadata(root: &Path) -> Result<ProjectMetadata> {
                 .map(|path| Path::new(path) == manifest.as_path())
                 .unwrap_or(false)
         })
-        .or_else(|| packages.first())
-        .context("cargo metadata: no packages")?;
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "{} is a virtual workspace, not a package; run winia from the app crate directory",
+                manifest.display()
+            )
+        })?;
     let targets = package["targets"]
         .as_array()
         .context("cargo metadata: targets")?;
-    let binary_name = targets
+    let binaries: Vec<String> = targets
         .iter()
-        .find(|target| has_kind(target, "bin"))
-        .and_then(|target| target["name"].as_str())
-        .map(str::to_owned)
-        .unwrap_or_else(|| package["name"].as_str().unwrap_or("app").replace('-', "_"));
+        .filter(|target| has_kind(target, "bin"))
+        .filter_map(|target| target["name"].as_str().map(str::to_owned))
+        .collect();
+    let default_run = package["default_run"].as_str();
+    let binary_name = match (binaries.len(), default_run) {
+        (1, _) => Some(binaries[0].clone()),
+        (_, Some(name)) if binaries.iter().any(|binary| binary == name) => Some(name.to_owned()),
+        _ => None,
+    };
     let library_name = targets
         .iter()
         .find(|target| has_kind(target, "cdylib") || has_kind(target, "lib"))
         .and_then(|target| target["name"].as_str())
         .map(|name| name.replace('-', "_"))
-        .unwrap_or_else(|| binary_name.clone());
+        .or_else(|| binaries.first().cloned())
+        .unwrap_or_else(|| package["name"].as_str().unwrap_or("app").replace('-', "_"));
     Ok(ProjectMetadata {
         target_directory,
         binary_name,
         library_name,
+        binaries,
     })
 }
 

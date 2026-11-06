@@ -17,10 +17,17 @@ pub fn open(android_dir: &Path) -> Result<()> {
             android_dir.display()
         ),
     };
-    std::process::Command::new(&studio)
+    let mut child = std::process::Command::new(&studio)
         .arg(android_dir)
         .spawn()
         .with_context(|| format!("launching {}", studio.display()))?;
+    std::thread::sleep(std::time::Duration::from_millis(700));
+    if let Some(status) = child.try_wait()? {
+        bail!(
+            "Android Studio exited immediately with {status}; check the launcher at {}",
+            studio.display()
+        );
+    }
     println!("Opened {} in Android Studio", android_dir.display());
     Ok(())
 }

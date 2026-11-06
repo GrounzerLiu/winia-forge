@@ -99,6 +99,7 @@ fn package_desktop(
                 formats: &formats,
                 split: None,
                 version: &version,
+                quiet: args.quiet,
             },
         );
     }
@@ -172,97 +173,113 @@ fn package_desktop(
     let explicit = !args.format.is_empty();
     let mut produced = Vec::new();
     let mut built_formats = Vec::new();
-    for format in &formats {
-        let destination = desktop_artifact_path(&stem, &version, target, arch, format, &out_dir);
-        match format.as_str() {
-            "zip" if target == "macos" => {
-                // A macOS zip without the .app bundle has no Info.plist and no identity.
-                let bundle = macos_bundle_path(&out_dir, &stem, &version, target, arch);
-                if !args.reuse_app || !bundle.exists() {
-                    build_macos_app(&stage, &bundle, config, icons.as_ref(), &executable.path)?;
+    let result = (|| -> Result<()> {
+        for format in &formats {
+            let destination =
+                desktop_artifact_path(&stem, &version, target, arch, format, &out_dir);
+            match format.as_str() {
+                "zip" if target == "macos" => {
+                    // A macOS zip without the .app bundle has no Info.plist and no identity.
+                    let bundle = macos_bundle_path(&out_dir, &stem, &version, target, arch);
+                    if !args.reuse_app || !bundle.exists() {
+                        build_macos_app(&stage, &bundle, config, icons.as_ref(), &executable.path)?;
+                    }
+                    zip_directory(&bundle, &destination)?;
                 }
-                zip_directory(&bundle, &destination)?;
-            }
-            "zip" => zip_directory(&stage, &destination)?,
-            "tar.gz" => tar_gz_directory(&stage, &destination)?,
-            "app" => build_macos_app(
-                &stage,
-                &destination,
-                config,
-                icons.as_ref(),
-                &executable.path,
-            )?,
-            "dmg" => {
-                let bundle = macos_bundle_path(&out_dir, &stem, &version, target, arch);
-                if !args.reuse_app || !bundle.exists() {
-                    build_macos_app(&stage, &bundle, config, icons.as_ref(), &executable.path)?;
+                "zip" => zip_directory(&stage, &destination)?,
+                "tar.gz" => tar_gz_directory(&stage, &destination)?,
+                "app" => build_macos_app(
+                    &stage,
+                    &destination,
+                    config,
+                    icons.as_ref(),
+                    &executable.path,
+                )?,
+                "dmg" => {
+                    let bundle = macos_bundle_path(&out_dir, &stem, &version, target, arch);
+                    if !args.reuse_app || !bundle.exists() {
+                        build_macos_app(&stage, &bundle, config, icons.as_ref(), &executable.path)?;
+                    }
+                    build_macos_dmg(&bundle, &destination, config)?;
                 }
-                build_macos_dmg(&bundle, &destination, config)?;
+                "deb" => {
+                    let spec = winia_pack::deb::DebSpec {
+                        app_name: &config.app.name,
+                        app_version: &version,
+                        app_id: &config.app.id,
+                        publisher: &publisher,
+                        license,
+                        executable: executable_name.to_str().ok_or_else(|| {
+                            anyhow::anyhow!("the executable name is not valid UTF-8")
+                        })?,
+                        payload: &stage,
+                        output: &destination,
+                        arch,
+                    };
+                    winia_pack::deb::build(&spec)?;
+                }
+                "msi" if !explicit && !winia_pack::msi::wix_available() => {
+                    eprintln!("note: the WiX toolset was not found; skipped msi");
+                    continue;
+                }
+                "nsis" if !explicit && winia_pack::nsis::find_makensis().is_err() => {
+                    eprintln!("note: makensis was not found; skipped nsis");
+                    continue;
+                }
+                "msi" => {
+                    let spec = winia_pack::msi::MsiSpec {
+                        app_name: &config.app.name,
+                        app_version: &version,
+                        app_id: &config.app.id,
+                        publisher: &publisher,
+                        executable: executable_name.to_str().ok_or_else(|| {
+                            anyhow::anyhow!("the executable name is not valid UTF-8")
+                        })?,
+                        payload: &stage,
+                        output: &destination,
+                        arch,
+                    };
+                    winia_pack::msi::build(&spec)?;
+                }
+                "nsis" => {
+                    let icon = icons
+                        .as_ref()
+                        .filter(|_| target == "windows")
+                        .map(|_| Path::new("app.ico"));
+                    let spec = winia_pack::nsis::InstallerSpec {
+                        app_name: &config.app.name,
+                        app_version: &version,
+                        app_id: &config.app.id,
+                        publisher: &publisher,
+                        license,
+                        executable: executable_name.to_str().ok_or_else(|| {
+                            anyhow::anyhow!("the executable name is not valid UTF-8")
+                        })?,
+                        payload: &stage,
+                        output: &destination,
+                        icon,
+                        program_files_64: arch != "x86",
+                    };
+                    winia_pack::nsis::build(&spec)?;
+                }
+                other => bail!("unsupported desktop format '{other}'"),
             }
-            "deb" => {
-                let spec = winia_pack::deb::DebSpec {
-                    app_name: &config.app.name,
-                    app_version: &version,
-                    app_id: &config.app.id,
-                    publisher: &publisher,
-                    license,
-                    executable: executable_name
-                        .to_str()
-                        .ok_or_else(|| anyhow::anyhow!("the executable name is not valid UTF-8"))?,
-                    payload: &stage,
-                    output: &destination,
-                    arch,
-                };
-                winia_pack::deb::build(&spec)?;
-            }
-            "msi" if !explicit && !winia_pack::msi::wix_available() => {
-                eprintln!("note: the WiX toolset was not found; skipped msi");
-                continue;
-            }
-            "nsis" if !explicit && winia_pack::nsis::find_makensis().is_err() => {
-                eprintln!("note: makensis was not found; skipped nsis");
-                continue;
-            }
-            "msi" => {
-                let spec = winia_pack::msi::MsiSpec {
-                    app_name: &config.app.name,
-                    app_version: &version,
-                    app_id: &config.app.id,
-                    publisher: &publisher,
-                    executable: executable_name
-                        .to_str()
-                        .ok_or_else(|| anyhow::anyhow!("the executable name is not valid UTF-8"))?,
-                    payload: &stage,
-                    output: &destination,
-                    arch,
-                };
-                winia_pack::msi::build(&spec)?;
-            }
-            "nsis" => {
-                let icon = icons
-                    .as_ref()
-                    .filter(|_| target == "windows")
-                    .map(|_| Path::new("app.ico"));
-                let spec = winia_pack::nsis::InstallerSpec {
-                    app_name: &config.app.name,
-                    app_version: &version,
-                    app_id: &config.app.id,
-                    publisher: &publisher,
-                    license,
-                    executable: executable_name
-                        .to_str()
-                        .ok_or_else(|| anyhow::anyhow!("the executable name is not valid UTF-8"))?,
-                    payload: &stage,
-                    output: &destination,
-                    icon,
-                    program_files_64: arch == "x86_64",
-                };
-                winia_pack::nsis::build(&spec)?;
-            }
-            other => bail!("unsupported desktop format '{other}'"),
+            produced.push(destination);
+            built_formats.push(format.clone());
         }
-        produced.push(destination);
-        built_formats.push(format.clone());
+        Ok(())
+    })();
+    if let Err(error) = result {
+        // Do not leave a half-finished release set behind when a later format fails.
+        for path in &produced {
+            let _ = std::fs::remove_file(path);
+        }
+        return Err(error);
+    }
+    if produced.is_empty() {
+        bail!(
+            "no artifacts were produced for {target}; every requested format was skipped because its tool is missing"
+        );
     }
     crate::hooks::run(root, config, crate::hooks::Phase::AfterPackage, &context)?;
 
@@ -277,6 +294,7 @@ fn package_desktop(
             formats: &built_formats,
             split: None,
             version: &version,
+            quiet: args.quiet,
         },
     )
 }
@@ -716,6 +734,7 @@ fn package_android(
                 formats: &formats,
                 split: Some(split),
                 version: &version,
+                quiet: args.quiet,
             },
         );
     }
@@ -723,7 +742,7 @@ fn package_android(
     std::fs::create_dir_all(&out_dir).with_context(|| format!("creating {}", out_dir.display()))?;
     if args.clean {
         clean_output_dir(&out_dir, &stem, &version)?;
-    } else if has_package_artifacts(&out_dir, &stem, &version) && !args.json {
+    } else if has_package_artifacts(&out_dir, &stem, &version) && !args.json && !args.quiet {
         println!(
             "note: {} already contains files; pass --clean to remove stale artifacts",
             out_dir.display()
@@ -835,6 +854,7 @@ fn package_android(
             formats: &formats,
             split: Some(split),
             version: &version,
+            quiet: args.quiet,
         },
     )
 }
@@ -1142,6 +1162,7 @@ struct ReportMeta<'a> {
     formats: &'a [String],
     split: Option<SplitMode>,
     version: &'a str,
+    quiet: bool,
 }
 
 fn report(
@@ -1157,7 +1178,10 @@ fn report(
     } else {
         artifacts.iter().map(|path| sha256_of(path)).collect()
     };
-    if !dry_run && let Some(directory) = artifacts.first().and_then(|path| path.parent()) {
+    if !dry_run
+        && hashes.iter().any(|hash| hash.is_some())
+        && let Some(directory) = artifacts.first().and_then(|path| path.parent())
+    {
         write_checksums(directory, artifacts, &hashes)?;
     }
     if json {
@@ -1200,6 +1224,9 @@ fn report(
         println!("{}", serde_json::to_string_pretty(&value)?);
         return Ok(());
     }
+    if meta.quiet {
+        return Ok(());
+    }
     println!(
         "{}",
         if dry_run {
@@ -1212,9 +1239,7 @@ fn report(
         if dry_run {
             println!("  {}", display_relative(root, artifact));
         } else {
-            let bytes = std::fs::metadata(artifact)
-                .map(|metadata| metadata.len())
-                .unwrap_or(0);
+            let bytes = artifact_size(artifact);
             println!(
                 "  {} ({:.1} MB)",
                 display_relative(root, artifact),
@@ -1226,6 +1251,23 @@ fn report(
 }
 
 /// SHA-256 of a produced artifact, or None when it cannot be read.
+/// Directory artifacts (.app) report their tree size, not the directory entry length.
+fn artifact_size(path: &Path) -> u64 {
+    if path.is_dir() {
+        return std::fs::read_dir(path)
+            .map(|entries| {
+                entries
+                    .flatten()
+                    .map(|entry| artifact_size(&entry.path()))
+                    .sum()
+            })
+            .unwrap_or(0);
+    }
+    std::fs::metadata(path)
+        .map(|metadata| metadata.len())
+        .unwrap_or(0)
+}
+
 fn sha256_of(path: &Path) -> Option<String> {
     let bytes = std::fs::read(path).ok()?;
     Some(format!("{:x}", Sha256::digest(&bytes)))
@@ -1276,6 +1318,7 @@ pub(crate) fn update_checksums(files: &[PathBuf]) -> Result<()> {
         };
         entries.insert(name.to_owned(), hash);
     }
+    entries.retain(|name, _| directory.join(name).is_file());
     write_checksums_file(&path, &entries)
 }
 
@@ -1296,6 +1339,8 @@ fn write_checksums(
         };
         entries.insert(name.to_owned(), hash.clone());
     }
+    // --clean removes artifacts, so drop checksum lines for files that no longer exist.
+    entries.retain(|name, _| directory.join(name).is_file());
     write_checksums_file(&path, &entries)
 }
 
@@ -1334,11 +1379,17 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let artifact = dir.join("app.zip");
         std::fs::write(&artifact, b"after").unwrap();
-        std::fs::write(dir.join("SHA256SUMS"), "0000  app.zip\n1111  other.zip\n").unwrap();
+        std::fs::write(dir.join("other.zip"), b"other").unwrap();
+        std::fs::write(
+            dir.join("SHA256SUMS"),
+            "0000  app.zip\n1111  other.zip\n2222  gone.zip\n",
+        )
+        .unwrap();
         update_checksums(std::slice::from_ref(&artifact)).unwrap();
         let text = std::fs::read_to_string(dir.join("SHA256SUMS")).unwrap();
         assert!(!text.contains("0000"), "{text}");
         assert!(text.contains("1111  other.zip"), "{text}");
+        assert!(!text.contains("gone.zip"), "{text}");
         let expected = sha256_of(&artifact).unwrap();
         assert!(text.contains(&expected), "{text}");
         let _ = std::fs::remove_dir_all(dir);

@@ -48,8 +48,11 @@ pub fn run(args: LogcatArgs) -> Result<()> {
         bail!("unknown log level '{level}'; expected V, D, I, W, E, F or S");
     }
     match (tag, level) {
-        // TAG:LEVEL is one filter spec; "-s TAG *:LEVEL" would leave TAG pinned at V.
-        (Some(tag), Some(level)) => arguments.push(format!("{tag}:{level}")),
+        // -s makes TAG:LEVEL the only filter; without it logcat keeps its implicit *:V default.
+        (Some(tag), Some(level)) => {
+            arguments.push("-s".to_owned());
+            arguments.push(format!("{tag}:{level}"));
+        }
         (Some(tag), None) => {
             arguments.push("-s".to_owned());
             arguments.push(tag);

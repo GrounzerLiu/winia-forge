@@ -12,7 +12,7 @@ use std::time::Instant;
 
 /// Sign the given bundles (or every .app in dist) with codesign.
 pub fn run(root: &Path, cwd: &Path, args: &SignArgs) -> Result<()> {
-    if !cfg!(target_os = "macos") {
+    if !cfg!(target_os = "macos") && !args.dry_run {
         bail!("code signing needs codesign, which only exists on macOS; run this on a Mac");
     }
     let started = Instant::now();
@@ -29,9 +29,11 @@ pub fn run(root: &Path, cwd: &Path, args: &SignArgs) -> Result<()> {
     }
 
     if args.dry_run {
-        for bundle in &bundles {
-            println!("Would sign {}", relative(root, bundle));
-            println!("  {}", render(&identity, entitlements.as_deref(), bundle));
+        if !args.quiet {
+            for bundle in &bundles {
+                println!("Would sign {}", relative(root, bundle));
+                println!("  {}", render(&identity, entitlements.as_deref(), bundle));
+            }
         }
         return Ok(());
     }
@@ -83,6 +85,9 @@ pub fn run(root: &Path, cwd: &Path, args: &SignArgs) -> Result<()> {
         return Ok(());
     }
 
+    if args.quiet {
+        return Ok(());
+    }
     for bundle in &bundles {
         println!("Signed {}", relative(root, bundle));
     }

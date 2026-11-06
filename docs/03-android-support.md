@@ -229,7 +229,8 @@ winia screenshot --target android --output shot.png
 - `adb install -r`.
 - `adb shell am start -W` and wait for the launch result.
 - On launch failure, print the most recent logcat automatically.
-- `--release` runs the release package.
+- `--release` builds the release APK; the generated Gradle project has no signingConfig, so add one
+  to `android/app/build.gradle.kts` before installing a release build.
 
 ### 5.2 `winia dev`
 
@@ -255,7 +256,8 @@ winia screenshot --target android --output shot.png
 
 ### 5.3 Logs and symbols
 
-- `winia logcat` filters by package name by default and supports `--pid`, `--level`, `--clear`.
+- `winia logcat` streams the device log by default; use `--filter <tag|package>`, `--pid`,
+  `--level` and `--clear` to narrow it.
 - `winia android symbols` extracts/keeps the debug symbols of `lib<app>.so`.
 - Crash stacks are resolved with `ndk-stack` or `addr2line`.
 

@@ -102,6 +102,7 @@ pub fn run(args: DevArgs) -> Result<()> {
         debug_port,
         debug_actual_port: debug_port,
         session,
+        running: None,
     };
 
     if dev.args.once {
@@ -136,6 +137,7 @@ struct Dev {
     debug_port: u16,
     debug_actual_port: u16,
     session: Session,
+    running: Option<Arc<AtomicBool>>,
 }
 
 impl Dev {
@@ -214,9 +216,12 @@ impl Dev {
                 println!("Application started (pid {})", spawned.id());
                 *child = Some(spawned);
                 if self.debug_enabled {
-                    self.debug_actual_port =
-                        wait_for_debug_port_file(&port_file, Duration::from_secs(10))
-                            .unwrap_or(self.debug_port);
+                    self.debug_actual_port = wait_for_debug_port_file(
+                        &port_file,
+                        Duration::from_secs(10),
+                        self.running.as_deref(),
+                    )
+                    .unwrap_or(self.debug_port);
                 }
                 if cfg!(windows) {
                     *executable = Some(prepared);
@@ -273,6 +278,13 @@ impl Dev {
     fn wait_for_debug_server(&self) {
         let deadline = Instant::now() + Duration::from_secs(15);
         while Instant::now() < deadline {
+            if self
+                .running
+                .as_ref()
+                .is_some_and(|running| !running.load(Ordering::SeqCst))
+            {
+                return;
+            }
             if websocket_handshake_ok(self.debug_actual_port) {
                 println!(
                     "Debug server ready at ws://127.0.0.1:{}",
@@ -311,7 +323,8 @@ impl Dev {
         if let Some(status) = status
             && !status.success()
         {
-            bail!("application exited with {status}");
+            eprintln!("application exited with {status}");
+            std::process::exit(status.code().unwrap_or(1));
         }
         Ok(())
     }
@@ -340,10 +353,10 @@ impl Dev {
         let signal = running.clone();
         ctrlc::set_handler(move || signal.store(false, Ordering::SeqCst))
             .context("installing the Ctrl+C handler")?;
+        self.running = Some(running.clone());
 
         println!("Initial build...");
         if let Err(error) = self.rebuild() {
-            self.stop_debug_forward();
             eprintln!("Build failed: {error:#}");
             eprintln!("Watching for changes to retry...");
         }
@@ -386,7 +399,6 @@ impl Dev {
                         );
                     }
                     if let Err(error) = self.rebuild() {
-                        self.stop_debug_forward();
                         eprintln!("Build failed: {error:#}");
                     }
                 }
@@ -561,9 +573,16 @@ fn debug_port_file(root: &Path) -> PathBuf {
         .join(format!("debug-port-{}.txt", std::process::id()))
 }
 
-fn wait_for_debug_port_file(path: &Path, timeout: Duration) -> Option<u16> {
+fn wait_for_debug_port_file(
+    path: &Path,
+    timeout: Duration,
+    running: Option<&AtomicBool>,
+) -> Option<u16> {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
+        if running.is_some_and(|running| !running.load(Ordering::SeqCst)) {
+            return None;
+        }
         if let Ok(text) = std::fs::read_to_string(path)
             && let Ok(port) = text.trim().parse::<u16>()
             && port > 0

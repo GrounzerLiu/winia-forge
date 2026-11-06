@@ -279,6 +279,24 @@ fn target_dependency(value: &toml::Value, android: bool) -> Option<&toml::Value>
     None
 }
 
+/// A dependency version can be a bare string ("0.1") or a table key ("version = \"0.1\"").
+fn declared_version(spec: &toml::Value) -> Option<&str> {
+    match spec {
+        toml::Value::String(value) => Some(value.as_str()),
+        _ => spec.get("version").and_then(|value| value.as_str()),
+    }
+}
+
+fn version_requirement_matches(declared: &str, cli: &str) -> bool {
+    let Ok(version) = semver::Version::parse(cli) else {
+        return true;
+    };
+    match semver::VersionReq::parse(declared) {
+        Ok(requirement) => requirement.matches(&version),
+        Err(_) => true,
+    }
+}
+
 fn dependency_check(root: &Path) -> Check {
     const NAME: &str = "winia dependency";
     let manifest = root.join("Cargo.toml");
@@ -353,13 +371,13 @@ fn dependency_check(root: &Path) -> Check {
     if let Some(version) = [plain, desktop, android]
         .into_iter()
         .flatten()
-        .find_map(|spec| spec.get("version").and_then(|value| value.as_str()))
-        && version != cli
+        .find_map(declared_version)
+        && !version_requirement_matches(version, cli)
     {
         return Check {
             name: NAME,
             status: Status::Warning,
-            detail: format!("declares winia {version}; this CLI is {cli}"),
+            detail: format!("declares winia {version}, which does not match this CLI ({cli})"),
             required: false,
         };
     }
@@ -516,8 +534,8 @@ fn plan_fixes(checks: &[Check], target: Option<Target>) -> Vec<FixAction> {
                 ));
             }
             "Android NDK" => {
-                if let Some(path) = installed_ndks().last() {
-                    fixes.push(FixAction::manual("Android NDK", ndk_env_command(path)));
+                if let Some(path) = preferred_ndk() {
+                    fixes.push(FixAction::manual("Android NDK", ndk_env_command(&path)));
                 }
             }
             _ => {}
@@ -823,15 +841,26 @@ fn android_licenses_check(required: bool) -> Check {
     }
 }
 
-fn android_ndk_check(required: bool) -> Check {
-    let candidates: Vec<(&'static str, PathBuf)> = ["ANDROID_NDK", "ANDROID_NDK_HOME"]
+/// The same choice the build makes: the known-good NDK when installed, otherwise the newest.
+fn preferred_ndk() -> Option<PathBuf> {
+    let installed = installed_ndks();
+    installed
         .iter()
-        .filter_map(|var| {
-            std::env::var_os(var)
-                .filter(|value| !value.is_empty())
-                .map(|value| (*var, PathBuf::from(value)))
-        })
-        .collect();
+        .find(|path| path.file_name().and_then(|name| name.to_str()) == Some("27.0.12077973"))
+        .or_else(|| installed.last())
+        .cloned()
+}
+
+fn android_ndk_check(required: bool) -> Check {
+    let candidates: Vec<(&'static str, PathBuf)> =
+        ["ANDROID_NDK", "ANDROID_NDK_HOME", "ANDROID_NDK_ROOT"]
+            .iter()
+            .filter_map(|var| {
+                std::env::var_os(var)
+                    .filter(|value| !value.is_empty())
+                    .map(|value| (*var, PathBuf::from(value)))
+            })
+            .collect();
 
     if let Some((var, path)) = candidates.iter().find(|(_, path)| path.is_dir()) {
         return Check::ok(
@@ -848,26 +877,13 @@ fn android_ndk_check(required: bool) -> Check {
         );
     }
 
-    let installed = installed_ndks();
-    if !installed.is_empty() {
-        let names: Vec<String> = installed
-            .iter()
-            .map(|path| {
-                path.file_name()
-                    .map(|name| name.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| path.display().to_string())
-            })
-            .collect();
-        let parent = installed
-            .first()
-            .and_then(|path| path.parent())
-            .map(|path| path.display().to_string())
-            .unwrap_or_else(|| "the Android SDK".to_owned());
-        return Check::missing(
+    if let Some(path) = preferred_ndk() {
+        // The build auto-discovers <sdk>/ndk/<version>, so doctor must not fail a working setup.
+        return Check::ok(
             "Android NDK",
             format!(
-                "ANDROID_NDK is not set; installed under {parent}: {} (set ANDROID_NDK to one of them)",
-                names.join(", ")
+                "auto-discovered {} (ANDROID_NDK is not set)",
+                path.display()
             ),
             required,
         );
@@ -982,7 +998,42 @@ fn java_check(required: bool) -> Check {
                 )
             }
         }
-        None => Check::missing("JAVA_HOME", "JAVA_HOME is not set", required),
+        None => {
+            // Gradle falls back to PATH, so a working java there is enough.
+            match Command::new("java").arg("-version").output() {
+                Ok(output) => {
+                    let text = format!(
+                        "{}{}",
+                        String::from_utf8_lossy(&output.stderr),
+                        String::from_utf8_lossy(&output.stdout)
+                    );
+                    match java_major(&text) {
+                        Some(major) if major >= 17 => Check::ok(
+                            "JAVA_HOME",
+                            format!("not set; using java {major} on PATH"),
+                            required,
+                        ),
+                        Some(major) => Check::missing(
+                            "JAVA_HOME",
+                            format!("not set; java {major} on PATH is too old; AGP needs 17 or newer"),
+                            required,
+                        ),
+                        None => Check {
+                            name: "JAVA_HOME",
+                            status: Status::Warning,
+                            detail: "JAVA_HOME is not set and 'java -version' on PATH was not recognised"
+                                .to_owned(),
+                            required: false,
+                        },
+                    }
+                }
+                Err(_) => Check::missing(
+                    "JAVA_HOME",
+                    "JAVA_HOME is not set and java is not on PATH",
+                    required,
+                ),
+            }
+        }
     }
 }
 
@@ -1123,8 +1174,24 @@ fn installed_ndks() -> Vec<PathBuf> {
         .map(|name| ndk_root.join(name))
         .filter(|path| path.is_dir())
         .collect();
-    ndks.sort();
+    ndks.sort_by_key(|path| {
+        ndk_sort_key(
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or(""),
+        )
+    });
     ndks
+}
+
+fn ndk_sort_key(name: &str) -> [u32; 4] {
+    let core = name.split('-').next().unwrap_or(name);
+    let mut parts = core
+        .split('.')
+        .map(|part| part.parse::<u32>().unwrap_or(0))
+        .collect::<Vec<_>>();
+    parts.resize(4, 0);
+    [parts[0], parts[1], parts[2], parts[3]]
 }
 
 fn installed_subdirs(root: &Path) -> Vec<String> {

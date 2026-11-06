@@ -198,7 +198,7 @@ impl WiniaConfig {
     /// Write this manifest as pretty TOML.
     pub fn save(&self, path: &Path) -> anyhow::Result<()> {
         let text = toml::to_string_pretty(self).context("serialising winia.toml")?;
-        std::fs::write(path, text).with_context(|| format!("writing {}", path.display()))
+        write_atomic(path, &text)
     }
 
     /// Basic cross-field validation used by `winia doctor`.
@@ -230,8 +230,47 @@ impl WiniaConfig {
                 self.android.min_sdk
             );
         }
+        if self.android.target_sdk < self.android.min_sdk {
+            anyhow::bail!(
+                "android.target_sdk ({}) must be at least min_sdk ({})",
+                self.android.target_sdk,
+                self.android.min_sdk
+            );
+        }
+        if self.android.compile_sdk < self.android.target_sdk {
+            anyhow::bail!(
+                "android.compile_sdk ({}) must be at least target_sdk ({})",
+                self.android.compile_sdk,
+                self.android.target_sdk
+            );
+        }
+        if self.android.version_code == 0 {
+            anyhow::bail!("android.version_code must be at least 1");
+        }
+        if self.android.abis.is_empty() {
+            anyhow::bail!("android.abis must list at least one ABI");
+        }
         for abi in &self.android.abis {
             crate::platform::android::Abi::parse(abi)?;
+        }
+        if self.app.name.trim().is_empty() {
+            anyhow::bail!("app.name must not be empty");
+        }
+        if self.app.name.chars().any(|c| {
+            c.is_control() || matches!(c, ':' | '|' | '?' | '*' | '/' | '\\' | '"' | '<' | '>')
+        }) {
+            anyhow::bail!(
+                "app.name '{}' contains a character that is not valid in a Windows file or folder name",
+                self.app.name
+            );
+        }
+        for (label, value) in [
+            ("window.width", self.window.width),
+            ("window.height", self.window.height),
+        ] {
+            if !value.is_finite() || value <= 0.0 {
+                anyhow::bail!("{label} must be a finite, positive number, got {value}");
+            }
         }
         Ok(())
     }
@@ -280,7 +319,7 @@ pub fn set_android_package(path: &Path, package: &str) -> anyhow::Result<()> {
         .as_table_mut()
         .ok_or_else(|| anyhow::anyhow!("[android] is not a table in {}", path.display()))?["package"] =
         toml_edit::value(package);
-    std::fs::write(path, doc.to_string()).with_context(|| format!("writing {}", path.display()))?;
+    write_atomic(path, &doc.to_string())?;
     Ok(())
 }
 
@@ -305,7 +344,7 @@ pub fn set_release_versions(path: &Path, version: &str, version_code: u32) -> an
         .as_table_mut()
         .ok_or_else(|| anyhow::anyhow!("[android] is not a table in {}", path.display()))?["version_code"] =
         toml_edit::value(i64::from(version_code));
-    std::fs::write(path, doc.to_string()).with_context(|| format!("writing {}", path.display()))?;
+    write_atomic(path, &doc.to_string())?;
     Ok(())
 }
 
@@ -325,7 +364,25 @@ pub fn set_app_icon(path: &Path, icon: &str) -> anyhow::Result<()> {
         .as_table_mut()
         .ok_or_else(|| anyhow::anyhow!("[app] is not a table in {}", path.display()))?;
     table["icon"] = toml_edit::value(icon);
-    std::fs::write(path, doc.to_string()).with_context(|| format!("writing {}", path.display()))?;
+    write_atomic(path, &doc.to_string())?;
+    Ok(())
+}
+
+/// Write a file through a sibling temporary file so an interrupted write cannot truncate the
+/// only copy of winia.toml.
+fn write_atomic(path: &Path, text: &str) -> anyhow::Result<()> {
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("winia.toml");
+    let temporary = path.with_file_name(format!(".{name}.tmp"));
+    std::fs::write(&temporary, text).with_context(|| format!("writing {}", temporary.display()))?;
+    if std::fs::rename(&temporary, path).is_err() {
+        // Windows cannot rename over an existing file; the temporary copy is still complete.
+        let _ = std::fs::remove_file(path);
+        std::fs::rename(&temporary, path)
+            .with_context(|| format!("replacing {}", path.display()))?;
+    }
     Ok(())
 }
 
@@ -350,6 +407,49 @@ pub fn find_config(start: &Path) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rejects_values_that_would_produce_invalid_output() {
+        let mut config = WiniaConfig::default();
+        config.app.id = "com.example.app".to_owned();
+        config.android.package = "com.example.app".to_owned();
+
+        config.window.width = f32::NAN;
+        assert!(config.validate().is_err(), "NaN width should be rejected");
+        config.window.width = 800.0;
+        config.window.height = -1.0;
+        assert!(
+            config.validate().is_err(),
+            "negative height should be rejected"
+        );
+        config.window.height = 600.0;
+
+        config.android.version_code = 0;
+        assert!(
+            config.validate().is_err(),
+            "version_code 0 should be rejected"
+        );
+        config.android.version_code = 1;
+
+        config.android.target_sdk = 20;
+        assert!(
+            config.validate().is_err(),
+            "target below min should be rejected"
+        );
+        config.android.target_sdk = 36;
+        config.android.compile_sdk = 30;
+        assert!(
+            config.validate().is_err(),
+            "compile below target should be rejected"
+        );
+        config.android.compile_sdk = 36;
+
+        config.app.name = "Bad:Name".to_owned();
+        assert!(
+            config.validate().is_err(),
+            "illegal Windows name should be rejected"
+        );
+    }
 
     #[test]
     fn rejects_ids_that_are_not_reverse_dns() {

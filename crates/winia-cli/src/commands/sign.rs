@@ -67,7 +67,7 @@ pub fn run(args: SignArgs) -> Result<()> {
         .collect();
 
     if args.dry_run {
-        return report_plan(&root, &plans, args.json, started.elapsed());
+        return report_plan(&root, &plans, args.json, args.quiet, started.elapsed());
     }
 
     let build_tools = build_tools
@@ -108,7 +108,7 @@ pub fn run(args: SignArgs) -> Result<()> {
         eprintln!("warning: could not refresh SHA256SUMS: {error}");
     }
 
-    report(&root, &results, args.json, started.elapsed())
+    report(&root, &results, args.json, args.quiet, started.elapsed())
 }
 
 fn resolve_keystore(cwd: &Path, args: &SignArgs) -> Result<PathBuf> {
@@ -319,6 +319,7 @@ fn report_plan(
     root: &Path,
     plans: &[(PathBuf, PathBuf)],
     json: bool,
+    quiet: bool,
     elapsed: std::time::Duration,
 ) -> Result<()> {
     if json {
@@ -341,6 +342,9 @@ fn report_plan(
         println!("{}", serde_json::to_string_pretty(&value)?);
         return Ok(());
     }
+    if quiet {
+        return Ok(());
+    }
     println!("Would sign:");
     for (input, output) in plans {
         println!(
@@ -356,6 +360,7 @@ fn report(
     root: &Path,
     results: &[(PathBuf, PathBuf, String)],
     json: bool,
+    quiet: bool,
     elapsed: std::time::Duration,
 ) -> Result<()> {
     if json {
@@ -376,6 +381,9 @@ fn report(
             "duration_ms": elapsed.as_millis(),
         });
         println!("{}", serde_json::to_string_pretty(&value)?);
+        return Ok(());
+    }
+    if quiet {
         return Ok(());
     }
     for (_, output, certificate) in results {

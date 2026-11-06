@@ -217,8 +217,10 @@ pub fn run(args: NewArgs) -> Result<()> {
     )?;
     let winia_desktop = winia_dependency(args.winia_path.clone(), &["gl"])?;
 
+    let app_name_kotlin = kotlin_string(&args.name);
     let vars: Vec<(&str, &str)> = vec![
         ("__APP_NAME__", args.name.as_str()),
+        ("__APP_NAME_KOTLIN__", app_name_kotlin.as_str()),
         ("__PACKAGE_NAME__", package.as_str()),
         ("__LIB_NAME__", lib_name.as_str()),
         ("__APP_ID__", app_id.as_str()),
@@ -269,15 +271,22 @@ pub fn run(args: NewArgs) -> Result<()> {
     }
 
     if !args.no_git {
-        let _ = std::process::Command::new("git")
+        match std::process::Command::new("git")
             .arg("init")
             .current_dir(&root)
-            .status();
+            .status()
+        {
+            Ok(status) if status.success() => {}
+            Ok(status) => eprintln!(
+                "warning: 'git init' failed with {status}; the project is not a repository"
+            ),
+            Err(error) => eprintln!("warning: could not run 'git init': {error}"),
+        }
     }
 
     println!("Created {} at {}", args.name, root.display());
     println!("Next:");
-    println!("  cd {}", root.display());
+    println!("  cd \"{}\"", root.display());
     println!("  winia doctor");
     println!("  winia run");
     if platforms.contains(&Platform::Android) {
@@ -319,6 +328,10 @@ pub(crate) fn winia_dependency(explicit: Option<PathBuf>, features: &[&str]) -> 
         .join(", ");
     match path {
         Some(path) => {
+            // Cargo resolves a path dependency relative to the manifest that contains it, while the
+            // user passed this path relative to their working directory. Store an absolute path so
+            // both interpretations agree.
+            let path = std::path::absolute(&path).unwrap_or(path);
             // A missing path is left for cargo to report; a readable manifest that is a workspace
             // is the common mistake worth catching here.
             let manifest = path.join("Cargo.toml");
@@ -341,6 +354,16 @@ pub(crate) fn winia_dependency(explicit: Option<PathBuf>, features: &[&str]) -> 
             "winia is not published on crates.io yet; pass --winia-path <path-to-winia-crate> or set WINIA_PATH"
         ),
     }
+}
+
+/// Escape a value for a Kotlin string literal (quotes, backslashes and $ templates).
+pub(crate) fn kotlin_string(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('$', "\\$")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
 }
 
 pub(crate) fn render(template: &str, vars: &[(&str, &str)]) -> String {
