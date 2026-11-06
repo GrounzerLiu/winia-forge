@@ -773,7 +773,9 @@ mod tests {
         assert!(checked_lib_path(&root, "src/lib.rs").is_ok());
         assert!(checked_lib_path(&root, "../outside.rs").is_err());
         assert!(checked_lib_path(&root, "src/../../outside.rs").is_err());
-        assert!(checked_lib_path(&root, "D:/outside.rs").is_err());
+        // Platform-neutral absolute path: "D:/outside.rs" is relative on Linux.
+        let outside = std::env::temp_dir().join("winia-outside-lib.rs");
+        assert!(checked_lib_path(&root, &outside.to_string_lossy()).is_err());
         let _ = std::fs::remove_dir_all(root);
     }
 
