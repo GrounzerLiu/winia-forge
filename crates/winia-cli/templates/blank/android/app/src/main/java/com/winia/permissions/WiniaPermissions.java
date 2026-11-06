@@ -3,11 +3,13 @@ package com.winia.permissions;
 import android.app.Activity;
 import android.content.Intent;
 import android.net.Uri;
+import android.os.Build;
 import android.provider.Settings;
 
-import com.hjq.permissions.permission.PermissionLists;
 import com.hjq.permissions.XXPermissions;
+import com.hjq.permissions.permission.PermissionLists;
 import com.hjq.permissions.permission.base.IPermission;
+import com.hjq.permissions.tools.PermissionSettingPage;
 
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -24,22 +26,25 @@ public final class WiniaPermissions {
 
     private WiniaPermissions() {}
 
-    public static void requestCamera(Activity activity, long requestId) {
-        request(activity, requestId, PermissionLists.getCameraPermission());
+    public static void requestCapability(Activity activity, long requestId, String capability) {
+        request(activity, requestId, permissionsFor(capability));
     }
 
-    public static void requestMicrophone(Activity activity, long requestId) {
-        request(activity, requestId, PermissionLists.getRecordAudioPermission());
+    public static boolean isGranted(Activity activity, String capability) {
+        if ("notifications".equals(capability) && Build.VERSION.SDK_INT < 33) {
+            return true;
+        }
+        if ("location".equals(capability)) {
+            return XXPermissions.isGrantedPermission(activity, PermissionLists.getAccessFineLocationPermission())
+                    || XXPermissions.isGrantedPermission(activity, PermissionLists.getAccessCoarseLocationPermission());
+        }
+        return XXPermissions.isGrantedPermissions(activity, permissionsFor(capability));
     }
 
-    public static void requestLocation(Activity activity, long requestId) {
-        request(activity, requestId,
-                PermissionLists.getAccessFineLocationPermission(),
-                PermissionLists.getAccessCoarseLocationPermission());
-    }
-
-    public static void requestNotifications(Activity activity, long requestId) {
-        request(activity, requestId, PermissionLists.getPostNotificationsPermission());
+    public static void openSettingsFor(Activity activity, String capability) {
+        Intent intent = PermissionSettingPage.getApplicationDetailsSettingsIntent(
+                activity, permissionsFor(capability));
+        activity.startActivity(intent);
     }
 
     public static void openSettings(Activity activity) {
@@ -51,6 +56,37 @@ public final class WiniaPermissions {
     public static int takeResult(long requestId) {
         Integer value = RESULTS.remove(requestId);
         return value == null ? -1 : value;
+    }
+
+    private static IPermission[] permissionsFor(String capability) {
+        switch (capability) {
+            case "camera":
+                return new IPermission[]{PermissionLists.getCameraPermission()};
+            case "microphone":
+                return new IPermission[]{PermissionLists.getRecordAudioPermission()};
+            case "location":
+                return new IPermission[]{
+                        PermissionLists.getAccessFineLocationPermission(),
+                        PermissionLists.getAccessCoarseLocationPermission()};
+            case "notifications":
+                return new IPermission[]{PermissionLists.getPostNotificationsPermission()};
+            case "systemAlertWindow":
+                return new IPermission[]{PermissionLists.getSystemAlertWindowPermission()};
+            case "writeSettings":
+                return new IPermission[]{PermissionLists.getWriteSettingsPermission()};
+            case "manageExternalStorage":
+                return new IPermission[]{PermissionLists.getManageExternalStoragePermission()};
+            case "requestInstallPackages":
+                return new IPermission[]{PermissionLists.getRequestInstallPackagesPermission()};
+            case "scheduleExactAlarm":
+                return new IPermission[]{PermissionLists.getScheduleExactAlarmPermission()};
+            case "usageStats":
+                return new IPermission[]{PermissionLists.getPackageUsageStatsPermission()};
+            case "ignoreBatteryOptimizations":
+                return new IPermission[]{PermissionLists.getRequestIgnoreBatteryOptimizationsPermission()};
+            default:
+                throw new IllegalArgumentException("unknown permission capability: " + capability);
+        }
     }
 
     private static void request(Activity activity, long requestId, IPermission... permissions) {
