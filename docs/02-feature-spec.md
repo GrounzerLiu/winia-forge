@@ -29,7 +29,7 @@
 | `winia emulators` | Android emulator management | Implemented: list/start/stop (headless start) |
 | `winia logcat` | Android log filtering | Implemented: device, tag/package/pid, level, `--clear` |
 | `winia screenshot` | Screenshots | Implemented: adb screencap to a PNG (`--device`, `--output`, `--json`) |
-| `winia android` | Android-specific operations | Implemented: `init`, `sync` (managed Gradle files), `studio` |
+| `winia android` | Android-specific operations | Implemented: `init`, `sync` (managed Gradle files) |
 | `winia completions` | Shell completions | Implemented |
 
 ## 1. Project creation and templates
