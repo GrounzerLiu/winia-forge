@@ -271,7 +271,7 @@ winia clean --all
 - `--features` is passed straight to Cargo.
 - Artifact paths and sizes are written to the report; `--json` emits machine-readable output.
 - Windows resources (icon, version, company name, manifest) come from the template's `build.rs`
-  (winres) and the generated icon set; `winia-build` itself is still a placeholder crate.
+  (winres) and the generated icon set.
 - Desktop builds stage `assets/` and `assets.manifest.json` next to the executable, so a direct
   `winia build` output can load assets without `run`/`package`. macOS app bundles place the same
   files under `Contents/Resources`; the runtime detects that layout.

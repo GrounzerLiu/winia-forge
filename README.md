@@ -36,7 +36,6 @@ winia new my-app
 winia-forge/
 ├── crates/
 │   ├── winia-cli/      # CLI entry point, binary `winia`
-│   ├── winia-build/    # placeholder; resource generation lives in winia-cli
 │   └── winia-pack/     # NSIS, MSI (WiX) and deb generation
 └── docs/
     ├── 01-naming.md

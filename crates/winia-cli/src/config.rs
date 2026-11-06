@@ -2,8 +2,7 @@
 //!
 //! It is the single source of truth for application identity, window defaults,
 //! build options, and platform packaging metadata. The CLI reads it for every
-//! command; future platform tools (`winia-build`, `winia-pack`) will consume
-//! the same model.
+//! command; `winia-pack` consumes the same model for packaging.
 
 use anyhow::Context;
 use serde::{Deserialize, Serialize};

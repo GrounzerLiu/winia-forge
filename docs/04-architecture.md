@@ -23,7 +23,6 @@ winia-forge/
 │   │   │   └── templates/     # embedded blank template
 │   │   ├── tests/help.rs      # command-surface guard
 │   │   └── Cargo.toml
-│   ├── winia-build/           # placeholder; resource generation lives in winia-cli
 │   └── winia-pack/            # NSIS, MSI (WiX), deb
 └── docs/
 ```
@@ -33,7 +32,6 @@ winia-forge/
 | crate | Responsibility | Current state |
 | --- | --- | --- |
 | `winia-cli` | Command parsing, orchestration, Cargo/Gradle/adb/signing invocation, icons, assets, hooks | Every command implemented |
-| `winia-build` | Intended home for build-script resource generation | Placeholder: desktop resources are produced in `winia-cli` (`package.rs`, `icons.rs`) |
 | `winia-pack` | Installer formats: NSIS script, WiX MSI, deb | Implemented for NSIS/MSI/deb; DMG/app/zip/tar.gz are built in `winia-cli` |
 
 If Android's JNI and platform-bridge code grows large, split out a `winia-android` crate:
@@ -113,7 +111,7 @@ Design points:
 - `validate()` checks the app id (reverse-DNS), `app.version` (semver), `android.package`
   (non-empty), `android.min_sdk >= 26` and every ABI name.
 - A `schema_version` will be added later, with migration functions for older versions.
-- Only `winia-cli` parses the file; `winia-build` is a placeholder and has no configuration model.
+- Only `winia-cli` parses the file; `winia-pack` consumes the packaging fields without owning the model.
 
 ## 4. Template system
 

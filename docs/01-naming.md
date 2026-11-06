@@ -11,7 +11,6 @@
 | CLI command | **`winia`** |
 | Rust crate (binary package) | **`winia-cli`** |
 | Project configuration file | **`winia.toml`** |
-| build.rs helper library | **`winia-build`** |
 | Cross-platform packaging library | **`winia-pack`** |
 | Optional cargo compatibility layer | **`cargo-winia`** (enables `cargo winia ...`, not published yet) |
 
@@ -38,8 +37,8 @@ winia doctor
    `winia-cli` and installs the `winia` command. This avoids a clash with the library crate.
 4. **A single source of truth for configuration.** `winia.toml` serves the CLI, build.rs, and the packager at
    once: the application name, version, icon, packaging formats, and signing configuration are written only once.
-5. **The toolchain layers are extensible.** winia-build generates resources and winia-pack packages; the CLI
-   only orchestrates. Adding Android/iOS later will not entangle the desktop logic.
+5. **The toolchain layers are extensible.** The CLI orchestrates builds, while winia-pack owns installer
+   formats. Adding Android/iOS later will not entangle the desktop logic.
 
 ## 3. Alternative names
 
