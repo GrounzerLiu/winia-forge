@@ -1,6 +1,9 @@
 package com.winia.permissions;
 
 import android.app.Activity;
+import android.content.Intent;
+import android.net.Uri;
+import android.provider.Settings;
 
 import com.hjq.permissions.permission.PermissionLists;
 import com.hjq.permissions.XXPermissions;
@@ -29,14 +32,30 @@ public final class WiniaPermissions {
         request(activity, requestId, PermissionLists.getRecordAudioPermission());
     }
 
+    public static void requestLocation(Activity activity, long requestId) {
+        request(activity, requestId,
+                PermissionLists.getAccessFineLocationPermission(),
+                PermissionLists.getAccessCoarseLocationPermission());
+    }
+
+    public static void requestNotifications(Activity activity, long requestId) {
+        request(activity, requestId, PermissionLists.getPostNotificationsPermission());
+    }
+
+    public static void openSettings(Activity activity) {
+        Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+        intent.setData(Uri.parse("package:" + activity.getPackageName()));
+        activity.startActivity(intent);
+    }
+
     public static int takeResult(long requestId) {
         Integer value = RESULTS.remove(requestId);
         return value == null ? -1 : value;
     }
 
-    private static void request(Activity activity, long requestId, IPermission permission) {
+    private static void request(Activity activity, long requestId, IPermission... permissions) {
         XXPermissions.with(activity)
-                .permission(permission)
+                .permissions(permissions)
                 .request((granted, denied) -> {
                     boolean allGranted = denied.isEmpty();
                     int value;
