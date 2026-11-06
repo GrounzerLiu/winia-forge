@@ -530,9 +530,18 @@ mod tests {
 
     #[test]
     fn a_local_winia_path_is_written_with_forward_slashes() {
-        let dependency =
-            winia_dependency(Some(PathBuf::from("D:\\Projects\\winia\\winia")), &["gl"]).unwrap();
-        assert!(dependency.contains("path = \"D:/Projects/winia/winia\""));
+        // Use an absolute path from this host so the test also runs on Linux/macOS CI.
+        let source = std::env::temp_dir().join("winia-path");
+        let expected = std::path::absolute(&source)
+            .unwrap()
+            .display()
+            .to_string()
+            .replace('\\', "/");
+        let dependency = winia_dependency(Some(source), &["gl"]).unwrap();
+        assert!(
+            dependency.contains(&format!("path = \"{expected}\"")),
+            "{dependency}"
+        );
         assert!(dependency.contains("features = [\"gl\"]"));
         assert!(dependency.contains("default-features = false"));
     }

@@ -9,7 +9,6 @@ pub mod assets;
 pub mod build;
 pub mod ci;
 pub mod clean;
-pub mod dependencies;
 pub mod dev;
 pub mod devices;
 pub mod doctor;
@@ -25,15 +24,11 @@ pub mod screenshot;
 pub mod sign;
 pub mod sign_macos;
 pub mod sign_windows;
-pub mod studio;
 pub mod test;
 
-use crate::cli::{
-    Cli, Command, CompletionShell, ConfigArgs, ConfigCommand, InfoArgs, PlatformArgs,
-    PlatformCommand, TargetsArgs,
-};
+use crate::cli::{Cli, Command, CompletionShell, ConfigArgs, ConfigCommand, InfoArgs, TargetsArgs};
 use crate::config::{WiniaConfig, find_config};
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use clap::CommandFactory;
 use std::path::PathBuf;
 
@@ -49,15 +44,11 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         Command::Sign(args) => sign::run(args),
         Command::Test(args) => test::run(args),
         Command::Doctor(args) => doctor::run(args),
-        Command::Add(args) => dependencies::add(args),
-        Command::Remove(args) => dependencies::remove(args),
-        Command::Update(args) => dependencies::update(args),
         Command::Clean(args) => clean::run(args),
         Command::Info(args) => info(args),
         Command::Targets(args) => targets(args),
         Command::Config(args) => config(args),
         Command::Completions(args) => completions(args),
-        Command::Platform(args) => platform(args),
         Command::Assets(args) => assets::run(args),
         Command::Ci(args) => ci::run(args),
         Command::Init(args) => init::run(args),
@@ -186,22 +177,5 @@ fn completions(args: crate::cli::CompletionsArgs) -> Result<()> {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
         Err(error) => Err(error).context("writing completions"),
-    }
-}
-
-fn platform(args: PlatformArgs) -> Result<()> {
-    match args.command {
-        PlatformCommand::Add(add) => match add.platform {
-            // Adding the platform and initialising the Android project are the same operation.
-            crate::cli::Platform::Android => {
-                crate::commands::android::android_init(add.force, add.winia_path)
-            }
-            crate::cli::Platform::Ios => bail!("iOS support is not designed yet"),
-            crate::cli::Platform::Windows
-            | crate::cli::Platform::Macos
-            | crate::cli::Platform::Linux => {
-                bail!("desktop platforms need no setup; run 'winia build' on that host instead")
-            }
-        },
     }
 }

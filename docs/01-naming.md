@@ -95,7 +95,6 @@ Only project operations that are genuinely platform-specific get a subcommand gr
 ```bash
 winia android init
 winia android sync
-winia android studio
 ```
 
 Device operations stay generic:

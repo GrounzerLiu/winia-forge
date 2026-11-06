@@ -30,7 +30,6 @@ Remaining:
 
 - [ ] Real templates (counter, multi-window, navigation, dashboard).
 - [x] `winia init`: add Winia to an existing Cargo project.
-- [x] `winia add` / `remove` / `update`: delegate to cargo from the project root.
 - [ ] A unified `--json` / `--dry-run` output layer.
 - [x] Command-surface test: every command is registered and has a description (`tests/help.rs`).
 
@@ -86,12 +85,11 @@ Acceptance:
 ### 5.2 Toolchain layer
 
 - [x] `winia android init`: add the Android project to an existing app.
-- [x] `winia platform add android`: delegates to `android init`.
 - [x] `winia doctor --target android`: SDK/NDK/JDK/adb checks.
 - [x] `winia build --target android`: NDK driver + Gradle assembleDebug.
 - [x] `winia run --target android`: adb install/start/logcat.
 - [x] `winia devices` / `logcat` / `emulators` / `screenshot`.
-- [x] `winia android sync` / `winia android studio`.
+- [x] `winia android sync`.
 - [x] Debug APK generation and installation.
 
 Acceptance:

@@ -14,9 +14,6 @@ const COMMANDS: &[&str] = &[
     "sign",
     "release",
     "doctor",
-    "add",
-    "remove",
-    "update",
     "assets",
     "ci",
     "clean",
@@ -27,7 +24,6 @@ const COMMANDS: &[&str] = &[
     "emulators",
     "logcat",
     "screenshot",
-    "platform",
     "android",
     "completions",
 ];

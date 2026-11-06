@@ -44,12 +44,6 @@ pub enum Command {
     Release(ReleaseArgs),
     /// Diagnose the toolchain and platform SDKs.
     Doctor(DoctorArgs),
-    /// Add a dependency to the project.
-    Add(AddArgs),
-    /// Remove a dependency from the project.
-    Remove(RemoveArgs),
-    /// Update dependencies in the lockfile through cargo.
-    Update(UpdateArgs),
     /// Generate and manage application assets.
     Assets(AssetsArgs),
     /// Generate CI configuration.
@@ -70,8 +64,6 @@ pub enum Command {
     Logcat(LogcatArgs),
     /// Capture the device screen through adb.
     Screenshot(ScreenshotArgs),
-    /// Add or manage platform support.
-    Platform(PlatformArgs),
     /// Android-specific project operations.
     Android(AndroidArgs),
     /// Generate shell completions.
@@ -422,31 +414,6 @@ pub struct DoctorArgs {
 }
 
 #[derive(Debug, Args)]
-pub struct AddArgs {
-    /// Crate name to add.
-    pub package: String,
-    /// Feature list, comma-separated.
-    #[arg(long, value_delimiter = ',')]
-    pub features: Vec<String>,
-    /// Add as a development dependency.
-    #[arg(long)]
-    pub dev: bool,
-}
-
-#[derive(Debug, Args)]
-pub struct RemoveArgs {
-    /// Crate name to remove.
-    pub package: String,
-}
-
-#[derive(Debug, Args)]
-pub struct UpdateArgs {
-    /// Check for updates without applying them.
-    #[arg(long)]
-    pub check: bool,
-}
-
-#[derive(Debug, Args)]
 pub struct AssetsArgs {
     #[command(subcommand)]
     pub command: Option<AssetsCommand>,
@@ -605,29 +572,6 @@ pub struct ScreenshotArgs {
 }
 
 #[derive(Debug, Args)]
-pub struct PlatformArgs {
-    #[command(subcommand)]
-    pub command: PlatformCommand,
-}
-
-#[derive(Debug, Subcommand)]
-pub enum PlatformCommand {
-    /// Add a platform scaffold to an existing project.
-    Add(PlatformAddArgs),
-}
-
-#[derive(Debug, Args)]
-pub struct PlatformAddArgs {
-    pub platform: Platform,
-    /// Regenerate even when android/ already exists.
-    #[arg(long)]
-    pub force: bool,
-    /// Path to a local winia checkout when Cargo.toml has no Android dependency yet.
-    #[arg(long)]
-    pub winia_path: Option<PathBuf>,
-}
-
-#[derive(Debug, Args)]
 pub struct AndroidArgs {
     #[command(subcommand)]
     pub command: AndroidCommand,
@@ -656,8 +600,6 @@ pub enum AndroidCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Open the generated android/ directory in Android Studio.
-    Studio,
 }
 
 #[derive(Debug, Args)]

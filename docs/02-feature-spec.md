@@ -19,7 +19,6 @@
 | `winia sign` | Code signing | Implemented: Android APKs (apksigner), Windows Authenticode (signtool), macOS codesign |
 | `winia release` | Version, tag, publish | Implemented for Android and desktop targets (local artifacts + GitHub upload) |
 | `winia doctor` | Environment diagnostics | Implemented (Rust/MSRV, platform toolchains, packaging tools, Android SDK/NDK, the project's `winia` dependency, `--fix`) |
-| `winia add` / `remove` / `update` | Dependency management | Implemented: delegate to cargo in the project root |
 | `winia assets` | Icon and asset generation | Implemented: icon sets from PNG/SVG; automatic via `app.icon` |
 | `winia ci` | Generate CI configuration | Implemented: `ci init` for GitHub Actions and GitLab CI |
 | `winia clean` | Remove build artifacts | Implemented: target/dist/Android build outputs, `--all` Gradle caches, `--dry-run`, `--json` |
@@ -30,7 +29,6 @@
 | `winia emulators` | Android emulator management | Implemented: list/start/stop (headless start) |
 | `winia logcat` | Android log filtering | Implemented: device, tag/package/pid, level, `--clear` |
 | `winia screenshot` | Screenshots | Implemented: adb screencap to a PNG (`--device`, `--output`, `--json`) |
-| `winia platform` | Add platform support | Implemented: `platform add android` (same as `android init`); iOS not designed |
 | `winia android` | Android-specific operations | Implemented: `init`, `sync` (managed Gradle files), `studio` |
 | `winia completions` | Shell completions | Implemented |
 
@@ -114,20 +112,6 @@ Implemented: `winia init` never rewrites the user's sources.
 - Refuses to run twice (`winia.toml` already present) or when `Cargo.toml` is missing, and
   rejects a `--winia-path` that points at a workspace manifest instead of the crate.
 - `ios` is rejected explicitly.
-
-### 1.5 Dependencies
-
-```bash
-winia add serde --features derive
-winia add proptest --dev
-winia remove serde
-winia update --check
-```
-
-Implemented: these commands resolve the project root through `winia.toml` and then run
-`cargo add` / `cargo remove` / `cargo update` there (with `--dry-run` for `update --check`).
-Cargo owns resolution, the lockfile and feature unification, so the wrapper only keeps the working
-directory and flags consistent; the output is cargo's own.
 
 ### 1.4 Adopting an existing project
 
@@ -868,7 +852,7 @@ winia template update
 
 There is no `winia upgrade` command, deliberately. Winia is not published yet, so projects depend
 on it through a path or git source: updating means changing that source and letting cargo resolve
-it (`cargo update`, `winia add`/`remove`). The part a command would add — codemods for breaking
+it (`cargo update`). The part a command would add — codemods for breaking
 API changes — needs versioned migration data and a compatibility policy that do not exist yet, and
 a half-working upgrade is worse than none.
 
@@ -890,7 +874,6 @@ When the framework starts shipping versioned releases, the intended shape is:
 | `winia info` / `targets` | Implemented |
 | `winia config show/get` | Implemented |
 | Shell completions | Implemented |
-| `winia platform add android` | Implemented; generates the Android project like `android init` |
 | `winia build` | Implemented: host executable and Android APK |
 | `winia run` | Implemented: host and Android |
 | `winia package` | Implemented: desktop portable zip/tar.gz/app, Windows NSIS and MSI, Linux deb, macOS dmg; Android APK/AAB with alignment/ABI/signature checks; PKG/rpm/AppImage pending |

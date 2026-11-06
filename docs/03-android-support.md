@@ -9,7 +9,6 @@
 | Command | Android behaviour |
 | --- | --- |
 | `winia new my-app --platforms windows,macos,linux,android` | Generate the desktop + Android project skeleton |
-| `winia platform add android` | Add the Android target to an existing project |
 | `winia build --target android --release` | Compile the `.so` for each ABI, then hand off to Gradle for the APK |
 | `winia run --target android --device <serial>` | Install, launch, wait for the result |
 | `winia dev --target android` | Watch sources, recompile, reinstall, restart the Activity |
@@ -18,7 +17,7 @@
 | `winia doctor --target android` | Check SDK/NDK/JDK/adb |
 | `winia devices` / `winia emulators` | Devices / emulators |
 | `winia logcat` / `winia screenshot` | Logs and screenshots |
-| `winia android init` / `sync` / `studio` | Android project initialisation / sync / open Android Studio |
+| `winia android init` / `sync` | Android project initialisation / Gradle file sync |
 | `winia ci init --platforms android` | Generate Android CI |
 
 Naming principle: a platform is `--target`, an artifact is `--format`; do not put Android in the tool name,
@@ -83,8 +82,6 @@ GameActivity corresponds to winit's `android-game-activity` feature; NativeActiv
 - `min_sdk`, `target_sdk`, `compile_sdk`, `version_code`, `app.version` and `[android].label` are passed
   to Gradle as `winiaMinSdk`, `winiaTargetSdk`, `winiaCompileSdk`, `winiaVersionCode`,
   `winiaVersionName` and `winiaAppLabel`; the manifest points at `@string/app_name` for the label.
-- `winia android studio` opens the `android/` directory with Android Studio (found through
-  `WINIA_ANDROID_STUDIO`, `PATH`, or the default install locations).
 - `local.properties` contains machine paths and is git-ignored by the template. The CLI does not
   write it: Gradle finds the SDK through `ANDROID_HOME`/`ANDROID_SDK_ROOT`, and Android Studio
   creates its own copy when the project is opened.

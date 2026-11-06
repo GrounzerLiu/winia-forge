@@ -16,10 +16,6 @@ pub fn run(args: AndroidArgs) -> Result<()> {
     match args.command {
         AndroidCommand::Sync { check, force, json } => sync(check, force, json),
         AndroidCommand::Init { force, winia_path } => android_init(force, winia_path),
-        AndroidCommand::Studio => {
-            let root = project_root()?;
-            super::studio::open(&root.join("android"))
-        }
     }
 }
 
