@@ -46,7 +46,6 @@ impl Default for AppConfig {
     }
 }
 
-
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct BuildConfig {
@@ -120,7 +119,6 @@ impl Default for AndroidConfig {
         }
     }
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -374,7 +372,6 @@ mod tests {
         let mut config = WiniaConfig::default();
         config.app.id = "com.example.app".to_owned();
         config.android.package = "com.example.app".to_owned();
-
 
         config.android.version_code = 0;
         assert!(

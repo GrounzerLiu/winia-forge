@@ -720,7 +720,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
-
     #[test]
     fn title_cases_package_names() {
         assert_eq!(title_case("my-app"), "My App");

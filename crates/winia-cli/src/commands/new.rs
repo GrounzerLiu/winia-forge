@@ -254,7 +254,6 @@ pub fn run(args: NewArgs) -> Result<()> {
         ("__VERSION__", VERSION),
         ("__WINIA_DEP_ANDROID__", winia_android.as_str()),
         ("__WINIA_DEP_DESKTOP__", winia_desktop.as_str()),
-
     ];
 
     std::fs::create_dir_all(root.join("src"))?;
