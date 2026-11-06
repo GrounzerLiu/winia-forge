@@ -1,8 +1,8 @@
 # 06 · Android IME and APK build notes
 
-> Summary: GameActivity is the only ready-made path with a full Android InputConnection. cargo-apk2
-> is useful for a quick NativeActivity APK and for compiling the .so, but it cannot exercise the
-> GameTextInput IME path. The release APK must be assembled by Gradle with a GameActivity
+> Summary: GameActivity is the only ready-made path with a full Android InputConnection. Winia Forge
+> now generates only GameActivity projects; cargo-apk2 / NativeActivity notes below are historical and
+> are not a supported template path. The release APK must be assembled by Gradle with a GameActivity
 > MainActivity. This document records the working configuration and the build failures encountered
 > while bringing up Winia on Android.
 
@@ -24,7 +24,7 @@ The current Winia Android path is therefore:
 winia = { default-features = false, features = ["android-game-activity"] }
 ~~~
 
-android-native-activity remains useful for graphics-only prototypes, not for text fields.
+Winia Forge does not generate NativeActivity projects; GameActivity is the supported template path.
 
 "Full" here means the practical text path: preedit, commit, delete-surrounding, selection, and
 candidate selection. The current winit fork still leaves TextAction unhandled and

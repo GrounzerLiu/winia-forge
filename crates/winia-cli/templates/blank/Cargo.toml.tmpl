@@ -15,7 +15,7 @@ path = "src/main.rs"
 # Vulkan rather than GL: the only Android Skia prebuilt that includes `svg` is the
 # svg + vulkan + webp archive; a GL build would compile Skia from source.
 winia = __WINIA_DEP_ANDROID__
-winit = { package = "winia-winit", version = "=0.31.0-beta.4", features = ["__ANDROID_BACKEND__"] }
+winit = { package = "winia-winit", version = "=0.31.0-beta.4", features = ["android-game-activity"] }
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
 winia = __WINIA_DEP_DESKTOP__

@@ -6,7 +6,7 @@
 
 use crate::cli::{InitArgs, Platform};
 use crate::commands::new;
-use crate::config::{AndroidActivity, WiniaConfig};
+use crate::config::WiniaConfig;
 use anyhow::{Context, Result, bail};
 use std::path::{Path, PathBuf};
 use toml_edit::{Array, DocumentMut, InlineTable, Item, Table, Value};
@@ -91,8 +91,7 @@ pub fn run(args: InitArgs) -> Result<()> {
         checked_lib_path(&root, &cargo_lib_path(&root))?;
     }
 
-    let activity = AndroidActivity::Game;
-    let android_feature = new::android_feature(activity);
+    let android_feature = new::ANDROID_BACKEND;
     let desktop_features = ["gl"];
     let android_features = [android_feature, "vulkan"];
 
@@ -141,7 +140,7 @@ pub fn run(args: InitArgs) -> Result<()> {
             &mut doc,
             "cfg(target_os = \"android\")",
             "winit",
-            &new::winit_dependency(activity),
+            &new::winit_dependency(),
         )?;
         ensure_crate_types(&mut doc)?;
     }
@@ -190,13 +189,6 @@ pub(crate) fn scaffold_android(root: &Path, config: &WiniaConfig) -> Result<()> 
         ("__APP_ID__", app_id.as_str()),
         ("__PACKAGE_PATH__", package_path.as_str()),
         ("__VERSION__", config.app.version.as_str()),
-        (
-            "__MAIN_ACTIVITY__",
-            match config.android.activity {
-                AndroidActivity::Game => ".MainActivity",
-                AndroidActivity::Native => "android.app.NativeActivity",
-            },
-        ),
     ];
     // Respect an existing [lib] path: a crate whose library lives in src/core.rs must not grow a
     // second, unused src/lib.rs. Reject paths that escape the project before creating anything.
@@ -244,16 +236,8 @@ pub(crate) fn scaffold_android(root: &Path, config: &WiniaConfig) -> Result<()> 
         )
         .with_context(|| format!("writing {}", lib_file.display()))?;
     }
-    for file in new::android_files(config.android.activity) {
+    for file in new::android_files() {
         new::write_rendered(root, &file, &vars)?;
-    }
-    if config.android.activity == AndroidActivity::Native {
-        // Switching back to NativeActivity leaves the GameActivity subclass behind.
-        let stale = root
-            .join("android/app/src/main/java")
-            .join(&package_path)
-            .join("MainActivity.java");
-        let _ = std::fs::remove_file(stale);
     }
     new::write_android_binaries(root)?;
     println!("Wrote android/ Gradle project");
@@ -265,7 +249,6 @@ pub(crate) fn scaffold_android(root: &Path, config: &WiniaConfig) -> Result<()> 
 pub(crate) fn ensure_android_cargo(
     root: &Path,
     winia_path: Option<PathBuf>,
-    activity: AndroidActivity,
     replace: bool,
 ) -> Result<()> {
     let path = root.join("Cargo.toml");
@@ -281,7 +264,7 @@ pub(crate) fn ensure_android_cargo(
         .and_then(|target| target.get("dependencies"))
         .and_then(|dependencies| dependencies.get("winia"))
         .is_some();
-    let backend = new::android_feature(activity);
+    let backend = new::ANDROID_BACKEND;
     let features = [backend, "vulkan"];
     if let Some((_, mut plain)) = dependency_spec(&doc, None) {
         // A plain [dependencies] winia applies to every target; adding a target-specific entry
@@ -305,7 +288,7 @@ pub(crate) fn ensure_android_cargo(
         .and_then(|dependencies| dependencies.get("winit"))
         .is_some();
     if !winit_present {
-        set_target_dependency(&mut doc, cfg, "winit", &new::winit_dependency(activity))?;
+        set_target_dependency(&mut doc, cfg, "winit", &new::winit_dependency())?;
     }
     ensure_crate_types(&mut doc)?;
     std::fs::write(&path, doc.to_string())
@@ -726,7 +709,7 @@ mod tests {
         )
         .unwrap();
 
-        ensure_android_cargo(&root, None, AndroidActivity::Game, false).unwrap();
+        ensure_android_cargo(&root, None, false).unwrap();
         let manifest = std::fs::read_to_string(root.join("Cargo.toml")).unwrap();
         assert!(
             manifest.contains("winit = { package = \"winia-winit\""),
@@ -740,23 +723,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
-    #[test]
-    fn switching_backend_updates_both_dependencies() {
-        let root = std::env::temp_dir().join(format!("winia-init-switch-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(
-            root.join("Cargo.toml"),
-            "[package]\nname = \"probe\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[target.'cfg(target_os = \"android\")'.dependencies]\nwinia = { path = \"../winia\", default-features = false, features = [\"android-game-activity\", \"vulkan\"] }\nwinit = { package = \"winia-winit\", version = \"=0.31.0-beta.4\", features = [\"android-game-activity\"] }\n",
-        )
-        .unwrap();
-
-        ensure_android_cargo(&root, None, AndroidActivity::Native, true).unwrap();
-        let manifest = std::fs::read_to_string(root.join("Cargo.toml")).unwrap();
-        assert!(manifest.contains("android-native-activity"));
-        assert!(!manifest.contains("android-game-activity"));
-        let _ = std::fs::remove_dir_all(root);
-    }
 
     #[test]
     fn title_cases_package_names() {

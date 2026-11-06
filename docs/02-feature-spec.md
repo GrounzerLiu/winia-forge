@@ -167,7 +167,6 @@ label = "My App"
 min_sdk = 26
 target_sdk = 36
 compile_sdk = 36
-activity = "game"          # game | native
 version_code = 1
 abis = ["arm64-v8a", "x86_64"]
 
@@ -222,7 +221,6 @@ Applied by the Android build (passed to Gradle as `-P` properties, read by the g
 | `[window]` resizable/decorations | generated `src/winia_config.rs` | `Window::resizable(bool)` / `Window::decorations(bool)` in winia (v2 `1a98797`), driven by `WINDOW_RESIZABLE`/`WINDOW_DECORATIONS` |
 | `app.authors` (first) | packaging metadata | NSIS `CompanyName`, MSI `Manufacturer`, deb `Maintainer` and copyright contact; falls back to `app.name` when empty |
 | `app.license` | packaging metadata | NSIS `LegalCopyright`, deb `/usr/share/doc/<pkg>/copyright`, macOS `NSHumanReadableCopyright`; MSI has no licence field |
-| `android.activity` | scaffold-time choice | `game` generates a `MainActivity extends GameActivity` subclass; `native` declares `android.app.NativeActivity` and ships no Java source. Switching requires `winia android init --force`, which also flips the `winia`/`winia-winit` backend feature |
 | `android.permissions` | removed from the schema | Declare `<uses-permission>` in `AndroidManifest.xml`; the template ships `INTERNET` |
 
 `android.label` reaches the manifest through a generated string resource, so projects created

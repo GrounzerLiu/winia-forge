@@ -41,7 +41,7 @@ pub(crate) fn android_init(force: bool, winia_path: Option<std::path::PathBuf>) 
         .ok()
         .and_then(|text| namespace_of(&text))
         .or_else(|| existing_activity_package(&root));
-    crate::commands::init::ensure_android_cargo(&root, winia_path, config.android.activity, force)?;
+    crate::commands::init::ensure_android_cargo(&root, winia_path, force)?;
     crate::commands::init::scaffold_android(&root, &config)?;
     if let Some(previous) = previous_package
         && previous != config.android.package

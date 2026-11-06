@@ -116,7 +116,7 @@ const ANDROID_FILES: &[TemplateFile] = &[
     },
 ];
 
-/// GameActivity needs a Java subclass; NativeActivity is the platform class and needs no source.
+/// GameActivity needs a Java subclass; this file is always generated.
 const ANDROID_GAME_ACTIVITY: TemplateFile = TemplateFile {
     template: ANDROID_ACTIVITY,
     destination: "android/app/src/main/java/__PACKAGE_PATH__/MainActivity.java",
@@ -254,13 +254,7 @@ pub fn run(args: NewArgs) -> Result<()> {
         ("__VERSION__", VERSION),
         ("__WINIA_DEP_ANDROID__", winia_android.as_str()),
         ("__WINIA_DEP_DESKTOP__", winia_desktop.as_str()),
-        // 'winia new' always writes the default GameActivity project; switching is an explicit
-        // 'winia android init --force' after editing winia.toml.
-        ("__MAIN_ACTIVITY__", ".MainActivity"),
-        (
-            "__ANDROID_BACKEND__",
-            android_feature(crate::config::AndroidActivity::Game),
-        ),
+
     ];
 
     std::fs::create_dir_all(root.join("src"))?;
@@ -280,7 +274,7 @@ pub fn run(args: NewArgs) -> Result<()> {
     crate::generated::write(&root, &config)?;
 
     if platforms.contains(&Platform::Android) {
-        for file in android_files(config.android.activity) {
+        for file in android_files() {
             write_rendered(&root, &file, &vars)?;
         }
         write_bytes(&root, "android/gradlew", ANDROID_GRADLEW)?;
@@ -438,7 +432,7 @@ fn make_executable(path: &Path) -> Result<()> {
 }
 
 /// The Android project files the blank template installs, for 'winia init' to reuse.
-pub(crate) fn android_files(activity: crate::config::AndroidActivity) -> Vec<TemplateFile> {
+pub(crate) fn android_files() -> Vec<TemplateFile> {
     let mut files: Vec<TemplateFile> = ANDROID_FILES
         .iter()
         .map(|file| TemplateFile {
@@ -446,30 +440,22 @@ pub(crate) fn android_files(activity: crate::config::AndroidActivity) -> Vec<Tem
             destination: file.destination,
         })
         .collect();
-    if activity == crate::config::AndroidActivity::Game {
-        files.push(ANDROID_GAME_ACTIVITY);
-    }
+    files.push(ANDROID_GAME_ACTIVITY);
     files
 }
 
 /// Version of the published winit fork; the template and 'winia init' must pin the same one.
 pub(crate) const WINIT_VERSION: &str = "=0.31.0-beta.4";
 
+/// The only supported Android backend. The generated Java activity is GameActivity-based.
+pub(crate) const ANDROID_BACKEND: &str = "android-game-activity";
+
 /// The direct winit dependency an Android project needs: the generated entry point takes
 /// `winit::platform::android::activity::AndroidApp`.
-pub(crate) fn winit_dependency(activity: crate::config::AndroidActivity) -> String {
+pub(crate) fn winit_dependency() -> String {
     format!(
-        "{{ package = \"winia-winit\", version = \"{WINIT_VERSION}\", features = [\"{}\"] }}",
-        android_feature(activity)
+        "{{ package = \"winia-winit\", version = \"{WINIT_VERSION}\", features = [\"{ANDROID_BACKEND}\"] }}"
     )
-}
-
-/// winia feature that selects the Android backend.
-pub(crate) fn android_feature(activity: crate::config::AndroidActivity) -> &'static str {
-    match activity {
-        crate::config::AndroidActivity::Game => "android-game-activity",
-        crate::config::AndroidActivity::Native => "android-native-activity",
-    }
 }
 
 /// Write the Gradle wrapper binaries and the jniLibs directories.
@@ -534,27 +520,14 @@ mod tests {
     }
 
     #[test]
-    fn android_files_follow_the_activity_choice() {
-        let game = android_files(crate::config::AndroidActivity::Game);
-        let native = android_files(crate::config::AndroidActivity::Native);
+    fn android_files_always_include_game_activity() {
+        let files = android_files();
         assert!(
-            game.iter()
-                .any(|file| file.destination.ends_with("MainActivity.java"))
-        );
-        assert!(
-            !native
+            files
                 .iter()
                 .any(|file| file.destination.ends_with("MainActivity.java"))
         );
-        assert_eq!(game.len(), native.len() + 1);
-        assert_eq!(
-            android_feature(crate::config::AndroidActivity::Native),
-            "android-native-activity"
-        );
-        assert_eq!(
-            android_feature(crate::config::AndroidActivity::Game),
-            "android-game-activity"
-        );
+        assert!(winit_dependency().contains("android-game-activity"));
     }
 
     #[test]

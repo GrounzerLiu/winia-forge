@@ -124,8 +124,6 @@ pub struct AndroidConfig {
     pub min_sdk: u32,
     pub target_sdk: u32,
     pub compile_sdk: u32,
-    /// Activity base class: game (GameActivity) or native (NativeActivity).
-    pub activity: AndroidActivity,
     pub version_code: u32,
     /// Android ABI names, e.g. arm64-v8a, x86_64.
     pub abis: Vec<String>,
@@ -139,20 +137,12 @@ impl Default for AndroidConfig {
             min_sdk: 26,
             target_sdk: 36,
             compile_sdk: 36,
-            activity: AndroidActivity::Game,
             version_code: 1,
             abis: vec!["arm64-v8a".to_owned(), "x86_64".to_owned()],
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum AndroidActivity {
-    #[default]
-    Game,
-    Native,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -494,7 +484,6 @@ mod tests {
     fn defaults_match_the_documented_android_baseline() {
         let config = WiniaConfig::default();
         assert_eq!(config.android.min_sdk, 26);
-        assert_eq!(config.android.activity, AndroidActivity::Game);
         assert_eq!(config.android.abis, vec!["arm64-v8a", "x86_64"]);
         assert!(config.validate().is_ok());
     }
@@ -528,7 +517,6 @@ id = "com.example.demo"
 
 [android]
 package = "com.example.demo"
-activity = "native"
 "#,
         )
         .expect("manifest should parse");
@@ -536,7 +524,6 @@ activity = "native"
         assert_eq!(config.app.name, "Demo");
         assert_eq!(config.app.version, "0.1.0");
         assert_eq!(config.android.package, "com.example.demo");
-        assert_eq!(config.android.activity, AndroidActivity::Native);
         assert_eq!(config.android.min_sdk, 26);
         assert_eq!(config.package.android.formats, vec!["apk", "aab"]);
     }
