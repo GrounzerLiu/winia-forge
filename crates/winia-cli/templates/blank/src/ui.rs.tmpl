@@ -12,11 +12,14 @@ pub fn app(ctx: &mut ComposeCtx) {
             .resizable(crate::winia_config::WINDOW_RESIZABLE)
             .decorations(crate::winia_config::WINDOW_DECORATIONS)
             .build(ctx, |ctx| {
-                Column::new()
-                    .modifier(Modifier::new().fill_max_size().padding(24.0))
-                    .build(ctx, |ctx| {
-                        Text::new("Hello, Winia!").build(ctx);
-                    });
+                Scaffold::new(|ctx, _padding| {
+                    Column::new()
+                        .modifier(Modifier::new().fill_max_size().padding(24.0))
+                        .build(ctx, |ctx| {
+                            Text::new("Hello, Winia!").build(ctx);
+                        });
+                })
+                .build(ctx);
             });
     });
 }
