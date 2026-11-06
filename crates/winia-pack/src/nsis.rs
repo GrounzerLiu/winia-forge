@@ -42,6 +42,10 @@ pub fn build(spec: &InstallerSpec<'_>) -> Result<PathBuf> {
         bail!("payload directory not found: {}", spec.payload.display());
     }
     crate::validate_app_name(spec.app_name)?;
+    if let Some(parent) = spec.output.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("creating {}", parent.display()))?;
+    }
     let script = generate(spec)?;
     let stem = spec
         .output
@@ -299,6 +303,7 @@ fn collect(
         let path = entry.path();
         let file_type = entry.file_type()?;
         if file_type.is_symlink() {
+            eprintln!("warning: NSIS payload skips symlink {}", path.display());
             continue;
         }
         if file_type.is_dir() {

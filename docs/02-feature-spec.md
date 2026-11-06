@@ -677,7 +677,8 @@ winia release --target android --bump minor --track github
 winia release --target windows --bump patch --track github
 ```
 
-Implemented flow (Android and the desktop targets):
+Implemented flow (Android and the desktop targets). With no `--target`, a project containing
+`android/` releases Android; a desktop-only project releases the host:
 
 1. Refuse a dirty worktree unless `--allow-dirty`.
 2. Validate the signing environment and, for GitHub, `gh auth status` plus a git remote before

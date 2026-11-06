@@ -237,6 +237,7 @@ fn collect(payload: &Path, executable: &str) -> Result<Vec<PayloadFile>> {
             let path = entry.path();
             let file_type = entry.file_type()?;
             if file_type.is_symlink() {
+                eprintln!("warning: deb payload skips symlink {}", path.display());
                 continue;
             }
             if file_type.is_dir() {

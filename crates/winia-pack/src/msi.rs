@@ -79,6 +79,10 @@ pub fn build(spec: &MsiSpec<'_>) -> Result<PathBuf> {
         bail!("payload directory not found: {}", spec.payload.display());
     }
     crate::validate_app_name(spec.app_name)?;
+    if let Some(parent) = spec.output.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("creating {}", parent.display()))?;
+    }
     let files = collect(spec.payload)?;
     if files.is_empty() {
         bail!("payload directory is empty: {}", spec.payload.display());
@@ -198,6 +202,16 @@ fn generate(
         "    <MajorUpgrade DowngradeErrorMessage=\"A newer version is already installed.\" />\n",
     );
     s.push_str("    <MediaTemplate EmbedCab=\"yes\" />\n");
+    // The Windows payload carries app.ico; show it in Settings/Add-Remove Programs.
+    let icon = spec.payload.join("app.ico");
+    if icon.is_file() {
+        let icon = icon.display().to_string().replace('\\', "/");
+        s.push_str(&format!(
+            "    <Icon Id=\"AppIcon\" SourceFile=\"{}\" />\n",
+            xml(&icon)
+        ));
+        s.push_str("    <Property Id=\"ARPPRODUCTICON\" Value=\"AppIcon\" />\n");
+    }
     s.push_str("    <Directory Id=\"TARGETDIR\" Name=\"SourceDir\">\n");
     // A 32-bit package cannot install into the 64-bit Program Files folder.
     let program_files = if platform == "x86" {
@@ -284,6 +298,7 @@ fn collect(payload: &Path) -> Result<Vec<PayloadFile>> {
             let path = entry.path();
             let file_type = entry.file_type()?;
             if file_type.is_symlink() {
+                eprintln!("warning: MSI payload skips symlink {}", path.display());
                 continue;
             }
             if file_type.is_dir() {
@@ -438,6 +453,7 @@ mod tests {
         let payload = root.join("payload");
         std::fs::create_dir_all(payload.join("assets/winia")).unwrap();
         std::fs::write(payload.join("app.exe"), b"exe").unwrap();
+        std::fs::write(payload.join("app.ico"), b"ico").unwrap();
         std::fs::write(payload.join("assets/winia/icon.png"), b"png").unwrap();
         root
     }
@@ -477,6 +493,7 @@ mod tests {
             wxs.contains("Codepage=\"65001\""),
             "MSI database must be Unicode: {wxs}"
         );
+        assert!(wxs.contains("ARPPRODUCTICON"), "{wxs}");
         std::fs::remove_dir_all(root).unwrap();
     }
 

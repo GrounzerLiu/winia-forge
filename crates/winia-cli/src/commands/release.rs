@@ -28,7 +28,12 @@ pub fn run(args: ReleaseArgs) -> Result<()> {
     config.validate()?;
 
     let targets = if args.target.is_empty() {
-        vec!["android".to_owned()]
+        // Android projects keep the historical default; desktop-only projects release the host.
+        if root.join("android").is_dir() {
+            vec!["android".to_owned()]
+        } else {
+            vec![crate::commands::build::host_target().to_owned()]
+        }
     } else {
         args.target.clone()
     };
@@ -141,50 +146,79 @@ pub fn run(args: ReleaseArgs) -> Result<()> {
     }
 
     if args.bump.is_some() {
-        config.app.version = version.clone();
-        config.android.version_code = config.android.version_code.saturating_add(1);
-        // Edit the two keys in place: save() would drop comments and keys this version does not know.
-        crate::config::set_release_versions(
-            &config_path,
-            &config.app.version,
-            config.android.version_code,
-        )?;
-        let mut files = vec!["winia.toml".to_owned()];
-        if let Some(changed) = update_cargo_version(&root, &version)? {
-            let changed = changed
-                .strip_prefix(&root)
-                .map(Path::to_path_buf)
-                .unwrap_or(changed);
-            files.push(changed.to_string_lossy().replace('\\', "/"));
-            // Refresh Cargo.lock so the tagged commit builds with --locked. --no-deps would not
-            // rewrite the root package version, so it must resolve dependencies here.
-            let lock_path = root.join("Cargo.lock");
-            let previous_lock = std::fs::read(&lock_path).ok();
-            let refreshed = std::process::Command::new("cargo")
-                .args(["metadata", "--format-version", "1"])
-                .current_dir(&root)
-                .output()
-                .context("refreshing Cargo.lock after the version bump")?;
-            if !refreshed.status.success() {
-                bail!(
-                    "cargo metadata failed after the version bump: {}",
-                    String::from_utf8_lossy(&refreshed.stderr).trim()
-                );
-            }
-            if lock_path.is_file() {
-                if previous_lock.as_deref() == std::fs::read(&lock_path).ok().as_deref() {
+        let backups: Vec<(PathBuf, Option<Vec<u8>>)> = [
+            config_path.clone(),
+            root.join("Cargo.toml"),
+            root.join("Cargo.lock"),
+        ]
+        .iter()
+        .map(|path| (path.clone(), std::fs::read(path).ok()))
+        .collect();
+        let outcome = (|| -> Result<()> {
+            config.app.version = version.clone();
+            config.android.version_code = config.android.version_code.saturating_add(1);
+            // Edit the two keys in place: save() would drop comments and keys this version does not know.
+            crate::config::set_release_versions(
+                &config_path,
+                &config.app.version,
+                config.android.version_code,
+            )?;
+            let mut files = vec!["winia.toml".to_owned()];
+            if let Some(changed) = update_cargo_version(&root, &version)? {
+                let changed = changed
+                    .strip_prefix(&root)
+                    .map(Path::to_path_buf)
+                    .unwrap_or(changed);
+                files.push(changed.to_string_lossy().replace('\\', "/"));
+                // Refresh Cargo.lock so the tagged commit builds with --locked. --no-deps would not
+                // rewrite the root package version, so it must resolve dependencies here.
+                let lock_path = root.join("Cargo.lock");
+                let previous_lock = std::fs::read(&lock_path).ok();
+                let refreshed = std::process::Command::new("cargo")
+                    .args(["metadata", "--format-version", "1"])
+                    .current_dir(&root)
+                    .output()
+                    .context("refreshing Cargo.lock after the version bump")?;
+                if !refreshed.status.success() {
                     bail!(
-                        "Cargo.toml was bumped but Cargo.lock did not change; the version may be inherited from a workspace"
+                        "cargo metadata failed after the version bump: {}",
+                        String::from_utf8_lossy(&refreshed.stderr).trim()
                     );
                 }
-                files.push("Cargo.lock".to_owned());
+                if lock_path.is_file() {
+                    if previous_lock.as_deref() == std::fs::read(&lock_path).ok().as_deref() {
+                        bail!(
+                            "Cargo.toml was bumped but Cargo.lock did not change; the version may be inherited from a workspace"
+                        );
+                    }
+                    files.push("Cargo.lock".to_owned());
+                }
             }
+            let mut add = vec!["add".to_owned()];
+            add.extend(files);
+            let add_args: Vec<&str> = add.iter().map(String::as_str).collect();
+            git(&root, &add_args)?;
+            git(&root, &["commit", "-m", &format!("chore(release): {tag}")])?;
+            Ok(())
+        })();
+        if let Err(error) = outcome {
+            // Do not leave a bumped manifest staged without the release commit.
+            for (path, previous) in backups {
+                match previous {
+                    Some(bytes) => {
+                        let _ = std::fs::write(&path, bytes);
+                    }
+                    None => {
+                        let _ = std::fs::remove_file(&path);
+                    }
+                }
+            }
+            let _ = git(
+                &root,
+                &["reset", "--", "winia.toml", "Cargo.toml", "Cargo.lock"],
+            );
+            return Err(error);
         }
-        let mut add = vec!["add".to_owned()];
-        add.extend(files);
-        let add_args: Vec<&str> = add.iter().map(String::as_str).collect();
-        git(&root, &add_args)?;
-        git(&root, &["commit", "-m", &format!("chore(release): {tag}")])?;
     }
 
     // Anything already in dist before packaging was produced by an earlier run (or copied in by
