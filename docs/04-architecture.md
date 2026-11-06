@@ -93,7 +93,6 @@ One module per command keeps the CLI layer thin. Installer script generation liv
 ```text
 WiniaConfig
 ├── app: AppConfig
-├── window: WindowConfig
 ├── build: BuildConfig
 ├── package: PackageConfig
 │   ├── windows: PlatformPackage
@@ -138,7 +137,7 @@ winia build
   → run before_build hooks
   → desktop: cargo build (host) with WINIA_ASSET_ROOT/TARGET/PROFILE/VERSION
   → android: NDK toolchain → cargo build --lib per ABI → copy jniLibs → gradlew assemble*
-  → regenerate src/winia_config.rs (window values the app reads at runtime)
+  → regenerate src/winia_config.rs (the app name constant)
   → stage assets (desktop dir or Android asset dir) and icons
   → run after_build hooks
   → collect artifacts and sizes, print the report

@@ -139,12 +139,6 @@ authors = ["Alice <alice@example.com>"]
 license = "Apache-2.0"
 icon = "assets/icon.png"
 
-[window]
-title = "My App"
-width = 1200
-height = 800
-resizable = true
-decorations = true
 
 [build]
 features = ["accessibility"]
@@ -180,6 +174,9 @@ after_build = []
 before_package = []
 after_package = []
 ```
+
+Window title, size, resizable, and decorations are runtime properties: set them on `Window::new()` in
+application code. They are not part of `winia.toml`.
 
 ### 2.2 Configuration reading rules
 
@@ -217,8 +214,7 @@ Applied by the Android build (passed to Gradle as `-P` properties, read by the g
 | `android.target_sdk` | `winiaTargetSdk` | `targetSdkVersion` |
 | `android.compile_sdk` | `winiaCompileSdk` | `compileSdk` |
 | `android.label` (falls back to `app.name`) | `winiaAppLabel` | `app_name` string resource behind `android:label="@string/app_name"` |
-| `[window]` title/width/height | generated `src/winia_config.rs` | Written by `winia new`, `init` and every `build`; the template UI reads `WINDOW_TITLE`/`WINDOW_WIDTH`/`WINDOW_HEIGHT` |
-| `[window]` resizable/decorations | generated `src/winia_config.rs` | `Window::resizable(bool)` / `Window::decorations(bool)` in winia (v2 `1a98797`), driven by `WINDOW_RESIZABLE`/`WINDOW_DECORATIONS` |
+
 | `app.authors` (first) | packaging metadata | NSIS `CompanyName`, MSI `Manufacturer`, deb `Maintainer` and copyright contact; falls back to `app.name` when empty |
 | `app.license` | packaging metadata | NSIS `LegalCopyright`, deb `/usr/share/doc/<pkg>/copyright`, macOS `NSHumanReadableCopyright`; MSI has no licence field |
 | `android.permissions` | removed from the schema | Declare `<uses-permission>` in `AndroidManifest.xml`; the template ships `INTERNET` |

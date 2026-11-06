@@ -81,9 +81,6 @@ pub fn run(args: InitArgs) -> Result<()> {
     config.app.id = app_id.clone();
     config.app.version = package_version;
     config.android.package = app_id.clone();
-    config.window.title = app_name.clone();
-    config.window.width = 1000.0;
-    config.window.height = 700.0;
     config.validate()?;
     if android {
         // Validate the lib path before touching Cargo.toml or winia.toml so an escaping

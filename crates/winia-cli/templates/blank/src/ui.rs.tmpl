@@ -4,13 +4,10 @@ use winia::prelude::*;
 pub fn app(ctx: &mut ComposeCtx) {
     WiniaTheme::auto(ctx, |ctx| {
         Window::new()
-            .title(crate::winia_config::WINDOW_TITLE)
-            .size(
-                crate::winia_config::WINDOW_WIDTH,
-                crate::winia_config::WINDOW_HEIGHT,
-            )
-            .resizable(crate::winia_config::WINDOW_RESIZABLE)
-            .decorations(crate::winia_config::WINDOW_DECORATIONS)
+            .title(crate::winia_config::APP_NAME)
+            .size(1000.0, 700.0)
+            .resizable(true)
+            .decorations(true)
             .build(ctx, |ctx| {
                 Scaffold::new(|ctx, padding| {
                     Column::new()

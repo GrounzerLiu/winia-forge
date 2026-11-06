@@ -12,7 +12,6 @@ use std::path::{Path, PathBuf};
 #[serde(default)]
 pub struct WiniaConfig {
     pub app: AppConfig,
-    pub window: WindowConfig,
     pub build: BuildConfig,
     pub package: PackageConfig,
     pub android: AndroidConfig,
@@ -47,27 +46,6 @@ impl Default for AppConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
-pub struct WindowConfig {
-    pub title: String,
-    pub width: f32,
-    pub height: f32,
-    pub resizable: bool,
-    pub decorations: bool,
-}
-
-impl Default for WindowConfig {
-    fn default() -> Self {
-        Self {
-            title: "My App".to_owned(),
-            width: 1200.0,
-            height: 800.0,
-            resizable: true,
-            decorations: true,
-        }
-    }
-}
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -253,14 +231,7 @@ impl WiniaConfig {
                 self.app.name
             );
         }
-        for (label, value) in [
-            ("window.width", self.window.width),
-            ("window.height", self.window.height),
-        ] {
-            if !value.is_finite() || value <= 0.0 {
-                anyhow::bail!("{label} must be a finite, positive number, got {value}");
-            }
-        }
+
         Ok(())
     }
 }
@@ -404,15 +375,6 @@ mod tests {
         config.app.id = "com.example.app".to_owned();
         config.android.package = "com.example.app".to_owned();
 
-        config.window.width = f32::NAN;
-        assert!(config.validate().is_err(), "NaN width should be rejected");
-        config.window.width = 800.0;
-        config.window.height = -1.0;
-        assert!(
-            config.validate().is_err(),
-            "negative height should be rejected"
-        );
-        config.window.height = 600.0;
 
         config.android.version_code = 0;
         assert!(
