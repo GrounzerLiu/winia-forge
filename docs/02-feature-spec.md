@@ -710,8 +710,9 @@ Checks:
 
 - Rust: `rustc`, `cargo`, MSRV.
 - Rust targets: `rustup target list --installed`.
-- Packaging tools: `makensis` and WiX (Windows), `dpkg-deb` (Linux), `gh`. All are optional
-  warnings with the exact install command, because packaging skips a format whose tool is absent.
+- Packaging tools: `makensis` and WiX (Windows), `gh` for publishing. All are optional warnings
+  with the exact install command, because packaging skips a format whose tool is absent. `dpkg-deb`
+  is not needed: the deb backend writes the ar archive itself.
 - `winia dependency`: reads `Cargo.toml` next to `winia.toml` and reports whether `winia` is
   declared (all targets, desktop and/or android), whether a `path` dependency still exists and
   points at the crate rather than a workspace manifest, whether `android/` exists without the

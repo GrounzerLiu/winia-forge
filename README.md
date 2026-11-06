@@ -81,7 +81,7 @@ Implemented:
 - `winia package`: assemble portable desktop archives (Windows zip, Linux tar.gz, macOS app/zip/dmg), Windows NSIS and MSI installers, a Linux deb, and Android APKs/AABs into `dist/`, with asset manifests, SHA-256 checksums, Android alignment, ABIs, and debug signatures
 - `winia sign --target windows`: Authenticode-sign desktop artifacts with signtool (PFX or store thumbprint)
 - `winia sign`: sign Android APKs with `apksigner`, writing `*-signed.apk` copies and verifying the certificate
-- `winia release`: bump the version, package any target, sign Android APKs, tag, write `dist/SHA256SUMS` and `dist/latest.json`, and optionally publish a GitHub release
+- `winia release`: bump the version, package any target, sign Android APKs and Windows installers (macOS bundles when an identity is set), tag, write `dist/SHA256SUMS` and `dist/latest.json`, and optionally publish a GitHub release
 - `winia doctor`: diagnose the Rust toolchain and MSRV, platform toolchains, the Android SDK/NDK,
   packaging tools, the project's `winia` dependency, and `winia.toml` validation
 - `winia info` / `winia targets`: environment and target platform information
