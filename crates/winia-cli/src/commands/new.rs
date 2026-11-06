@@ -317,8 +317,11 @@ pub(crate) fn package_name(name: &str) -> Result<String> {
     Ok(package)
 }
 
-/// Render the Cargo dependency value for winia. The crate is not published yet, so
-/// a local checkout passed through `--winia-path` or `WINIA_PATH` is required.
+/// The first published Winia release. A caret requirement keeps generated projects on 0.1.x.
+pub(crate) const WINIA_VERSION: &str = "0.1";
+
+/// Render the Cargo dependency value for winia. A local checkout passed through
+/// `--winia-path` or `WINIA_PATH` wins; otherwise the published crate is used.
 pub(crate) fn winia_dependency(explicit: Option<PathBuf>, features: &[&str]) -> Result<String> {
     let path = explicit.or_else(|| std::env::var_os("WINIA_PATH").map(PathBuf::from));
     let features = features
@@ -350,9 +353,10 @@ pub(crate) fn winia_dependency(explicit: Option<PathBuf>, features: &[&str]) -> 
                 features
             ))
         }
-        None => bail!(
-            "winia is not published on crates.io yet; pass --winia-path <path-to-winia-crate> or set WINIA_PATH"
-        ),
+        None => Ok(format!(
+            "{{ version = \"{WINIA_VERSION}\", default-features = false, features = [{}] }}",
+            features
+        )),
     }
 }
 

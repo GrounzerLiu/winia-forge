@@ -45,8 +45,8 @@ winia new my-app --template counter --no-git
 Requirements:
 
 - The default directory is `./<name>`; `--path` overrides it.
-- The `winia` crate is not published on crates.io yet, so `--winia-path` (or `WINIA_PATH`) is
-  required; the generated `Cargo.toml` uses a path dependency to that checkout.
+- `winia` 0.1 is published on crates.io; the generated `Cargo.toml` uses `winia = "0.1"`.
+  `--winia-path` (or `WINIA_PATH`) overrides it with a local checkout for framework development.
 - Interactive wizard: template, target platforms, Rust edition, whether to initialise git.
 - Non-interactive mode: every option can be passed as a flag, suitable for scripts and CI.
 - A non-empty target directory is refused by default; with `--force`, the files that would be overwritten
@@ -97,7 +97,7 @@ Also generated:
 
 ```bash
 winia init
-winia init --path ../my-app --platforms windows,android --winia-path D:\Projects\winia\winia
+winia init --path ../my-app --platforms windows,android
 ```
 
 Implemented: `winia init` never rewrites the user's sources.
@@ -850,9 +850,9 @@ winia template update
 
 ## 11. Upgrades and migration
 
-There is no `winia upgrade` command, deliberately. Winia is not published yet, so projects depend
-on it through a path or git source: updating means changing that source and letting cargo resolve
-it (`cargo update`). The part a command would add — codemods for breaking
+There is no `winia upgrade` command, deliberately. Generated projects use `winia = "0.1"`;
+updating means changing that requirement and letting cargo resolve it (`cargo update`). The part a
+command would add — codemods for breaking
 API changes — needs versioned migration data and a compatibility policy that do not exist yet, and
 a half-working upgrade is worse than none.
 

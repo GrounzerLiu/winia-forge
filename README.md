@@ -14,20 +14,20 @@ The official project toolchain for Winia: create, build, run, and package Winia 
 
 ```bash
 cargo run -p winia-cli -- --help
-cargo run -p winia-cli -- new my-app --winia-path D:\Projects\winia\winia
+cargo run -p winia-cli -- new my-app
 cd my-app
 cargo run -p winia-cli -- doctor
 ```
 
-`winia` is not published on crates.io yet, so `--winia-path` (or the `WINIA_PATH` environment
-variable) is required when creating a project. It points at the `winia` crate, for example
-`D:\Projects\winia\winia`.
+`winia` 0.1 is published on crates.io, so generated projects depend on it by default. Pass
+`--winia-path` (or set `WINIA_PATH`) only when you want to develop against a local checkout,
+for example `D:\Projects\winia\winia`.
 
 After installation the binary is named `winia`:
 
 ```bash
 cargo install --path crates/winia-cli
-winia new my-app --winia-path D:\Projects\winia\winia
+winia new my-app
 ```
 
 ## Workspace
@@ -89,8 +89,9 @@ Implemented:
 - `winia android init`: add the Gradle project, Android dependency, crate type and entry point to an existing app
 - `winia screenshot`: capture the device screen through adb, without the debug server
 
-There is no `winia upgrade`: Winia is not published yet, so updating a project means changing the
-dependency source and letting cargo resolve it. See [docs/02-feature-spec.md](docs/02-feature-spec.md) §11.
+There is no `winia upgrade`: generated projects use a `winia = "0.1"` requirement, and updating
+means changing that requirement and running `cargo update`. Migration codemods do not exist yet. See
+[docs/02-feature-spec.md](docs/02-feature-spec.md) §11.
 
 ## License
 

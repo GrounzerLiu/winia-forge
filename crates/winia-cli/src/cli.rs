@@ -108,7 +108,7 @@ pub struct InitArgs {
     /// Target platforms to add, comma-separated.
     #[arg(long, value_delimiter = ',')]
     pub platforms: Vec<Platform>,
-    /// Path to a local winia checkout. Defaults to WINIA_PATH.
+    /// Path to a local winia checkout. Defaults to WINIA_PATH, then the published crate.
     #[arg(long)]
     pub winia_path: Option<PathBuf>,
     /// Display name. Defaults to the package name in title case.
