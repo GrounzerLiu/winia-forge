@@ -23,10 +23,10 @@ cargo run -p winia-cli -- doctor
 `--winia-path` (or set `WINIA_PATH`) only when you want to develop against a local checkout,
 for example `D:\Projects\winia\winia`.
 
-After installation the binary is named `winia`:
+Install the published CLI, then the binary is named `winia`:
 
 ```bash
-cargo install --path crates/winia-cli
+cargo install winia-cli
 winia new my-app
 ```
 

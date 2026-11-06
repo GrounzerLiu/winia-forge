@@ -1,7 +1,7 @@
 # 01 · Naming decision
 
 > Date: 2026-11-03
-> Status: final, but a crates.io and trademark check is still required before release.
+> Status: final; the crate names are available and winia-cli 0.1.0 is published on crates.io.
 
 ## 1. Final naming
 

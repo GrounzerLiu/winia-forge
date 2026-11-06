@@ -1506,7 +1506,6 @@ dependencies = [
  "toml",
  "toml_edit",
  "tungstenite",
- "winia-build",
  "winia-pack",
  "zip",
 ]

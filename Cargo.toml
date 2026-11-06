@@ -12,6 +12,7 @@ edition = "2024"
 rust-version = "1.88"
 license = "Apache-2.0"
 authors = ["Winia contributors"]
+repository = "https://github.com/GrounzerLiu/winia-forge"
 
 [workspace.dependencies]
 anyhow = "1"
