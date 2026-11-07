@@ -276,12 +276,12 @@ fn android_permission_bridge_check() -> Option<Check> {
         )),
         (false, false) => Some(Check::missing(
             "Android permissions",
-            "permission adapter and XXPermissions dependencies missing; run 'winia android sync'",
+            "permission adapter and XXPermissions dependencies missing; run 'winia android init --force' (overwrites application files) and add the dependencies",
             false,
         )),
         (false, true) => Some(Check::missing(
             "Android permissions",
-            "WiniaPermissions adapter missing; run 'winia android sync'",
+            "WiniaPermissions adapter missing; run 'winia android init --force' (overwrites application files)",
             false,
         )),
         (true, false) => Some(Check::missing(
