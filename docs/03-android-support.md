@@ -66,7 +66,7 @@ by `winia new`/`winia init`. `winia android sync` leaves it untouched because it
 
 Permission declarations remain in `AndroidManifest.xml`; `winia.toml` has no permission table.
 `winia doctor --target android` reports whether the generated adapter and its XXPermissions
-dependencies are present.
+dependencies are present, and how many `<uses-permission>` entries the manifest declares.
 
 ### 2.2 Project file management
 

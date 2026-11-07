@@ -240,9 +240,10 @@ public final class WiniaPermissions {
 
     private static void request(Activity activity, long requestId, String capability, IPermission... permissions) {
         PENDING.add(requestId);
-        XXPermissions.with(activity)
-                .permissions(permissions)
-                .request((granted, denied) -> {
+        try {
+            XXPermissions.with(activity)
+                    .permissions(permissions)
+                    .request((granted, denied) -> {
                     PENDING.remove(requestId);
                     if (CANCELLED.remove(requestId)) {
                         finish(activity);
@@ -268,6 +269,12 @@ public final class WiniaPermissions {
                     RESULTS.put(requestId, value);
                     nativeOnResult(requestId, allGranted, value == 2);
                     finish(activity);
-                });
+                    });
+        } catch (RuntimeException error) {
+            PENDING.remove(requestId);
+            CANCELLED.remove(requestId);
+            finish(activity);
+            throw error;
+        }
     }
 }
