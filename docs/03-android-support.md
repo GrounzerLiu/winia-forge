@@ -114,7 +114,7 @@ Notes:
 - The generated project always uses `MainActivity extends GameActivity`; NativeActivity is not a
   generated option. `winia android init --force` only refreshes the GameActivity project.
 - Permissions are not configured here: declare `<uses-permission>` in `AndroidManifest.xml`. Runtime
-  permission requests come later through a JNI bridge.
+  permission requests go through the generated `WiniaPermissions` JNI bridge.
 - When `label` is empty, `app.name` is used.
 - `package` defaults to `app.id` but can be overridden separately.
 
