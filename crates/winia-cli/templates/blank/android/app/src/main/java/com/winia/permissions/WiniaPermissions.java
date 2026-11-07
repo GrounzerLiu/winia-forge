@@ -17,6 +17,7 @@ import com.hjq.permissions.permission.PermissionLists;
 import com.hjq.permissions.permission.base.IPermission;
 import com.hjq.permissions.tools.PermissionSettingPage;
 
+import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -31,7 +32,20 @@ public final class WiniaPermissions {
     private static final ConcurrentHashMap<Long, Integer> RESULTS = new ConcurrentHashMap<>();
     private static final Set<Long> CANCELLED = ConcurrentHashMap.newKeySet();
     private static final Set<Long> PENDING = ConcurrentHashMap.newKeySet();
+    private static final ArrayDeque<RequestTask> QUEUE = new ArrayDeque<>();
+    private static final Object QUEUE_LOCK = new Object();
+    private static boolean ACTIVE;
     private static final String PREFS = "winia_permissions";
+
+    private static final class RequestTask {
+        final Activity activity;
+        final Runnable runnable;
+
+        RequestTask(Activity activity, Runnable runnable) {
+            this.activity = activity;
+            this.runnable = runnable;
+        }
+    }
 
     private static native void nativeOnResult(long requestId, boolean granted, boolean doNotAskAgain);
 
@@ -40,12 +54,12 @@ public final class WiniaPermissions {
     public static void requestCapability(Activity activity, long requestId, String capability) {
         markRequested(activity, capability);
         IPermission[] permissions = permissionsFor(capability);
-        activity.runOnUiThread(() -> request(activity, requestId, capability, permissions));
+        enqueue(activity, () -> request(activity, requestId, capability, permissions));
     }
 
     public static void requestService(Activity activity, long requestId, String kind, String className) {
         IPermission permission = servicePermission(kind, className);
-        activity.runOnUiThread(() -> request(activity, requestId, "", permission));
+        enqueue(activity, () -> request(activity, requestId, "", permission));
     }
 
     public static boolean isServiceGranted(Activity activity, String kind, String className) {
@@ -186,6 +200,29 @@ public final class WiniaPermissions {
         }
     }
 
+    private static void enqueue(Activity activity, Runnable task) {
+        synchronized (QUEUE_LOCK) {
+            if (ACTIVE) {
+                QUEUE.add(new RequestTask(activity, task));
+                return;
+            }
+            ACTIVE = true;
+        }
+        activity.runOnUiThread(task);
+    }
+
+    private static void finish(Activity activity) {
+        RequestTask next;
+        synchronized (QUEUE_LOCK) {
+            next = QUEUE.poll();
+            if (next == null) {
+                ACTIVE = false;
+                return;
+            }
+        }
+        next.activity.runOnUiThread(next.runnable);
+    }
+
     private static void request(Activity activity, long requestId, String capability, IPermission... permissions) {
         PENDING.add(requestId);
         XXPermissions.with(activity)
@@ -193,6 +230,7 @@ public final class WiniaPermissions {
                 .request((granted, denied) -> {
                     PENDING.remove(requestId);
                     if (CANCELLED.remove(requestId)) {
+                        finish(activity);
                         return;
                     }
                     boolean allGranted = denied.isEmpty();
@@ -214,6 +252,7 @@ public final class WiniaPermissions {
                     }
                     RESULTS.put(requestId, value);
                     nativeOnResult(requestId, allGranted, value == 2);
+                    finish(activity);
                 });
     }
 }
