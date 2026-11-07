@@ -309,18 +309,7 @@ fn android_manifest_check() -> Option<Check> {
         ));
     }
     let text = std::fs::read_to_string(&manifest).ok()?;
-    let declared: Vec<&str> = text
-        .lines()
-        .filter_map(|line| {
-            let line = line.trim();
-            if !line.starts_with("<uses-permission") {
-                return None;
-            }
-            let start = line.find("android:name=\"")? + "android:name=\"".len();
-            let end = line[start..].find('"')? + start;
-            Some(&line[start..end])
-        })
-        .collect();
+    let declared = declared_permissions(&text);
     if declared.is_empty() {
         Some(Check::missing(
             "Android manifest",
@@ -334,6 +323,20 @@ fn android_manifest_check() -> Option<Check> {
             false,
         ))
     }
+}
+
+fn declared_permissions(text: &str) -> Vec<&str> {
+    text.lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            if !line.starts_with("<uses-permission") {
+                return None;
+            }
+            let start = line.find("android:name=\"")? + "android:name=\"".len();
+            let end = line[start..].find('"')? + start;
+            Some(&line[start..end])
+        })
+        .collect()
 }
 
 /// Report how the project declares its winia dependency. Only runs inside a Winia project.
@@ -1447,6 +1450,22 @@ mod tests {
         assert_eq!(check.status, Status::Warning);
         assert!(check.detail.contains("workspace manifest"));
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn extracts_declared_manifest_permissions() {
+        let manifest = r#"<manifest>
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- <uses-permission android:name="ignored" /> -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+</manifest>"#;
+        assert_eq!(
+            declared_permissions(manifest),
+            vec![
+                "android.permission.CAMERA",
+                "android.permission.POST_NOTIFICATIONS"
+            ]
+        );
     }
 
     #[test]
