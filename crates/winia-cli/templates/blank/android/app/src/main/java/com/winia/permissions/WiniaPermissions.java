@@ -3,7 +3,9 @@ package com.winia.permissions;
 import android.accessibilityservice.AccessibilityService;
 import android.app.Activity;
 import android.app.admin.DeviceAdminReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.net.Uri;
 import android.net.VpnService;
 import android.os.Build;
@@ -16,6 +18,7 @@ import com.hjq.permissions.permission.base.IPermission;
 import com.hjq.permissions.tools.PermissionSettingPage;
 
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -26,21 +29,43 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class WiniaPermissions {
     private static final ConcurrentHashMap<Long, Integer> RESULTS = new ConcurrentHashMap<>();
+    private static final Set<Long> CANCELLED = ConcurrentHashMap.newKeySet();
+    private static final Set<Long> PENDING = ConcurrentHashMap.newKeySet();
+    private static final String PREFS = "winia_permissions";
 
     private static native void nativeOnResult(long requestId, boolean granted, boolean doNotAskAgain);
 
     private WiniaPermissions() {}
 
     public static void requestCapability(Activity activity, long requestId, String capability) {
-        request(activity, requestId, permissionsFor(capability));
+        markRequested(activity, capability);
+        IPermission[] permissions = permissionsFor(capability);
+        activity.runOnUiThread(() -> request(activity, requestId, capability, permissions));
     }
 
     public static void requestService(Activity activity, long requestId, String kind, String className) {
-        request(activity, requestId, servicePermission(kind, className));
+        IPermission permission = servicePermission(kind, className);
+        activity.runOnUiThread(() -> request(activity, requestId, "", permission));
     }
 
     public static boolean isServiceGranted(Activity activity, String kind, String className) {
         return XXPermissions.isGrantedPermission(activity, servicePermission(kind, className));
+    }
+
+    public static boolean hasRequested(Activity activity, String capability) {
+        return prefs(activity).getBoolean(capability, false);
+    }
+
+    public static void markRequested(Activity activity, String capability) {
+        prefs(activity).edit().putBoolean(capability, true).apply();
+    }
+
+    private static SharedPreferences prefs(Activity activity) {
+        return activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+    }
+
+    public static boolean isPermanentlyDenied(Activity activity, String capability) {
+        return XXPermissions.isDoNotAskAgainPermissions(activity, permissionsFor(capability));
     }
 
     public static boolean isGranted(Activity activity, String capability) {
@@ -55,6 +80,7 @@ public final class WiniaPermissions {
     }
 
     public static void openSettingsFor(Activity activity, String capability) {
+        markRequested(activity, capability);
         IPermission[] permissions = permissionsFor(capability);
         List<Intent> intents = PermissionSettingPage.getCommonPermissionSettingIntent(activity, permissions);
         Intent intent = intents.isEmpty()
@@ -81,6 +107,14 @@ public final class WiniaPermissions {
     public static int takeResult(long requestId) {
         Integer value = RESULTS.remove(requestId);
         return value == null ? -1 : value;
+    }
+
+    public static void clearResult(long requestId) {
+        if (PENDING.remove(requestId)) {
+            CANCELLED.add(requestId);
+        } else {
+            RESULTS.remove(requestId);
+        }
     }
 
     private static IPermission servicePermission(String kind, String className) {
@@ -120,10 +154,7 @@ public final class WiniaPermissions {
                         PermissionLists.getAccessFineLocationPermission(),
                         PermissionLists.getAccessCoarseLocationPermission()};
             case "backgroundLocation":
-                return new IPermission[]{
-                        PermissionLists.getAccessFineLocationPermission(),
-                        PermissionLists.getAccessCoarseLocationPermission(),
-                        PermissionLists.getAccessBackgroundLocationPermission()};
+                return new IPermission[]{PermissionLists.getAccessBackgroundLocationPermission()};
             case "notifications":
                 return new IPermission[]{PermissionLists.getPostNotificationsPermission()};
             case "systemAlertWindow":
@@ -155,11 +186,24 @@ public final class WiniaPermissions {
         }
     }
 
-    private static void request(Activity activity, long requestId, IPermission... permissions) {
+    private static void request(Activity activity, long requestId, String capability, IPermission... permissions) {
+        PENDING.add(requestId);
         XXPermissions.with(activity)
                 .permissions(permissions)
                 .request((granted, denied) -> {
+                    PENDING.remove(requestId);
+                    if (CANCELLED.remove(requestId)) {
+                        return;
+                    }
                     boolean allGranted = denied.isEmpty();
+                    if ("location".equals(capability)) {
+                        // Choosing approximate location leaves FINE denied but grants COARSE.
+                        allGranted = XXPermissions.isGrantedPermission(
+                                activity, PermissionLists.getAccessCoarseLocationPermission());
+                    } else if ("backgroundLocation".equals(capability)) {
+                        allGranted = XXPermissions.isGrantedPermission(
+                                activity, PermissionLists.getAccessBackgroundLocationPermission());
+                    }
                     int value;
                     if (allGranted) {
                         value = 1;
