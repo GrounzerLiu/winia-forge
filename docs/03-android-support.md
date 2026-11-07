@@ -62,7 +62,7 @@ offered by the template: it has no generated Java activity, so it cannot support
 Generated projects include `com.winia.permissions.WiniaPermissions`, a thin adapter over
 XXPermissions 28.3. The adapter receives permission results through XXPermissions' headless
 Fragment, so `MainActivity` does not override `onRequestPermissionsResult`. The adapter is managed
-by `winia new`/`winia init` and refreshed by `winia android sync`.
+by `winia new`/`winia init`. `winia android sync` leaves it untouched because it is application-facing Java code.
 
 Permission declarations remain in `AndroidManifest.xml`; `winia.toml` has no permission table.
 `winia doctor --target android` reports whether the generated adapter and its XXPermissions

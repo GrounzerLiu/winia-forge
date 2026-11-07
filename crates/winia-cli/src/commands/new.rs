@@ -156,10 +156,6 @@ const MANAGED_ANDROID: &[TemplateFile] = &[
         template: ANDROID_APP_BUILD,
         destination: "android/app/build.gradle.kts",
     },
-    TemplateFile {
-        template: ANDROID_PERMISSIONS,
-        destination: "android/app/src/main/java/com/winia/permissions/WiniaPermissions.java",
-    },
 ];
 
 pub(crate) fn managed_android_files() -> &'static [TemplateFile] {
