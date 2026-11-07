@@ -304,7 +304,9 @@ winia screenshot --target android --output shot.png
 - `winia doctor` warns when an older `winia.toml` still declares `[android].permissions`; the key is
   ignored and the message points at the manifest.
 - Runtime permission requests go through the generated `WiniaPermissions` JNI bridge; the
-  declarations themselves remain the project's responsibility.
+  declarations themselves remain the project's responsibility. The adapter checks the packed
+  manifest before a runtime request and reports a configuration action when a declaration is
+  missing.
 - `android:exported`, `launchMode`, `configChanges`, and similar are generated uniformly by the template;
   users do not edit them by hand.
 
