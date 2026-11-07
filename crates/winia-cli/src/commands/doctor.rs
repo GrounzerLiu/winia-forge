@@ -243,6 +243,9 @@ fn collect_checks(target: Option<Target>, android_required: bool) -> Vec<Check> 
             if let Some(check) = android_permission_bridge_check() {
                 checks.push(check);
             }
+            if let Some(check) = android_manifest_check() {
+                checks.push(check);
+            }
         }
         Some(Target::Windows) | Some(Target::Macos) | Some(Target::Linux) => {}
     }
@@ -289,6 +292,47 @@ fn android_permission_bridge_check() -> Option<Check> {
             "XXPermissions dependencies missing; run 'winia android sync'",
             false,
         )),
+    }
+}
+
+/// Report the declared Android permissions so a missing manifest entry is visible before runtime.
+fn android_manifest_check() -> Option<Check> {
+    let cwd = std::env::current_dir().ok()?;
+    let config_path = crate::config::find_config(&cwd)?;
+    let root = config_path.parent()?;
+    let manifest = root.join("android/app/src/main/AndroidManifest.xml");
+    if !manifest.is_file() {
+        return Some(Check::missing(
+            "Android manifest",
+            "android/app/src/main/AndroidManifest.xml is missing",
+            false,
+        ));
+    }
+    let text = std::fs::read_to_string(&manifest).ok()?;
+    let declared: Vec<&str> = text
+        .lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            if !line.starts_with("<uses-permission") {
+                return None;
+            }
+            let start = line.find("android:name=\"")? + "android:name=\"".len();
+            let end = line[start..].find('"')? + start;
+            Some(&line[start..end])
+        })
+        .collect();
+    if declared.is_empty() {
+        Some(Check::missing(
+            "Android manifest",
+            "no <uses-permission> entries; runtime permission requests will fail the XXPermissions manifest check",
+            false,
+        ))
+    } else {
+        Some(Check::ok(
+            "Android manifest",
+            format!("{} declared permission entries", declared.len()),
+            false,
+        ))
     }
 }
 
