@@ -164,6 +164,14 @@ public final class WiniaPermissions {
         return value == null ? -1 : value;
     }
 
+    public static boolean cancelAllIfDestroyed(Activity activity) {
+        if (activity.isFinishing() || activity.isDestroyed()) {
+            cancelAll();
+            return true;
+        }
+        return false;
+    }
+
     public static void cancelAll() {
         synchronized (QUEUE_LOCK) {
             QUEUE.clear();
