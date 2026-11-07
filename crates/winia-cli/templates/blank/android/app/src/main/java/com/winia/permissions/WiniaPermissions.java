@@ -60,7 +60,7 @@ public final class WiniaPermissions {
 
     public static void requestCapability(Activity activity, long requestId, String capability) {
         markRequested(activity, capability);
-        IPermission[] permissions = permissionsFor(capability);
+        IPermission[] permissions = permissionsFor(activity, capability);
         enqueue(activity, requestId, () -> request(activity, requestId, capability, permissions));
     }
 
@@ -90,36 +90,40 @@ public final class WiniaPermissions {
     }
 
     public static boolean isPermanentlyDenied(Activity activity, String capability) {
-        return XXPermissions.isDoNotAskAgainPermissions(activity, permissionsFor(capability));
+        return XXPermissions.isDoNotAskAgainPermissions(activity, permissionsFor(activity, capability));
     }
 
     public static boolean hasDeclaredPermission(Activity activity, String capability) {
         if ("notifications".equals(capability) && Build.VERSION.SDK_INT < 33) {
             return true;
         }
+        HashSet<String> declared = declaredPermissions(activity);
+        if ("location".equals(capability)) {
+            return declared.contains("android.permission.ACCESS_FINE_LOCATION")
+                    || declared.contains("android.permission.ACCESS_COARSE_LOCATION");
+        }
+        for (IPermission permission : permissionsFor(capability)) {
+            if (!declared.contains(permission.getPermissionName())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static HashSet<String> declaredPermissions(Activity activity) {
+        HashSet<String> declared = new HashSet<>();
         try {
             PackageInfo info = activity.getPackageManager().getPackageInfo(
                     activity.getPackageName(), PackageManager.GET_PERMISSIONS);
-            HashSet<String> declared = new HashSet<>();
             if (info.requestedPermissions != null) {
                 for (String name : info.requestedPermissions) {
                     declared.add(name);
                 }
             }
-            if ("location".equals(capability)) {
-                // permissionsFor("location") requests both; keep the preflight aligned.
-                return declared.contains("android.permission.ACCESS_FINE_LOCATION")
-                        && declared.contains("android.permission.ACCESS_COARSE_LOCATION");
-            }
-            for (IPermission permission : permissionsFor(capability)) {
-                if (!declared.contains(permission.getPermissionName())) {
-                    return false;
-                }
-            }
-            return true;
-        } catch (PackageManager.NameNotFoundException error) {
-            return false;
+        } catch (PackageManager.NameNotFoundException ignored) {
+            // An unreadable package has no usable declarations.
         }
+        return declared;
     }
 
     public static boolean isGranted(Activity activity, String capability) {
@@ -130,12 +134,12 @@ public final class WiniaPermissions {
             return XXPermissions.isGrantedPermission(activity, PermissionLists.getAccessFineLocationPermission())
                     || XXPermissions.isGrantedPermission(activity, PermissionLists.getAccessCoarseLocationPermission());
         }
-        return XXPermissions.isGrantedPermissions(activity, permissionsFor(capability));
+        return XXPermissions.isGrantedPermissions(activity, permissionsFor(activity, capability));
     }
 
     public static void openSettingsFor(Activity activity, String capability) {
         markRequested(activity, capability);
-        IPermission[] permissions = permissionsFor(capability);
+        IPermission[] permissions = permissionsFor(activity, capability);
         activity.runOnUiThread(() -> {
             List<Intent> intents = PermissionSettingPage.getCommonPermissionSettingIntent(activity, permissions);
             Intent intent = intents.isEmpty()
@@ -234,6 +238,21 @@ public final class WiniaPermissions {
         }
     }
 
+    private static IPermission[] permissionsFor(Activity activity, String capability) {
+        if ("location".equals(capability)) {
+            HashSet<String> declared = declaredPermissions(activity);
+            boolean fine = declared.contains("android.permission.ACCESS_FINE_LOCATION");
+            boolean coarse = declared.contains("android.permission.ACCESS_COARSE_LOCATION");
+            if (fine && !coarse) {
+                return new IPermission[]{PermissionLists.getAccessFineLocationPermission()};
+            }
+            if (coarse && !fine) {
+                return new IPermission[]{PermissionLists.getAccessCoarseLocationPermission()};
+            }
+        }
+        return permissionsFor(capability);
+    }
+
     private static IPermission[] permissionsFor(String capability) {
         switch (capability) {
             case "camera":
@@ -329,9 +348,11 @@ public final class WiniaPermissions {
                         if (!cancelled) {
                             boolean allGranted = denied.isEmpty();
                             if ("location".equals(capability)) {
-                                // Choosing approximate location leaves FINE denied but grants COARSE.
+                                // Accept either precision; the selected request set may contain only one.
                                 allGranted = XXPermissions.isGrantedPermission(
-                                        activity, PermissionLists.getAccessCoarseLocationPermission());
+                                        activity, PermissionLists.getAccessFineLocationPermission())
+                                        || XXPermissions.isGrantedPermission(
+                                                activity, PermissionLists.getAccessCoarseLocationPermission());
                             } else if ("backgroundLocation".equals(capability)) {
                                 allGranted = XXPermissions.isGrantedPermission(
                                         activity, PermissionLists.getAccessBackgroundLocationPermission());
