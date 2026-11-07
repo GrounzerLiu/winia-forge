@@ -88,7 +88,25 @@ jobs:
       - name: Install NSIS
         if: runner.os == 'Windows'
         shell: pwsh
-        run: choco install nsis -y --no-progress
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installed = $false
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            choco install nsis -y --no-progress
+            if ($LASTEXITCODE -eq 0) {
+              $installed = $true
+              break
+            }
+            Write-Warning "choco install nsis failed (attempt $attempt); retrying"
+            Start-Sleep -Seconds (10 * $attempt)
+          }
+          if (-not $installed) {
+            Write-Warning "choco could not install NSIS; trying winget"
+            winget install --id NSIS.NSIS -e --silent --accept-package-agreements --accept-source-agreements
+            if ($LASTEXITCODE -ne 0) {
+              throw "NSIS installation failed"
+            }
+          }
 
       - name: Package Windows installer
         if: runner.os == 'Windows'
