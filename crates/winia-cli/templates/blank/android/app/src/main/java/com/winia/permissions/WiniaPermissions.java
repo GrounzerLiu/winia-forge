@@ -39,14 +39,18 @@ public final class WiniaPermissions {
     private static final ArrayDeque<RequestTask> QUEUE = new ArrayDeque<>();
     private static final Object QUEUE_LOCK = new Object();
     private static boolean ACTIVE;
+    private static long ACTIVE_ID;
+    private static Activity ACTIVE_ACTIVITY;
     private static final String PREFS = "winia_permissions";
 
     private static final class RequestTask {
         final Activity activity;
+        final long requestId;
         final Runnable runnable;
 
-        RequestTask(Activity activity, Runnable runnable) {
+        RequestTask(Activity activity, long requestId, Runnable runnable) {
             this.activity = activity;
+            this.requestId = requestId;
             this.runnable = runnable;
         }
     }
@@ -58,12 +62,12 @@ public final class WiniaPermissions {
     public static void requestCapability(Activity activity, long requestId, String capability) {
         markRequested(activity, capability);
         IPermission[] permissions = permissionsFor(capability);
-        enqueue(activity, () -> request(activity, requestId, capability, permissions));
+        enqueue(activity, requestId, () -> request(activity, requestId, capability, permissions));
     }
 
     public static void requestService(Activity activity, long requestId, String kind, String className) {
         IPermission permission = servicePermission(kind, className);
-        enqueue(activity, () -> request(activity, requestId, "", permission));
+        enqueue(activity, requestId, () -> request(activity, requestId, "", permission));
     }
 
     public static boolean isServiceGranted(Activity activity, String kind, String className) {
@@ -104,8 +108,9 @@ public final class WiniaPermissions {
                 }
             }
             if ("location".equals(capability)) {
+                // permissionsFor("location") requests both; keep the preflight aligned.
                 return declared.contains("android.permission.ACCESS_FINE_LOCATION")
-                        || declared.contains("android.permission.ACCESS_COARSE_LOCATION");
+                        && declared.contains("android.permission.ACCESS_COARSE_LOCATION");
             }
             for (IPermission permission : permissionsFor(capability)) {
                 if (!declared.contains(permission.getPermissionName())) {
@@ -163,6 +168,8 @@ public final class WiniaPermissions {
         synchronized (QUEUE_LOCK) {
             QUEUE.clear();
             ACTIVE = false;
+            ACTIVE_ID = 0;
+            ACTIVE_ACTIVITY = null;
         }
         CANCELLED.addAll(PENDING);
         PENDING.clear();
@@ -170,8 +177,18 @@ public final class WiniaPermissions {
     }
 
     public static void clearResult(long requestId) {
+        Activity active = null;
+        synchronized (QUEUE_LOCK) {
+            QUEUE.removeIf(task -> task.requestId == requestId);
+            if (ACTIVE_ID == requestId) {
+                active = ACTIVE_ACTIVITY;
+            }
+        }
         if (PENDING.remove(requestId)) {
             CANCELLED.add(requestId);
+            if (active != null) {
+                finish(active, requestId);
+            }
         } else {
             RESULTS.remove(requestId);
         }
@@ -246,25 +263,34 @@ public final class WiniaPermissions {
         }
     }
 
-    private static void enqueue(Activity activity, Runnable task) {
+    private static void enqueue(Activity activity, long requestId, Runnable task) {
         synchronized (QUEUE_LOCK) {
             if (ACTIVE) {
-                QUEUE.add(new RequestTask(activity, task));
+                QUEUE.add(new RequestTask(activity, requestId, task));
                 return;
             }
             ACTIVE = true;
+            ACTIVE_ID = requestId;
+            ACTIVE_ACTIVITY = activity;
         }
         activity.runOnUiThread(task);
     }
 
-    private static void finish(Activity activity) {
+    private static void finish(Activity activity, long requestId) {
         RequestTask next;
         synchronized (QUEUE_LOCK) {
+            if (ACTIVE_ID != requestId) {
+                return;
+            }
+            ACTIVE_ID = 0;
+            ACTIVE_ACTIVITY = null;
             next = QUEUE.poll();
             if (next == null) {
                 ACTIVE = false;
                 return;
             }
+            ACTIVE_ID = next.requestId;
+            ACTIVE_ACTIVITY = next.activity;
         }
         next.activity.runOnUiThread(next.runnable);
     }
@@ -277,7 +303,7 @@ public final class WiniaPermissions {
                     .request((granted, denied) -> {
                     PENDING.remove(requestId);
                     if (CANCELLED.remove(requestId)) {
-                        finish(activity);
+                        finish(activity, requestId);
                         return;
                     }
                     boolean allGranted = denied.isEmpty();
@@ -299,12 +325,12 @@ public final class WiniaPermissions {
                     }
                     RESULTS.put(requestId, value);
                     nativeOnResult(requestId, allGranted, value == 2);
-                    finish(activity);
+                    finish(activity, requestId);
                     });
         } catch (RuntimeException error) {
             PENDING.remove(requestId);
             CANCELLED.remove(requestId);
-            finish(activity);
+            finish(activity, requestId);
             throw error;
         }
     }
