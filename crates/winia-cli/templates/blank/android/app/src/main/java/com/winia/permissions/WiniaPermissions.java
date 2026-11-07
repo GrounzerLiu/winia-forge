@@ -1,10 +1,14 @@
 package com.winia.permissions;
 
+import android.accessibilityservice.AccessibilityService;
 import android.app.Activity;
+import android.app.admin.DeviceAdminReceiver;
 import android.content.Intent;
 import android.net.Uri;
+import android.net.VpnService;
 import android.os.Build;
 import android.provider.Settings;
+import android.service.notification.NotificationListenerService;
 
 import com.hjq.permissions.XXPermissions;
 import com.hjq.permissions.permission.PermissionLists;
@@ -31,6 +35,14 @@ public final class WiniaPermissions {
         request(activity, requestId, permissionsFor(capability));
     }
 
+    public static void requestService(Activity activity, long requestId, String kind, String className) {
+        request(activity, requestId, servicePermission(kind, className));
+    }
+
+    public static boolean isServiceGranted(Activity activity, String kind, String className) {
+        return XXPermissions.isGrantedPermission(activity, servicePermission(kind, className));
+    }
+
     public static boolean isGranted(Activity activity, String capability) {
         if ("notifications".equals(capability) && Build.VERSION.SDK_INT < 33) {
             return true;
@@ -51,6 +63,15 @@ public final class WiniaPermissions {
         activity.startActivity(intent);
     }
 
+    public static void openSettingsForService(Activity activity, String kind, String className) {
+        IPermission permission = servicePermission(kind, className);
+        List<Intent> intents = PermissionSettingPage.getCommonPermissionSettingIntent(activity, permission);
+        Intent intent = intents.isEmpty()
+                ? PermissionSettingPage.getApplicationDetailsSettingsIntent(activity, permission)
+                : intents.get(0);
+        activity.startActivity(intent);
+    }
+
     public static void openSettings(Activity activity) {
         Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
         intent.setData(Uri.parse("package:" + activity.getPackageName()));
@@ -60,6 +81,32 @@ public final class WiniaPermissions {
     public static int takeResult(long requestId) {
         Integer value = RESULTS.remove(requestId);
         return value == null ? -1 : value;
+    }
+
+    private static IPermission servicePermission(String kind, String className) {
+        switch (kind) {
+            case "accessibility":
+                return PermissionLists.getBindAccessibilityServicePermission(
+                        serviceClass(className, AccessibilityService.class));
+            case "notificationListener":
+                return PermissionLists.getBindNotificationListenerServicePermission(
+                        serviceClass(className, NotificationListenerService.class));
+            case "vpn":
+                return PermissionLists.getBindVpnServicePermission();
+            case "deviceAdmin":
+                return PermissionLists.getBindDeviceAdminPermission(
+                        serviceClass(className, DeviceAdminReceiver.class));
+            default:
+                throw new IllegalArgumentException("unknown service permission kind: " + kind);
+        }
+    }
+
+    private static <T> Class<? extends T> serviceClass(String name, Class<T> base) {
+        try {
+            return Class.forName(name).asSubclass(base);
+        } catch (ClassNotFoundException error) {
+            throw new IllegalArgumentException("service class not found: " + name, error);
+        }
     }
 
     private static IPermission[] permissionsFor(String capability) {
