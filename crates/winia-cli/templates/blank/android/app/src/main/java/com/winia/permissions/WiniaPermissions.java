@@ -93,6 +93,16 @@ public final class WiniaPermissions {
                 return new IPermission[]{PermissionLists.getPackageUsageStatsPermission()};
             case "ignoreBatteryOptimizations":
                 return new IPermission[]{PermissionLists.getRequestIgnoreBatteryOptimizationsPermission()};
+            case "pictureInPicture":
+                return new IPermission[]{PermissionLists.getPictureInPicturePermission()};
+            case "useFullScreenIntent":
+                return new IPermission[]{PermissionLists.getUseFullScreenIntentPermission()};
+            case "accessNotificationPolicy":
+                return new IPermission[]{PermissionLists.getAccessNotificationPolicyPermission()};
+            case "manageMedia":
+                return new IPermission[]{PermissionLists.getManageMediaPermission()};
+            case "getInstalledApps":
+                return new IPermission[]{PermissionLists.getGetInstalledAppsPermission()};
             default:
                 throw new IllegalArgumentException("unknown permission capability: " + capability);
         }
