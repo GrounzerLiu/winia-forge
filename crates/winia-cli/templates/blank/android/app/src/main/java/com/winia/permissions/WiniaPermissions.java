@@ -9,6 +9,7 @@ import android.content.SharedPreferences;
 import android.net.Uri;
 import android.net.VpnService;
 import android.os.Build;
+import android.os.Looper;
 import android.provider.Settings;
 import android.service.notification.NotificationListenerService;
 
@@ -64,6 +65,10 @@ public final class WiniaPermissions {
 
     public static boolean isServiceGranted(Activity activity, String kind, String className) {
         return XXPermissions.isGrantedPermission(activity, servicePermission(kind, className));
+    }
+
+    public static boolean isMainThread() {
+        return Looper.myLooper() == Looper.getMainLooper();
     }
 
     public static boolean hasRequested(Activity activity, String capability) {
