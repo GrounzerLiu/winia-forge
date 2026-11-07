@@ -72,6 +72,11 @@ public final class WiniaPermissions {
                 return new IPermission[]{
                         PermissionLists.getAccessFineLocationPermission(),
                         PermissionLists.getAccessCoarseLocationPermission()};
+            case "backgroundLocation":
+                return new IPermission[]{
+                        PermissionLists.getAccessFineLocationPermission(),
+                        PermissionLists.getAccessCoarseLocationPermission(),
+                        PermissionLists.getAccessBackgroundLocationPermission()};
             case "notifications":
                 return new IPermission[]{PermissionLists.getPostNotificationsPermission()};
             case "systemAlertWindow":
