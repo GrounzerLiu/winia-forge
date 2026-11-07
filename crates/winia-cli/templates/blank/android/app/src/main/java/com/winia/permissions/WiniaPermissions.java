@@ -128,6 +128,16 @@ public final class WiniaPermissions {
         return value == null ? -1 : value;
     }
 
+    public static void cancelAll() {
+        synchronized (QUEUE_LOCK) {
+            QUEUE.clear();
+            ACTIVE = false;
+        }
+        CANCELLED.addAll(PENDING);
+        PENDING.clear();
+        RESULTS.clear();
+    }
+
     public static void clearResult(long requestId) {
         if (PENDING.remove(requestId)) {
             CANCELLED.add(requestId);
