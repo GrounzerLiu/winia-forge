@@ -303,8 +303,8 @@ winia screenshot --target android --output shot.png
   socket in debug builds.
 - `winia doctor` warns when an older `winia.toml` still declares `[android].permissions`; the key is
   ignored and the message points at the manifest.
-- Runtime permission requests still need a JNI bridge; declaring permissions is all the toolchain
-  does today.
+- Runtime permission requests go through the generated `WiniaPermissions` JNI bridge; the
+  declarations themselves remain the project's responsibility.
 - `android:exported`, `launchMode`, `configChanges`, and similar are generated uniformly by the template;
   users do not edit them by hand.
 
