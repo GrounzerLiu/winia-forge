@@ -137,26 +137,32 @@ public final class WiniaPermissions {
     public static void openSettingsFor(Activity activity, String capability) {
         markRequested(activity, capability);
         IPermission[] permissions = permissionsFor(capability);
-        List<Intent> intents = PermissionSettingPage.getCommonPermissionSettingIntent(activity, permissions);
-        Intent intent = intents.isEmpty()
-                ? PermissionSettingPage.getApplicationDetailsSettingsIntent(activity, permissions)
-                : intents.get(0);
-        activity.startActivity(intent);
+        activity.runOnUiThread(() -> {
+            List<Intent> intents = PermissionSettingPage.getCommonPermissionSettingIntent(activity, permissions);
+            Intent intent = intents.isEmpty()
+                    ? PermissionSettingPage.getApplicationDetailsSettingsIntent(activity, permissions)
+                    : intents.get(0);
+            activity.startActivity(intent);
+        });
     }
 
     public static void openSettingsForService(Activity activity, String kind, String className) {
         IPermission permission = servicePermission(kind, className);
-        List<Intent> intents = PermissionSettingPage.getCommonPermissionSettingIntent(activity, permission);
-        Intent intent = intents.isEmpty()
-                ? PermissionSettingPage.getApplicationDetailsSettingsIntent(activity, permission)
-                : intents.get(0);
-        activity.startActivity(intent);
+        activity.runOnUiThread(() -> {
+            List<Intent> intents = PermissionSettingPage.getCommonPermissionSettingIntent(activity, permission);
+            Intent intent = intents.isEmpty()
+                    ? PermissionSettingPage.getApplicationDetailsSettingsIntent(activity, permission)
+                    : intents.get(0);
+            activity.startActivity(intent);
+        });
     }
 
     public static void openSettings(Activity activity) {
-        Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
-        intent.setData(Uri.parse("package:" + activity.getPackageName()));
-        activity.startActivity(intent);
+        activity.runOnUiThread(() -> {
+            Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+            intent.setData(Uri.parse("package:" + activity.getPackageName()));
+            activity.startActivity(intent);
+        });
     }
 
     public static int takeResult(long requestId) {
