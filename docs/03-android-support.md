@@ -65,6 +65,8 @@ Fragment, so `MainActivity` does not override `onRequestPermissionsResult`. The 
 by `winia new`/`winia init` and refreshed by `winia android sync`.
 
 Permission declarations remain in `AndroidManifest.xml`; `winia.toml` has no permission table.
+`winia doctor --target android` reports whether the generated adapter and its XXPermissions
+dependencies are present.
 
 ### 2.2 Project file management
 

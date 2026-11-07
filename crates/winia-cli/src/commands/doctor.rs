@@ -240,6 +240,9 @@ fn collect_checks(target: Option<Target>, android_required: bool) -> Vec<Check> 
             checks.push(android_ndk_check(android_required));
             checks.push(adb_check(android_required));
             checks.push(java_check(android_required));
+            if let Some(check) = android_permission_bridge_check() {
+                checks.push(check);
+            }
         }
         Some(Target::Windows) | Some(Target::Macos) | Some(Target::Linux) => {}
     }
@@ -250,6 +253,43 @@ fn collect_checks(target: Option<Target>, android_required: bool) -> Vec<Check> 
     }
     checks.push(config_check());
     checks
+}
+
+/// Check the generated XXPermissions bridge in an existing Android project.
+fn android_permission_bridge_check() -> Option<Check> {
+    let cwd = std::env::current_dir().ok()?;
+    let config_path = crate::config::find_config(&cwd)?;
+    let root = config_path.parent()?;
+    let android = root.join("android");
+    if !android.is_dir() {
+        return None;
+    }
+    let adapter = android.join("app/src/main/java/com/winia/permissions/WiniaPermissions.java");
+    let gradle = android.join("app/build.gradle.kts");
+    let text = std::fs::read_to_string(&gradle).unwrap_or_default();
+    let has_xx = text.contains("xxpermissions") && text.contains("devicecompat");
+    match (adapter.is_file(), has_xx) {
+        (true, true) => Some(Check::ok(
+            "Android permissions",
+            "WiniaPermissions adapter and XXPermissions dependencies present",
+            false,
+        )),
+        (false, false) => Some(Check::missing(
+            "Android permissions",
+            "permission adapter and XXPermissions dependencies missing; run 'winia android sync'",
+            false,
+        )),
+        (false, true) => Some(Check::missing(
+            "Android permissions",
+            "WiniaPermissions adapter missing; run 'winia android sync'",
+            false,
+        )),
+        (true, false) => Some(Check::missing(
+            "Android permissions",
+            "XXPermissions dependencies missing; run 'winia android sync'",
+            false,
+        )),
+    }
 }
 
 /// Report how the project declares its winia dependency. Only runs inside a Winia project.
