@@ -11,6 +11,7 @@ import com.hjq.permissions.permission.PermissionLists;
 import com.hjq.permissions.permission.base.IPermission;
 import com.hjq.permissions.tools.PermissionSettingPage;
 
+import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -42,8 +43,11 @@ public final class WiniaPermissions {
     }
 
     public static void openSettingsFor(Activity activity, String capability) {
-        Intent intent = PermissionSettingPage.getApplicationDetailsSettingsIntent(
-                activity, permissionsFor(capability));
+        IPermission[] permissions = permissionsFor(capability);
+        List<Intent> intents = PermissionSettingPage.getCommonPermissionSettingIntent(activity, permissions);
+        Intent intent = intents.isEmpty()
+                ? PermissionSettingPage.getApplicationDetailsSettingsIntent(activity, permissions)
+                : intents.get(0);
         activity.startActivity(intent);
     }
 
