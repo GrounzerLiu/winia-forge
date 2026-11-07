@@ -165,8 +165,13 @@ public final class WiniaPermissions {
     }
 
     public static int takeResult(long requestId) {
-        Integer value = RESULTS.remove(requestId);
-        return value == null ? -1 : value;
+        synchronized (QUEUE_LOCK) {
+            if (CANCELLED.contains(requestId)) {
+                return -1;
+            }
+            Integer value = RESULTS.remove(requestId);
+            return value == null ? -1 : value;
+        }
     }
 
     public static boolean cancelAllIfDestroyed(Activity activity) {
@@ -183,26 +188,22 @@ public final class WiniaPermissions {
             ACTIVE = false;
             ACTIVE_ID = 0;
             ACTIVE_ACTIVITY = null;
+            CANCELLED.addAll(PENDING);
+            PENDING.clear();
+            RESULTS.clear();
         }
-        CANCELLED.addAll(PENDING);
-        PENDING.clear();
-        RESULTS.clear();
     }
 
     public static void clearResult(long requestId) {
-        Activity active = null;
         synchronized (QUEUE_LOCK) {
-            QUEUE.removeIf(task -> task.requestId == requestId);
+            if (QUEUE.removeIf(task -> task.requestId == requestId)) {
+                return;
+            }
             if (ACTIVE_ID == requestId) {
-                active = ACTIVE_ACTIVITY;
+                // Do not start the next request yet: the system dialog for this request may still
+                // be visible. Its callback owns queue advancement.
+                CANCELLED.add(requestId);
             }
-        }
-        if (PENDING.remove(requestId)) {
-            CANCELLED.add(requestId);
-            if (active != null) {
-                finish(active, requestId);
-            }
-        } else {
             RESULTS.remove(requestId);
         }
     }
@@ -309,40 +310,52 @@ public final class WiniaPermissions {
     }
 
     private static void request(Activity activity, long requestId, String capability, IPermission... permissions) {
-        PENDING.add(requestId);
+        synchronized (QUEUE_LOCK) {
+            if (ACTIVE_ID != requestId || CANCELLED.remove(requestId)) {
+                finish(activity, requestId);
+                return;
+            }
+            PENDING.add(requestId);
+        }
         try {
             XXPermissions.with(activity)
                     .permissions(permissions)
                     .request((granted, denied) -> {
-                    PENDING.remove(requestId);
-                    if (CANCELLED.remove(requestId)) {
+                    int value = 0;
+                    boolean cancelled;
+                    synchronized (QUEUE_LOCK) {
+                        PENDING.remove(requestId);
+                        cancelled = CANCELLED.remove(requestId);
+                        if (!cancelled) {
+                            boolean allGranted = denied.isEmpty();
+                            if ("location".equals(capability)) {
+                                // Choosing approximate location leaves FINE denied but grants COARSE.
+                                allGranted = XXPermissions.isGrantedPermission(
+                                        activity, PermissionLists.getAccessCoarseLocationPermission());
+                            } else if ("backgroundLocation".equals(capability)) {
+                                allGranted = XXPermissions.isGrantedPermission(
+                                        activity, PermissionLists.getAccessBackgroundLocationPermission());
+                            }
+                            if (allGranted) {
+                                value = 1;
+                            } else if (XXPermissions.isDoNotAskAgainPermissions(activity, denied)) {
+                                value = 2;
+                            }
+                            RESULTS.put(requestId, value);
+                        }
+                    }
+                    if (cancelled) {
                         finish(activity, requestId);
                         return;
                     }
-                    boolean allGranted = denied.isEmpty();
-                    if ("location".equals(capability)) {
-                        // Choosing approximate location leaves FINE denied but grants COARSE.
-                        allGranted = XXPermissions.isGrantedPermission(
-                                activity, PermissionLists.getAccessCoarseLocationPermission());
-                    } else if ("backgroundLocation".equals(capability)) {
-                        allGranted = XXPermissions.isGrantedPermission(
-                                activity, PermissionLists.getAccessBackgroundLocationPermission());
-                    }
-                    int value;
-                    if (allGranted) {
-                        value = 1;
-                    } else if (XXPermissions.isDoNotAskAgainPermissions(activity, denied)) {
-                        value = 2;
-                    } else {
-                        value = 0;
-                    }
-                    RESULTS.put(requestId, value);
-                    nativeOnResult(requestId, allGranted, value == 2);
+                    nativeOnResult(requestId, value == 1, value == 2);
                     finish(activity, requestId);
                     });
         } catch (RuntimeException error) {
-            PENDING.remove(requestId);
-            CANCELLED.remove(requestId);
+            synchronized (QUEUE_LOCK) {
+                PENDING.remove(requestId);
+                CANCELLED.remove(requestId);
+            }
             finish(activity, requestId);
             throw error;
         }
