@@ -5,6 +5,8 @@ import android.app.Activity;
 import android.app.admin.DeviceAdminReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
 import android.content.SharedPreferences;
 import android.net.Uri;
 import android.net.VpnService;
@@ -19,6 +21,7 @@ import com.hjq.permissions.permission.base.IPermission;
 import com.hjq.permissions.tools.PermissionSettingPage;
 
 import java.util.ArrayDeque;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -85,6 +88,34 @@ public final class WiniaPermissions {
 
     public static boolean isPermanentlyDenied(Activity activity, String capability) {
         return XXPermissions.isDoNotAskAgainPermissions(activity, permissionsFor(capability));
+    }
+
+    public static boolean hasDeclaredPermission(Activity activity, String capability) {
+        if ("notifications".equals(capability) && Build.VERSION.SDK_INT < 33) {
+            return true;
+        }
+        try {
+            PackageInfo info = activity.getPackageManager().getPackageInfo(
+                    activity.getPackageName(), PackageManager.GET_PERMISSIONS);
+            HashSet<String> declared = new HashSet<>();
+            if (info.requestedPermissions != null) {
+                for (String name : info.requestedPermissions) {
+                    declared.add(name);
+                }
+            }
+            if ("location".equals(capability)) {
+                return declared.contains("android.permission.ACCESS_FINE_LOCATION")
+                        || declared.contains("android.permission.ACCESS_COARSE_LOCATION");
+            }
+            for (IPermission permission : permissionsFor(capability)) {
+                if (!declared.contains(permission.getPermissionName())) {
+                    return false;
+                }
+            }
+            return true;
+        } catch (PackageManager.NameNotFoundException error) {
+            return false;
+        }
     }
 
     public static boolean isGranted(Activity activity, String capability) {
