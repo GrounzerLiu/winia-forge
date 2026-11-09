@@ -180,8 +180,9 @@ Process-management notes:
 
 ## 7. Release and versioning
 
-- `winia-cli` is not published to crates.io yet; CI and `winia ci init` install it from the git
-  repository (`--winia-source`).
+- `winia-cli` and `winia-pack` are published to crates.io (0.1.0); `cargo install winia-cli` puts a
+  `winia` binary on the PATH. See [08-releasing.md](08-releasing.md) for the publish order, which is
+  forced by the `winia-cli` -> `winia-pack` dependency.
 - The project's `winia` dependency is a path or git source; `winia doctor` reports drift between the
   declared dependency and this CLI.
 - Before releasing, run `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`
