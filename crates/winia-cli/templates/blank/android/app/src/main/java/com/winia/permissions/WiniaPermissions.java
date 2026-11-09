@@ -5,8 +5,10 @@ import android.app.Activity;
 import android.app.admin.DeviceAdminReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ActivityInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
+import android.content.pm.ServiceInfo;
 import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Build;
@@ -59,7 +61,6 @@ public final class WiniaPermissions {
     private WiniaPermissions() {}
 
     public static void requestCapability(Activity activity, long requestId, String capability) {
-        markRequested(activity, capability);
         IPermission[] permissions = permissionsFor(activity, capability);
         enqueue(activity, requestId, () -> request(activity, requestId, capability, permissions));
     }
@@ -83,6 +84,56 @@ public final class WiniaPermissions {
 
     public static void markRequested(Activity activity, String capability) {
         prefs(activity).edit().putBoolean(capability, true).apply();
+    }
+
+    /**
+     * True when the service component a ServicePermission names is declared in the manifest.
+     *
+     * XXPermissions throws from its compliance check when the component is missing, and that
+     * exception surfaces on the main looper, which kills the process. The bridge asks this first so
+     * a missing declaration becomes an ordinary PermissionError instead.
+     */
+    public static boolean isServiceDeclared(Activity activity, String kind, String className) {
+        if (className == null || className.isEmpty()) {
+            // VPN has no component of its own; nothing to declare beyond the permission.
+            return true;
+        }
+        PackageInfo info;
+        try {
+            info = activity.getPackageManager().getPackageInfo(
+                    activity.getPackageName(),
+                    PackageManager.GET_SERVICES | PackageManager.GET_RECEIVERS);
+        } catch (PackageManager.NameNotFoundException ignored) {
+            return false;
+        }
+        if ("deviceAdmin".equals(kind)) {
+            // A DeviceAdminReceiver is a broadcast receiver, so it is declared under <receiver>.
+            return declaresReceiver(info, className);
+        }
+        if (!"accessibility".equals(kind) && !"notificationListener".equals(kind)) {
+            return true;
+        }
+        if (info.services == null) {
+            return false;
+        }
+        for (ServiceInfo service : info.services) {
+            if (className.equals(service.name)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean declaresReceiver(PackageInfo info, String className) {
+        if (info.receivers == null) {
+            return false;
+        }
+        for (ActivityInfo receiver : info.receivers) {
+            if (className.equals(receiver.name)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static SharedPreferences prefs(Activity activity) {
@@ -368,6 +419,12 @@ public final class WiniaPermissions {
                     if (cancelled) {
                         finish(activity, requestId);
                         return;
+                    }
+                    // Record the request only now that the platform actually delivered a result:
+                    // marking it while it merely sat in the queue made a cancelled or failed
+                    // request look like "the user already answered" to the Rust status check.
+                    if (!capability.isEmpty()) {
+                        markRequested(activity, capability);
                     }
                     nativeOnResult(requestId, value == 1, value == 2);
                     finish(activity, requestId);
