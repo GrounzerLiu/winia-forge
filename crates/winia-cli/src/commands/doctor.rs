@@ -260,26 +260,46 @@ fn collect_checks(target: Option<Target>, android_required: bool) -> Vec<Check> 
 
 /// Check the generated XXPermissions bridge in an existing Android project.
 fn android_permission_bridge_check() -> Option<Check> {
+    let root = project_root()?;
+    permission_bridge_check_in(&root)
+}
+
+/// Report the declared Android permissions so a missing manifest entry is visible before runtime.
+fn android_manifest_check() -> Option<Check> {
+    let root = project_root()?;
+    manifest_check_in(&root)
+}
+
+/// Root of the Winia project that contains the current directory.
+fn project_root() -> Option<PathBuf> {
     let cwd = std::env::current_dir().ok()?;
     let config_path = crate::config::find_config(&cwd)?;
-    let root = config_path.parent()?;
+    config_path.parent().map(Path::to_path_buf)
+}
+
+/// Both Android checks describe the generated `android/` tree, so a project without one reports
+/// nothing: a desktop-only project has no manifest to miss and no adapter to generate.
+fn android_dir(root: &Path) -> Option<PathBuf> {
     let android = root.join("android");
-    if !android.is_dir() {
-        return None;
-    }
+    android.is_dir().then_some(android)
+}
+
+fn permission_bridge_check_in(root: &Path) -> Option<Check> {
+    let android = android_dir(root)?;
     let adapter = android.join("app/src/main/java/com/winia/permissions/WiniaPermissions.java");
-    let gradle = android.join("app/build.gradle.kts");
-    let text = std::fs::read_to_string(&gradle).unwrap_or_default();
-    let has_xx = text.contains("xxpermissions") && text.contains("devicecompat");
+    let text = std::fs::read_to_string(android.join("app/build.gradle.kts")).unwrap_or_default();
+    let has_xx = declares_xxpermissions(&text) && declares_devicecompat(&text);
     match (adapter.is_file(), has_xx) {
         (true, true) => Some(Check::ok(
             "Android permissions",
             "WiniaPermissions adapter and XXPermissions dependencies present",
             false,
         )),
+        // 'android init' writes the adapter and the Gradle dependencies together, so one command
+        // repairs both halves of this state.
         (false, false) => Some(Check::missing(
             "Android permissions",
-            "permission adapter and XXPermissions dependencies missing; run 'winia android init --force' (overwrites application files) and add the dependencies",
+            "permission adapter and XXPermissions dependencies missing; run 'winia android init --force' (overwrites application files)",
             false,
         )),
         (false, true) => Some(Check::missing(
@@ -287,6 +307,7 @@ fn android_permission_bridge_check() -> Option<Check> {
             "WiniaPermissions adapter missing; run 'winia android init --force' (overwrites application files)",
             false,
         )),
+        // 'android sync' owns app/build.gradle.kts, so it can restore the dependencies alone.
         (true, false) => Some(Check::missing(
             "Android permissions",
             "XXPermissions dependencies missing; run 'winia android sync'",
@@ -295,12 +316,9 @@ fn android_permission_bridge_check() -> Option<Check> {
     }
 }
 
-/// Report the declared Android permissions so a missing manifest entry is visible before runtime.
-fn android_manifest_check() -> Option<Check> {
-    let cwd = std::env::current_dir().ok()?;
-    let config_path = crate::config::find_config(&cwd)?;
-    let root = config_path.parent()?;
-    let manifest = root.join("android/app/src/main/AndroidManifest.xml");
+fn manifest_check_in(root: &Path) -> Option<Check> {
+    let android = android_dir(root)?;
+    let manifest = android.join("app/src/main/AndroidManifest.xml");
     if !manifest.is_file() {
         return Some(Check::missing(
             "Android manifest",
@@ -323,6 +341,31 @@ fn android_manifest_check() -> Option<Check> {
             false,
         ))
     }
+}
+
+/// True when app/build.gradle.kts pulls in a dependency, by version-catalog alias or by its fully
+/// qualified coordinate. Both spellings are valid Gradle, so matching only the alias would report
+/// a hand-written coordinate as missing.
+fn declares_dependency(text: &str, alias: &str, coordinate: &str) -> bool {
+    text.lines()
+        .map(str::trim)
+        .filter(|line| !line.starts_with("//") && !line.starts_with('*') && !line.starts_with("/*"))
+        .any(|line| {
+            let line = line.to_ascii_lowercase();
+            line.contains(alias) || line.contains(coordinate)
+        })
+}
+
+fn declares_xxpermissions(text: &str) -> bool {
+    declares_dependency(
+        text,
+        "xxpermissions",
+        "com.github.getactivity:xxpermissions",
+    )
+}
+
+fn declares_devicecompat(text: &str) -> bool {
+    declares_dependency(text, "devicecompat", "com.github.getactivity:devicecompat")
 }
 
 fn declared_permissions(text: &str) -> Vec<&str> {
@@ -1466,6 +1509,141 @@ mod tests {
                 "android.permission.POST_NOTIFICATIONS"
             ]
         );
+    }
+
+    fn android_fixture(name: &str) -> PathBuf {
+        let root = std::env::current_dir()
+            .unwrap()
+            .join("target")
+            .join(format!("doctor-android-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("android/app")).unwrap();
+        root
+    }
+
+    fn write_gradle(root: &Path, body: &str) {
+        std::fs::write(root.join("android/app/build.gradle.kts"), body).unwrap();
+    }
+
+    fn write_adapter(root: &Path) {
+        let path =
+            root.join("android/app/src/main/java/com/winia/permissions/WiniaPermissions.java");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, "package com.winia.permissions;\n").unwrap();
+    }
+
+    fn write_manifest(root: &Path, body: &str) {
+        let path = root.join("android/app/src/main/AndroidManifest.xml");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, body).unwrap();
+    }
+
+    #[test]
+    fn android_checks_stay_silent_without_an_android_directory() {
+        // A desktop-only project has no manifest to miss and no adapter to generate, so neither
+        // check may report anything.
+        let root = dependency_fixture("no-android");
+        assert!(manifest_check_in(&root).is_none());
+        assert!(permission_bridge_check_in(&root).is_none());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn reports_a_complete_android_permission_bridge() {
+        let root = android_fixture("complete");
+        write_adapter(&root);
+        write_gradle(
+            &root,
+            "dependencies {\n    implementation(libs.xxpermissions)\n    implementation(libs.devicecompat)\n}\n",
+        );
+        let check = permission_bridge_check_in(&root).unwrap();
+        assert_eq!(check.status, Status::Ok);
+        assert!(check.detail.contains("present"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn reports_a_missing_adapter_and_a_missing_dependency_separately() {
+        let root = android_fixture("partial");
+        write_gradle(
+            &root,
+            "dependencies {\n    implementation(libs.xxpermissions)\n    implementation(libs.devicecompat)\n}\n",
+        );
+        let check = permission_bridge_check_in(&root).unwrap();
+        assert_eq!(check.status, Status::Warning);
+        assert!(check.detail.contains("adapter missing"));
+        assert!(check.detail.contains("android init --force"));
+
+        // Adding the adapter flips the report to the dependency half.
+        write_adapter(&root);
+        write_gradle(&root, "dependencies {}\n");
+        let check = permission_bridge_check_in(&root).unwrap();
+        assert_eq!(check.status, Status::Warning);
+        assert!(check.detail.contains("dependencies missing"));
+        assert!(check.detail.contains("android sync"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_missing_adapter_and_dependency_point_at_one_command() {
+        let root = android_fixture("empty");
+        write_gradle(&root, "dependencies {}\n");
+        let check = permission_bridge_check_in(&root).unwrap();
+        assert_eq!(check.status, Status::Warning);
+        assert!(check.detail.contains("android init --force"));
+        // 'android init' writes the Gradle dependencies too, so the advice must not ask for them
+        // by hand.
+        assert!(!check.detail.contains("and add"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn recognises_both_gradle_dependency_spellings() {
+        let catalog = "implementation(libs.xxpermissions)\nimplementation(libs.devicecompat)\n";
+        assert!(declares_xxpermissions(catalog));
+        assert!(declares_devicecompat(catalog));
+
+        let coordinates = concat!(
+            "implementation(\"com.github.getActivity:XXPermissions:28.3\")\n",
+            "implementation(\"com.github.getActivity:DeviceCompat:2.6\")\n",
+        );
+        assert!(declares_xxpermissions(coordinates));
+        assert!(declares_devicecompat(coordinates));
+
+        // A commented-out dependency is not a dependency.
+        let commented = "// implementation(libs.xxpermissions)\n";
+        assert!(!declares_xxpermissions(commented));
+        assert!(!declares_devicecompat(
+            "// implementation(libs.devicecompat)\n"
+        ));
+
+        // Neither dependency implies the other.
+        assert!(declares_xxpermissions(catalog));
+        assert!(!declares_devicecompat(
+            "implementation(libs.xxpermissions)\n"
+        ));
+    }
+
+    #[test]
+    fn reports_the_manifest_and_its_declaration_count() {
+        let root = android_fixture("manifest");
+        let check = manifest_check_in(&root).unwrap();
+        assert_eq!(check.status, Status::Warning);
+        assert!(check.detail.contains("is missing"));
+
+        write_manifest(&root, "<manifest></manifest>\n");
+        let check = manifest_check_in(&root).unwrap();
+        assert_eq!(check.status, Status::Warning);
+        assert!(check.detail.contains("no <uses-permission> entries"));
+
+        write_manifest(
+            &root,
+            "<manifest>\n    <uses-permission android:name=\"android.permission.CAMERA\" />\n</manifest>\n",
+        );
+        let check = manifest_check_in(&root).unwrap();
+        assert_eq!(check.status, Status::Ok);
+        assert!(check.detail.contains("1 declared permission entries"));
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
