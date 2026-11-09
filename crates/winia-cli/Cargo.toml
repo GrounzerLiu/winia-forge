@@ -1,6 +1,8 @@
 [package]
 name = "winia-cli"
-version.workspace = true
+# Pinned rather than inherited: winia-cli changes far more often than winia-pack, and a shared
+# workspace version would force a republish of the unchanged crate on every release.
+version = "0.1.1"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
