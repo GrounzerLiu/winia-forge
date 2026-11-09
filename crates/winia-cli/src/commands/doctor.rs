@@ -343,17 +343,46 @@ fn manifest_check_in(root: &Path) -> Option<Check> {
     }
 }
 
-/// True when app/build.gradle.kts pulls in a dependency, by version-catalog alias or by its fully
+/// True when app/build.gradle.kts declares a dependency, by version-catalog alias or by its fully
 /// qualified coordinate. Both spellings are valid Gradle, so matching only the alias would report
 /// a hand-written coordinate as missing.
+///
+/// Matching is token-based: the name has to start at a dependency boundary, so an unrelated
+/// `my.xxpermissions.helper:core` is not mistaken for the real `com.github.getActivity:XXPermissions`.
 fn declares_dependency(text: &str, alias: &str, coordinate: &str) -> bool {
     text.lines()
         .map(str::trim)
         .filter(|line| !line.starts_with("//") && !line.starts_with('*') && !line.starts_with("/*"))
         .any(|line| {
             let line = line.to_ascii_lowercase();
-            line.contains(alias) || line.contains(coordinate)
+            starts_token(&line, &format!("libs.{alias}")) || starts_token(&line, coordinate)
         })
+}
+
+/// True when `haystack` contains `needle` starting at a dependency boundary.
+///
+/// A boundary is one of `(`, `"`, `'`, `:`, `.` or whitespace: the characters that can immediately
+/// precede a Gradle dependency name. Requiring one keeps a substring of a longer artifact name from
+/// matching.
+fn starts_token(haystack: &str, needle: &str) -> bool {
+    let mut from = 0;
+    while let Some(found) = haystack[from..].find(needle) {
+        let at = from + found;
+        let boundary = haystack[..at]
+            .chars()
+            .next_back()
+            .is_none_or(|ch| matches!(ch, '(' | '"' | '\'' | ':' | '.' | ' ' | '\t'));
+        // The name must also end there, not continue into a longer artifact.
+        let ends = haystack[at + needle.len()..]
+            .chars()
+            .next()
+            .is_none_or(|ch| matches!(ch, ')' | '"' | '\'' | ':' | ' ' | '\t' | ','));
+        if boundary && ends {
+            return true;
+        }
+        from = at + needle.len();
+    }
+    false
 }
 
 fn declares_xxpermissions(text: &str) -> bool {
@@ -1621,6 +1650,37 @@ mod tests {
         assert!(declares_xxpermissions(catalog));
         assert!(!declares_devicecompat(
             "implementation(libs.xxpermissions)\n"
+        ));
+    }
+
+    #[test]
+    fn an_unrelated_artifact_containing_the_name_is_not_a_match() {
+        // A bare substring scan reported these as present, which hid a genuinely missing bridge.
+        let unrelated = concat!(
+            "implementation(\"my.xxpermissions.helper:core:1.0\")\n",
+            "implementation(\"my.devicecompat.helper:core:1.0\")\n",
+        );
+        assert!(!declares_xxpermissions(unrelated));
+        assert!(!declares_devicecompat(unrelated));
+
+        // Only the tail of the real coordinate appears; still not a declaration.
+        assert!(!declares_xxpermissions(
+            "implementation(\"other.xxpermissions:1.0\")\n"
+        ));
+    }
+
+    #[test]
+    fn a_dependency_name_must_end_at_a_boundary() {
+        // 'xxpermissionsExtra' extends the alias, so it is a different dependency.
+        assert!(!declares_xxpermissions(
+            "implementation(libs.xxpermissionsExtra)\n"
+        ));
+        // The real spellings still match inside their delimiters.
+        assert!(declares_xxpermissions(
+            "implementation(\"libs.xxpermissions\")\n"
+        ));
+        assert!(declares_xxpermissions(
+            "implementation(\"com.github.getActivity:XXPermissions:28.3\")\n"
         ));
     }
 
