@@ -116,7 +116,7 @@ public final class WiniaBack {
     }
 
     /** Rust fallback when a completion raced the handler table: finish the activity. */
-    static void finishActivity() {
+    public static void finishActivity() {
         Activity owner = activity;
         if (owner != null) {
             owner.runOnUiThread(owner::finish);
