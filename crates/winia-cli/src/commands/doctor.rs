@@ -246,6 +246,9 @@ fn collect_checks(target: Option<Target>, android_required: bool) -> Vec<Check> 
             if let Some(check) = android_manifest_check() {
                 checks.push(check);
             }
+            if let Some(check) = android_back_bridge_check() {
+                checks.push(check);
+            }
         }
         Some(Target::Windows) | Some(Target::Macos) | Some(Target::Linux) => {}
     }
@@ -268,6 +271,38 @@ fn android_permission_bridge_check() -> Option<Check> {
 fn android_manifest_check() -> Option<Check> {
     let root = project_root()?;
     manifest_check_in(&root)
+}
+
+/// Check the generated Android back bridge (Java adapter + manifest opt-in).
+fn android_back_bridge_check() -> Option<Check> {
+    let root = project_root()?;
+    back_bridge_check_in(&root)
+}
+
+fn back_bridge_check_in(root: &Path) -> Option<Check> {
+    let android = android_dir(root)?;
+    let bridge = android.join("app/src/main/java/com/winia/back/WiniaBack.java");
+    if !bridge.is_file() {
+        return Some(Check::missing(
+            "Android back bridge",
+            "com.winia.back.WiniaBack is missing; regenerate the project with 'winia new' (existing projects are not migrated automatically)",
+            false,
+        ));
+    }
+    let manifest = android.join("app/src/main/AndroidManifest.xml");
+    let text = std::fs::read_to_string(manifest).unwrap_or_default();
+    if !text.contains("enableOnBackInvokedCallback") {
+        return Some(Check::missing(
+            "Android back bridge",
+            "manifest does not set android:enableOnBackInvokedCallback; the system back callback is never used",
+            false,
+        ));
+    }
+    Some(Check::ok(
+        "Android back bridge",
+        "WiniaBack bridge and enableOnBackInvokedCallback present",
+        false,
+    ))
 }
 
 /// Root of the Winia project that contains the current directory.
@@ -1565,6 +1600,36 @@ mod tests {
         let path = root.join("android/app/src/main/AndroidManifest.xml");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, body).unwrap();
+    }
+
+    fn write_back_bridge(root: &Path) {
+        let path = root.join("android/app/src/main/java/com/winia/back/WiniaBack.java");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, "package com.winia.back;\n").unwrap();
+    }
+
+    #[test]
+    fn reports_the_android_back_bridge_state() {
+        let root = android_fixture("back-bridge");
+
+        let check = back_bridge_check_in(&root).unwrap();
+        assert_eq!(check.status, Status::Warning);
+        assert!(check.detail.contains("WiniaBack"));
+
+        write_back_bridge(&root);
+        write_manifest(
+            &root,
+            "<application android:enableOnBackInvokedCallback=\"true\"></application>",
+        );
+        let check = back_bridge_check_in(&root).unwrap();
+        assert_eq!(check.status, Status::Ok);
+
+        write_manifest(&root, "<application></application>");
+        let check = back_bridge_check_in(&root).unwrap();
+        assert_eq!(check.status, Status::Warning);
+        assert!(check.detail.contains("enableOnBackInvokedCallback"));
+
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
