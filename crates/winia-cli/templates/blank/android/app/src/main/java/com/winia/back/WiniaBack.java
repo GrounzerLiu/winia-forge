@@ -23,10 +23,13 @@ public final class WiniaBack {
 
     public static void attach(Activity owner) {
         activity = owner;
+        // A new Activity starts unregistered; Rust re-enables it when handlers exist.
+        enabled = false;
     }
 
     public static void detach() {
         setEnabled(false);
+        nativeBackDetached();
         activity = null;
     }
 
@@ -35,13 +38,16 @@ public final class WiniaBack {
             return;
         }
         final Activity owner = activity;
-        if (owner == null) {
+        if (owner == null || owner.isDestroyed()) {
             return;
         }
         owner.runOnUiThread(() -> applyEnabled(owner, value));
     }
 
     private static void applyEnabled(Activity owner, boolean value) {
+        if (owner.isDestroyed()) {
+            return;
+        }
         if (value == enabled) {
             return;
         }
@@ -140,4 +146,6 @@ public final class WiniaBack {
     private static native void nativeBackCompleted();
 
     private static native boolean nativeHasHandlers();
+
+    private static native void nativeBackDetached();
 }
