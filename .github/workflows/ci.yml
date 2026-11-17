@@ -47,6 +47,20 @@ jobs:
       - name: Build CLI
         run: cargo build --release -p winia-cli
 
+      - name: Compile Java templates
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          JAR="$SDK/platforms/android-36/android.jar"
+          if [ ! -f "$JAR" ]; then
+            echo "android-36 platform is not installed; skipping the Java template check"
+            exit 0
+          fi
+          mkdir -p /tmp/java-check
+          javac --release 17 -cp "$JAR" -d /tmp/java-check \
+            crates/winia-cli/templates/blank/android/app/src/main/java/com/winia/back/WiniaBack.java
+
       - name: Package fixture
         shell: bash
         run: |

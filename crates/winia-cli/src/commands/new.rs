@@ -42,6 +42,9 @@ const ANDROID_ACTIVITY: &str = include_str!(
 const ANDROID_PERMISSIONS: &str = include_str!(
     "../../templates/blank/android/app/src/main/java/com/winia/permissions/WiniaPermissions.java"
 );
+const ANDROID_BACK: &str = include_str!(
+    "../../templates/blank/android/app/src/main/java/com/winia/back/WiniaBack.java"
+);
 
 const ANDROID_GRADLEW: &[u8] = include_bytes!("../../templates/blank/android/gradlew");
 const ANDROID_GRADLEW_BAT: &[u8] = include_bytes!("../../templates/blank/android/gradlew.bat");
@@ -120,6 +123,10 @@ const ANDROID_FILES: &[TemplateFile] = &[
     TemplateFile {
         template: ANDROID_PERMISSIONS,
         destination: "android/app/src/main/java/com/winia/permissions/WiniaPermissions.java",
+    },
+    TemplateFile {
+        template: ANDROID_BACK,
+        destination: "android/app/src/main/java/com/winia/back/WiniaBack.java",
     },
 ];
 

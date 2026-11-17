@@ -1,9 +1,31 @@
 package __APP_ID__;
 
+import android.os.Bundle;
 import com.google.androidgamesdk.GameActivity;
+import com.winia.back.WiniaBack;
 
 public class MainActivity extends GameActivity {
     static {
         System.loadLibrary("__LIB_NAME__");
+    }
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        WiniaBack.attach(this);
+    }
+
+    @Override
+    protected void onDestroy() {
+        WiniaBack.detach();
+        super.onDestroy();
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (WiniaBack.dispatchLegacyBack()) {
+            return;
+        }
+        super.onBackPressed();
     }
 }
