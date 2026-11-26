@@ -15,3 +15,5 @@ target/
 /.vscode
 # Local agent handoff notes: internal, never committed
 /AGENT_HANDOFF.md
+# Local scratch files
+/tmp/
