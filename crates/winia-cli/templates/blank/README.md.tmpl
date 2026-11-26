@@ -28,8 +28,8 @@ Python 3.
 
 Skia's Graphite/wgpu variant has no published prebuilt archive, so the first build compiles Skia
 and Dawn from source. Its GN rules invoke `python3` explicitly: `python3 --version` must succeed
-on `PATH`. On Windows, `python` alone is not enough; install the `python3` alias or provide a
-project-local `python3.cmd` that forwards to `python`.
+on `PATH`. On Windows, `python` alone is not enough; install the `python3` alias or put a
+`python3.cmd` forwarder in a directory on `PATH` (prepend that directory for the build if necessary).
 
 The generated Android project uses GameActivity. Rendering uses Skia Graphite on wgpu; the old
 `vulkan` and `gl` Cargo features have been removed.

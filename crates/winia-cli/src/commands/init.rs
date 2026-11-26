@@ -244,8 +244,8 @@ pub(crate) fn scaffold_android(root: &Path, config: &WiniaConfig) -> Result<()> 
     Ok(())
 }
 
-/// Add the Android dependency and the cdylib crate type to Cargo.toml, leaving an existing entry
-/// alone so a hand-written dependency spec survives.
+/// Add the Android dependency and the cdylib crate type to Cargo.toml, preserving a hand-written
+/// source and unrelated features while updating the backend in the existing Android target table.
 pub(crate) fn ensure_android_cargo(
     root: &Path,
     winia_path: Option<PathBuf>,
@@ -257,13 +257,14 @@ pub(crate) fn ensure_android_cargo(
     let mut doc: DocumentMut = text
         .parse()
         .with_context(|| format!("parsing {}", path.display()))?;
-    let cfg = "cfg(target_os = \"android\")";
-    let present = doc
-        .get("target")
-        .and_then(|target| target.get(cfg))
-        .and_then(|target| target.get("dependencies"))
-        .and_then(|dependencies| dependencies.get("winia"))
-        .is_some();
+    let cfg = canonical_target(true);
+    let android_dependency = dependency_spec(&doc, Some(true));
+    let target_key = android_dependency
+        .as_ref()
+        .map(|(key, _)| key.clone())
+        .or_else(|| android_target_key(&doc))
+        .unwrap_or_else(|| cfg.to_owned());
+    let present = android_dependency.is_some();
     let backend = new::ANDROID_BACKEND;
     let features = [backend];
     if let Some((_, mut plain)) = dependency_spec(&doc, None) {
@@ -274,28 +275,28 @@ pub(crate) fn ensure_android_cargo(
         insert_dependency_spec(&mut doc, None, "winia", plain)?;
     } else if present && replace {
         // Keep the existing path/version; only the backend feature changes.
-        set_dependency_features(&mut doc, cfg, "winia", &features, true)?;
+        set_dependency_features(&mut doc, &target_key, "winia", &features, true)?;
         // The direct winia-winit dependency must use the same backend, but keep its own
         // default-features setting: winia decides those, not this rewrite.
-        let _ = set_dependency_features(&mut doc, cfg, "winit", &[backend], false);
+        let _ = set_dependency_features(&mut doc, &target_key, "winit", &[backend], false);
     } else if present {
         // Preserve a hand-written source and unrelated features, but migrate removed renderers.
-        let mut spec = doc["target"][cfg]["dependencies"]["winia"].clone();
+        let mut spec = doc["target"][target_key.as_str()]["dependencies"]["winia"].clone();
         remove_dependency_features(&mut spec, LEGACY_RENDER_FEATURES)?;
         merge_dependency_features(&mut spec, &features)?;
-        insert_dependency_spec(&mut doc, Some(cfg), "winia", spec)?;
+        insert_dependency_spec(&mut doc, Some(&target_key), "winia", spec)?;
     } else {
         let spec = new::winia_dependency(winia_path, &features)?;
-        set_target_dependency(&mut doc, cfg, "winia", &spec)?;
+        set_target_dependency(&mut doc, &target_key, "winia", &spec)?;
     }
     let winit_present = doc
         .get("target")
-        .and_then(|target| target.get(cfg))
+        .and_then(|target| target.get(target_key.as_str()))
         .and_then(|target| target.get("dependencies"))
         .and_then(|dependencies| dependencies.get("winit"))
         .is_some();
     if !winit_present {
-        set_target_dependency(&mut doc, cfg, "winit", &new::winit_dependency())?;
+        set_target_dependency(&mut doc, &target_key, "winit", &new::winit_dependency())?;
     }
     ensure_crate_types(&mut doc)?;
     std::fs::write(&path, doc.to_string())
@@ -538,10 +539,7 @@ fn dependency_spec(doc: &DocumentMut, android: Option<bool>) -> Option<(String, 
             .map(|item| ("dependencies".to_owned(), item)),
         Some(android) => {
             for (key, entry) in doc.get("target")?.as_table()? {
-                let mentions_android = key.contains("android");
-                let is_desktop = mentions_android && key.contains("not(");
-                if mentions_android
-                    && (is_desktop != android)
+                if android_target_kind(key) == Some(android)
                     && let Some(item) = entry.get("dependencies").and_then(|deps| deps.get("winia"))
                 {
                     return Some((key.to_owned(), item.clone()));
@@ -549,6 +547,22 @@ fn dependency_spec(doc: &DocumentMut, android: Option<bool>) -> Option<(String, 
             }
             None
         }
+    }
+}
+
+fn android_target_key(doc: &DocumentMut) -> Option<String> {
+    doc.get("target")?
+        .as_table()?
+        .iter()
+        .find_map(|(key, _)| (android_target_kind(key) == Some(true)).then(|| key.to_owned()))
+}
+
+/// Classify target cfg keys that mention Android: `true` for Android, `false` for `not(Android)`.
+fn android_target_kind(key: &str) -> Option<bool> {
+    if !key.contains("android") {
+        None
+    } else {
+        Some(!key.contains("not("))
     }
 }
 
@@ -793,6 +807,10 @@ mod tests {
                 "plain",
                 "[package]\nname = \"probe\"\nversion = \"0.1.0\"\n\n[dependencies]\nwinia = { path = \"../winia\", default-features = false, features = [\"vulkan\", \"gl\", \"custom\"] }\n",
             ),
+            (
+                "compact-cfg",
+                "[package]\nname = \"probe\"\nversion = \"0.1.0\"\n\n[target.\"cfg(target_os=\\\"android\\\")\".dependencies]\nwinia = { path = \"../winia\", default-features = false, features = [\"android-game-activity\", \"vulkan\", \"gl\", \"custom\"] }\nwinit = { package = \"winia-winit\", version = \"=0.31.0-beta.4\", features = [\"android-game-activity\"] }\n",
+            ),
         ];
         for (name, manifest) in cases {
             let root = std::env::temp_dir()
@@ -806,6 +824,13 @@ mod tests {
             assert!(!text.contains("\"gl\""), "{name}: {text}");
             assert!(text.contains("\"android-game-activity\""), "{name}: {text}");
             assert!(text.contains("\"custom\""), "{name}: {text}");
+            if name == "compact-cfg" {
+                assert!(
+                    !text.contains("cfg(target_os = \"android\")"),
+                    "{name}: {text}"
+                );
+                assert_eq!(text.matches("winit =").count(), 1, "{name}: {text}");
+            }
             let _ = std::fs::remove_dir_all(root);
         }
     }
