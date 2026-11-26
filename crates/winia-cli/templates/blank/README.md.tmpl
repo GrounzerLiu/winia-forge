@@ -23,8 +23,13 @@ winia run --target android     # build incrementally, install, and launch
 
 `winia build` locates the NDK, injects the linker / `CC` / `AR` environment, copies the
 `.so` into `android/app/src/main/jniLibs/<abi>/`, verifies 16 KB alignment, and runs the
-Gradle wrapper. It needs `ANDROID_NDK` (or an NDK under the Android SDK) and LLVM libclang
-for bindgen.
+Gradle wrapper. It needs the Android SDK/NDK, JDK 17 or 21, LLVM libclang for bindgen, and
+Python 3.
 
-The generated Android project uses GameActivity and the Vulkan backend, matching the Skia
-prebuilt archive that includes `svg`.
+Skia's Graphite/wgpu variant has no published prebuilt archive, so the first build compiles Skia
+and Dawn from source. Its GN rules invoke `python3` explicitly: `python3 --version` must succeed
+on `PATH`. On Windows, `python` alone is not enough; install the `python3` alias or provide a
+project-local `python3.cmd` that forwards to `python`.
+
+The generated Android project uses GameActivity. Rendering uses Skia Graphite on wgpu; the old
+`vulkan` and `gl` Cargo features have been removed.

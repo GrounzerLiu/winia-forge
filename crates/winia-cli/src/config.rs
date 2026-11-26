@@ -51,9 +51,8 @@ impl Default for AppConfig {
 pub struct BuildConfig {
     /// Cargo features enabled for application builds.
     pub features: Vec<String>,
-    // 'backend' and 'profile' used to live here and did nothing: the renderer is chosen at runtime
-    // by WINIA_RENDER_BACKEND (winia enables vulkan and gl by default), and debug vs release is the
-    // --release flag. Unknown keys in an older winia.toml are ignored by serde.
+    // 'backend' and 'profile' used to live here and did nothing: rendering is fixed to Graphite/wgpu,
+    // and debug vs release is the --release flag. Unknown keys in an older winia.toml are ignored by serde.
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

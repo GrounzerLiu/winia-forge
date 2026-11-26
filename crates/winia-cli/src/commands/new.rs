@@ -250,11 +250,9 @@ pub fn run(args: NewArgs) -> Result<()> {
     let app_id = format!("com.example.{lib_name}");
     let package_path = app_id.replace('.', "/");
     let platforms = effective_platforms(&args.platforms);
-    let winia_android = winia_dependency(
-        args.winia_path.clone(),
-        &["android-game-activity", "vulkan"],
-    )?;
-    let winia_desktop = winia_dependency(args.winia_path.clone(), &["gl"])?;
+    // Graphite/wgpu is the only renderer; Android only adds the GameActivity backend.
+    let winia_android = winia_dependency(args.winia_path.clone(), &[ANDROID_BACKEND])?;
+    let winia_desktop = winia_dependency(args.winia_path.clone(), &[])?;
 
     let app_name_kotlin = kotlin_string(&args.name);
     let vars: Vec<(&str, &str)> = vec![
@@ -365,6 +363,11 @@ pub(crate) fn winia_dependency(explicit: Option<PathBuf>, features: &[&str]) -> 
         .map(|feature| format!("\"{feature}\""))
         .collect::<Vec<_>>()
         .join(", ");
+    let features = if features.is_empty() {
+        String::new()
+    } else {
+        format!(", features = [{features}]")
+    };
     match path {
         Some(path) => {
             // Cargo resolves a path dependency relative to the manifest that contains it, while the
@@ -384,14 +387,12 @@ pub(crate) fn winia_dependency(explicit: Option<PathBuf>, features: &[&str]) -> 
                 );
             }
             Ok(format!(
-                "{{ path = \"{}\", default-features = false, features = [{}] }}",
-                path.display().to_string().replace('\\', "/"),
-                features
+                "{{ path = \"{}\", default-features = false{features} }}",
+                path.display().to_string().replace('\\', "/")
             ))
         }
         None => Ok(format!(
-            "{{ version = \"{WINIA_VERSION}\", default-features = false, features = [{}] }}",
-            features
+            "{{ version = \"{WINIA_VERSION}\", default-features = false{features} }}"
         )),
     }
 }
@@ -567,17 +568,19 @@ mod tests {
     fn a_local_winia_path_is_written_with_forward_slashes() {
         // Use an absolute path from this host so the test also runs on Linux/macOS CI.
         let source = std::env::temp_dir().join("winia-path");
-        let expected = std::path::absolute(&source)
-            .unwrap()
-            .display()
-            .to_string()
-            .replace('\\', "/");
-        let dependency = winia_dependency(Some(source), &["gl"]).unwrap();
-        assert!(
-            dependency.contains(&format!("path = \"{expected}\"")),
-            "{dependency}"
-        );
-        assert!(dependency.contains("features = [\"gl\"]"));
+        let dependency = winia_dependency(Some(source), &[]).unwrap();
+        assert!(dependency.contains("path = \""), "{dependency}");
+        assert!(!dependency.contains('\\'), "{dependency}");
+        assert!(!dependency.contains("features = ["), "{dependency}");
         assert!(dependency.contains("default-features = false"));
+    }
+
+    #[test]
+    fn android_dependency_only_enables_game_activity() {
+        let source = std::env::temp_dir().join("winia-path");
+        let dependency = winia_dependency(Some(source), &[ANDROID_BACKEND]).unwrap();
+        assert!(dependency.contains("features = [\"android-game-activity\"]"));
+        assert!(!dependency.contains("\"vulkan\""));
+        assert!(!dependency.contains("\"gl\""));
     }
 }

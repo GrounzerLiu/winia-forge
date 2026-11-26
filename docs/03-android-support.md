@@ -14,7 +14,7 @@
 | `winia dev --target android` | Watch sources, recompile, reinstall, restart the Activity |
 | `winia package --target android --format apk,aab` | Produce the installable package / store bundle |
 | `winia sign --target android --keystore <file>` | Sign and verify |
-| `winia doctor --target android` | Check SDK/NDK/JDK/adb |
+| `winia doctor --target android` | Check SDK/NDK/JDK/adb/Python 3 |
 | `winia devices` / `winia emulators` | Devices / emulators |
 | `winia logcat` / `winia screenshot` | Logs and screenshots |
 | `winia android init` / `sync` | Android project initialisation / Gradle file sync |
@@ -164,13 +164,19 @@ use x86_64; armeabi-v7a is left for users who need older devices to enable expli
 
 ### 4.3 Environment variables
 
-- `ANDROID_HOME` / `ANDROID_SDK_ROOT`: SDK root.
-- `ANDROID_NDK`: explicitly required by `skia-bindings`.
-- `ANDROID_NDK_HOME`: used by `cargo-ndk`.
+- `ANDROID_HOME` / `ANDROID_SDK_ROOT`: optional SDK root override; otherwise the standard SDK
+  locations are searched.
+- `ANDROID_NDK` / `ANDROID_NDK_HOME` / `ANDROID_NDK_ROOT`: optional NDK overrides. The built-in
+  driver auto-discovers an NDK under the SDK and injects all three for Skia and the linker.
 - `JAVA_HOME`: JDK 17 or 21.
 
-`winia doctor --target android` must check all four variables and whether the SDK licenses have been
-accepted.
+`python3` is a `PATH` prerequisite rather than an environment variable. Skia's generated Ninja rules
+invoke it explicitly, so `python3 --version` must succeed; a working `python` command alone is not
+sufficient. On Windows, `cmd.exe /c python3 --version` is the authoritative probe because it also
+recognizes a `python3.cmd` shim and catches broken WindowsApps aliases.
+
+`winia doctor --target android` checks these tools and whether the SDK licenses have been accepted.
+`winia build --target android` performs the same python3 preflight before compiling any ABI.
 
 ### 4.4 Artifacts and alignment
 
@@ -179,8 +185,9 @@ accepted.
 - AAB: `android/app/build/outputs/bundle/release/app-release.aab`.
 - Android 15+ requires native libraries to support 16 KB pages: use NDK r27+ and run `zipalign -P 16`
   when packaging.
-- On the first Android build, if no prebuilt Skia package is available, Skia is compiled from source and
-  the build takes noticeably longer; `winia doctor` should point this out.
+- The Graphite/wgpu Skia variant has no prebuilt archive, so the first Android build always compiles
+  Skia from source and takes noticeably longer. In addition to the NDK and JDK, this requires a working
+  `python3` on `PATH`, Ninja, LLVM, and network access for Skia/Dawn sources.
 
 ### 4.5 cargo-apk2 is not a supported path
 
@@ -394,24 +401,18 @@ The paths below are all in the `D:\Projects\winia` repository.
 | Assets | Implemented | `AssetManager` bundle in `winia/src/assets.rs`, staged as `winia-assets/` in the APK |
 | Accessibility | Pending | Windows UIA only; no Android semantics bridge |
 
-### 8.1 Rendering feasibility
+### 8.1 Rendering
 
-After a preliminary review of the dependency sources, the rendering layer is more complete than expected:
-
-- `softbuffer 0.4.8` already has an Android backend (`skiwin/src/cpu.rs`'s CPU path can work).
-- `glutin 0.32.3` supports Android EGL; `skiwin/src/gl/context.rs` takes the EGL branch on non-Windows/macOS
-  platforms.
-- `vulkano 0.35` supports `VK_KHR_android_surface`.
-- `skia-bindings 0.99` has an Android platform build module.
-
-Conclusion: the first version can use **GL + softbuffer as the fallback**, with Vulkan as an optional path;
-there is no need to tackle Vulkan from the start.
+The earlier softbuffer / glutin / skiwin feasibility review is superseded. Winia now renders through
+rust-skia's Graphite `wgpu` backend on Android as well as desktop. On Android, wgpu uses the device's
+Vulkan driver; the old `gl` / `vulkan` Cargo features and the `skiwin` selection layer are no longer
+part of the project.
 
 ## 9. Roadmap
 
 Detailed acceptance criteria are in [05-roadmap.md](05-roadmap.md). The Android order:
 
-1. **P0 feasibility check**: winit Android entry point, single window, touch, GL/softbuffer rendering,
+1. **P0 feasibility check**: winit Android entry point, single window, touch, Graphite/wgpu rendering,
    a manually produced hello-world APK.
 2. **P1 CLI MVP**: `winia new --platforms android`, `doctor`, `build/run`, `devices/logcat`, debug APK.
 3. **P2 release pipeline**: icons, insets, basic lifecycle, `package --format apk,aab`, signing, 16 KB

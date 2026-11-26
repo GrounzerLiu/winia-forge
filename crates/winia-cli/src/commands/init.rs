@@ -11,6 +11,8 @@ use anyhow::{Context, Result, bail};
 use std::path::{Path, PathBuf};
 use toml_edit::{Array, DocumentMut, InlineTable, Item, Table, Value};
 
+const LEGACY_RENDER_FEATURES: &[&str] = &["gl", "vulkan"];
+
 /// Written only when the project has no src/lib.rs. The blank template starts from a real UI;
 /// an existing project usually already has one, so the entry point is left empty.
 const ANDROID_ENTRY: &str = r#"//! Android entry point added by winia init.
@@ -89,8 +91,8 @@ pub fn run(args: InitArgs) -> Result<()> {
     }
 
     let android_feature = new::ANDROID_BACKEND;
-    let desktop_features = ["gl"];
-    let android_features = [android_feature, "vulkan"];
+    let desktop_features: &[&str] = &[];
+    let android_features = [android_feature];
 
     let plain = dependency_spec(&doc, None);
     let desktop_spec = dependency_spec(&doc, Some(false));
@@ -98,14 +100,15 @@ pub fn run(args: InitArgs) -> Result<()> {
     if let Some((_, mut spec)) = plain {
         // A single dependency for all targets cannot coexist with target-specific ones:
         // Cargo requires one canonical source per dependency. Merge every required feature.
-        merge_dependency_features(&mut spec, &["gl", android_feature, "vulkan"])?;
+        remove_dependency_features(&mut spec, LEGACY_RENDER_FEATURES)?;
+        merge_dependency_features(&mut spec, &[android_feature])?;
         insert_dependency_spec(&mut doc, None, "winia", spec)?;
     } else if desktop_spec.is_some() || android_spec.is_some() {
         merge_existing_target_dependency(
             &mut doc,
             false,
             "winia",
-            &desktop_features,
+            desktop_features,
             android_spec.as_ref().map(|(_, spec)| spec),
         )?;
         merge_existing_target_dependency(
@@ -117,7 +120,7 @@ pub fn run(args: InitArgs) -> Result<()> {
         )?;
     } else {
         let winia_android = new::winia_dependency(args.winia_path.clone(), &android_features)?;
-        let winia_desktop = new::winia_dependency(args.winia_path.clone(), &desktop_features)?;
+        let winia_desktop = new::winia_dependency(args.winia_path.clone(), desktop_features)?;
         set_target_dependency(
             &mut doc,
             "cfg(not(target_os = \"android\"))",
@@ -262,10 +265,11 @@ pub(crate) fn ensure_android_cargo(
         .and_then(|dependencies| dependencies.get("winia"))
         .is_some();
     let backend = new::ANDROID_BACKEND;
-    let features = [backend, "vulkan"];
+    let features = [backend];
     if let Some((_, mut plain)) = dependency_spec(&doc, None) {
         // A plain [dependencies] winia applies to every target; adding a target-specific entry
         // would make Cargo reject the manifest for having two sources.
+        remove_dependency_features(&mut plain, LEGACY_RENDER_FEATURES)?;
         merge_dependency_features(&mut plain, &features)?;
         insert_dependency_spec(&mut doc, None, "winia", plain)?;
     } else if present && replace {
@@ -274,7 +278,13 @@ pub(crate) fn ensure_android_cargo(
         // The direct winia-winit dependency must use the same backend, but keep its own
         // default-features setting: winia decides those, not this rewrite.
         let _ = set_dependency_features(&mut doc, cfg, "winit", &[backend], false);
-    } else if !present {
+    } else if present {
+        // Preserve a hand-written source and unrelated features, but migrate removed renderers.
+        let mut spec = doc["target"][cfg]["dependencies"]["winia"].clone();
+        remove_dependency_features(&mut spec, LEGACY_RENDER_FEATURES)?;
+        merge_dependency_features(&mut spec, &features)?;
+        insert_dependency_spec(&mut doc, Some(cfg), "winia", spec)?;
+    } else {
         let spec = new::winia_dependency(winia_path, &features)?;
         set_target_dependency(&mut doc, cfg, "winia", &spec)?;
     }
@@ -561,6 +571,9 @@ fn merge_existing_target_dependency(
     fallback: Option<&Item>,
 ) -> Result<()> {
     if let Some((key, mut spec)) = dependency_spec(doc, Some(android)) {
+        if name == "winia" {
+            remove_dependency_features(&mut spec, LEGACY_RENDER_FEATURES)?;
+        }
         merge_dependency_features(&mut spec, features)?;
         insert_dependency_spec(doc, Some(&key), name, spec)?;
     } else if let Some(fallback) = fallback {
@@ -601,6 +614,49 @@ fn merge_dependency_features(spec: &mut Item, features: &[&str]) -> Result<()> {
         ),
     }
     Ok(())
+}
+
+fn remove_dependency_features(spec: &mut Item, removed: &[&str]) -> Result<()> {
+    match spec {
+        Item::Value(Value::String(_)) => {}
+        Item::Value(Value::InlineTable(table)) => remove_inline_features(table, removed),
+        Item::Table(table) => {
+            let filtered = table
+                .get("features")
+                .and_then(Item::as_array)
+                .map(|array| filter_features(array, removed));
+            if let Some(filtered) = filtered {
+                table.insert("features", Item::Value(Value::Array(filtered)));
+            }
+        }
+        _ => bail!(
+            "the existing winia dependency has an unsupported shape; edit Cargo.toml manually"
+        ),
+    }
+    Ok(())
+}
+
+fn remove_inline_features(table: &mut InlineTable, removed: &[&str]) {
+    let filtered = table
+        .get("features")
+        .and_then(Value::as_array)
+        .map(|array| filter_features(array, removed));
+    if let Some(filtered) = filtered {
+        table.insert("features", Value::Array(filtered));
+    }
+}
+
+fn filter_features(array: &Array, removed: &[&str]) -> Array {
+    let mut filtered = Array::new();
+    for value in array.iter() {
+        if !removed
+            .iter()
+            .any(|feature| value.as_str() == Some(*feature))
+        {
+            filtered.push(value.clone());
+        }
+    }
+    filtered
 }
 
 fn add_inline_features(table: &mut InlineTable, features: &[&str]) -> Result<()> {
@@ -717,7 +773,41 @@ mod tests {
             "winia path dependency was clobbered: {manifest}"
         );
         assert!(manifest.contains("crate-type"));
+        assert!(!manifest.contains("\"vulkan\""), "{manifest}");
+        assert!(!manifest.contains("\"gl\""), "{manifest}");
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn android_cargo_removes_deleted_renderer_features() {
+        let cases = [
+            (
+                "inline",
+                "[package]\nname = \"probe\"\nversion = \"0.1.0\"\n\n[target.'cfg(target_os = \"android\")'.dependencies]\nwinia = { path = \"../winia\", default-features = false, features = [\"android-game-activity\", \"vulkan\", \"gl\", \"custom\"] }\n",
+            ),
+            (
+                "table",
+                "[package]\nname = \"probe\"\nversion = \"0.1.0\"\n\n[target.'cfg(target_os = \"android\")'.dependencies.winia]\npath = \"../winia\"\ndefault-features = false\nfeatures = [\"android-game-activity\", \"vulkan\", \"gl\", \"custom\"]\n",
+            ),
+            (
+                "plain",
+                "[package]\nname = \"probe\"\nversion = \"0.1.0\"\n\n[dependencies]\nwinia = { path = \"../winia\", default-features = false, features = [\"vulkan\", \"gl\", \"custom\"] }\n",
+            ),
+        ];
+        for (name, manifest) in cases {
+            let root = std::env::temp_dir()
+                .join(format!("winia-init-render-{name}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&root);
+            std::fs::create_dir_all(&root).unwrap();
+            std::fs::write(root.join("Cargo.toml"), manifest).unwrap();
+            ensure_android_cargo(&root, None, false).unwrap();
+            let text = std::fs::read_to_string(root.join("Cargo.toml")).unwrap();
+            assert!(!text.contains("\"vulkan\""), "{name}: {text}");
+            assert!(!text.contains("\"gl\""), "{name}: {text}");
+            assert!(text.contains("\"android-game-activity\""), "{name}: {text}");
+            assert!(text.contains("\"custom\""), "{name}: {text}");
+            let _ = std::fs::remove_dir_all(root);
+        }
     }
 
     #[test]
@@ -769,14 +859,23 @@ mod tests {
             &mut doc,
             true,
             "winia",
-            &["android-game-activity", "vulkan"],
+            &[new::ANDROID_BACKEND],
             desktop.as_ref().map(|(_, spec)| spec),
         )
         .unwrap();
         let text = doc.to_string();
         assert!(text.contains("path = \"../winia\""), "{text}");
         assert!(text.contains("cfg(target_os = \"android\")"), "{text}");
-        assert!(!text.contains("features = [\"gl\", \"android-game-activity\""));
+        let android = text
+            .split("[target.'cfg(target_os = \"android\")'.dependencies]")
+            .nth(1)
+            .unwrap();
+        assert!(!android.contains("\"gl\""), "{text}");
+        assert!(!android.contains("\"vulkan\""), "{text}");
+        assert!(
+            android.contains("features = [\"android-game-activity\"]"),
+            "{text}"
+        );
         let _ = doc;
     }
 

@@ -4,6 +4,47 @@ use anyhow::{Result, bail};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+pub(crate) const PYTHON3_REQUIREMENT: &str = "Skia's GN build invokes `python3`; install Python 3 and make sure `python3 --version` succeeds on PATH";
+
+/// Probe the exact command Skia's generated Ninja rules invoke. On Windows this goes through
+/// `cmd.exe`, so a `python3.cmd` shim works and a broken WindowsApps alias is reported as a failure.
+pub(crate) fn python3_version() -> std::result::Result<String, String> {
+    let mut command = if cfg!(windows) {
+        let mut command = Command::new("cmd");
+        command.args(["/c", "python3", "--version"]);
+        command
+    } else {
+        let mut command = Command::new("python3");
+        command.arg("--version");
+        command
+    };
+    let output = command
+        .output()
+        .map_err(|error| format!("running `python3 --version`: {error}"))?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let line = stdout
+        .lines()
+        .chain(stderr.lines())
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .ok_or_else(|| "`python3 --version` produced no output".to_owned())?;
+    if !output.status.success() {
+        return Err(format!(
+            "{line} (`python3 --version` exited with {})",
+            output.status
+        ));
+    }
+    if !is_python3_version(line) {
+        return Err(format!("python3 did not report Python 3: {line}"));
+    }
+    Ok(line.to_owned())
+}
+
+fn is_python3_version(line: &str) -> bool {
+    line.starts_with("Python 3.")
+}
+
 /// The newest installed build-tools directory, ordered by numeric version parts.
 pub(crate) fn build_tools_dir() -> Option<PathBuf> {
     for variable in ["ANDROID_HOME", "ANDROID_SDK_ROOT"] {
@@ -103,6 +144,14 @@ fn version_key(path: &Path) -> Vec<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn python3_version_requires_a_python_3_banner() {
+        assert!(is_python3_version("Python 3.14.10"));
+        assert!(!is_python3_version("Python 2.7.18"));
+        assert!(!is_python3_version("python3: command not found"));
+        assert!(!is_python3_version(""));
+    }
 
     #[test]
     fn build_tools_versions_sort_numerically() {

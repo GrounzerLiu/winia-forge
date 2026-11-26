@@ -241,6 +241,7 @@ fn build_android_libraries_with(
     crate::icons::ensure(root, config)?;
     let toolchain = AndroidToolchain::discover(config)?;
     let abis = selected_abis(config, args)?;
+    ensure_skia_python3()?;
     ensure_rust_targets(root, &abis)?;
     toolchain.validate(&abis)?;
     clean_jni_libs(root, &abis)?;
@@ -249,6 +250,13 @@ fn build_android_libraries_with(
         build_android_library(root, args, metadata, &toolchain, *abi, features)?;
     }
     crate::assets::stage_android(root, config)?;
+    Ok(())
+}
+
+fn ensure_skia_python3() -> Result<()> {
+    crate::platform::tools::python3_version().map_err(|detail| {
+        anyhow::anyhow!("{}: {detail}", crate::platform::tools::PYTHON3_REQUIREMENT)
+    })?;
     Ok(())
 }
 

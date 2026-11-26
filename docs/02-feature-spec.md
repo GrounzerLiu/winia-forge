@@ -184,8 +184,8 @@ application code. They are not part of `winia.toml`.
 - Every field has a default; a missing section is not an error.
 - `winia config show` prints the merged effective configuration.
 - `winia config get android.min_sdk` reads a single key (dot path).
-- Environment variables may override a few machine-specific settings (such as `WINIA_RENDER_BACKEND`), but
-  project identity settings must not be overridable from the environment.
+- Environment variables may override machine-specific tool locations (such as `ANDROID_HOME`), but project
+  identity settings must not be overridable from the environment. Renderer selection is not an environment setting.
 - The file carries a `schema_version` (added later); upgrades migrate it automatically.
 
 ### 2.3 Validation rules
@@ -232,19 +232,16 @@ packaging. They are kept in the schema so projects can declare intent without br
 
 ### 3.0 Renderer backends
 
-The renderer is not a `winia.toml` setting; it is a cargo feature of the `winia` dependency.
+The renderer is fixed to rust-skia's Graphite `wgpu` backend. It is not a `winia.toml` setting, a
+Cargo feature, or a runtime environment choice. The old `gl` / `vulkan` / `cpu` features, the
+`WINIA_RENDER_BACKEND` variable, and the `skiwin` selection layer have been removed.
 
-- The template pins one backend per target to keep builds small: desktop `features = ["gl"]`,
-  Android `features = ["android-…", "vulkan"]`. Android cannot use GL: no Skia prebuilt exists for
-  that combination, so it would compile Skia from source.
-- Add the other desktop backend without editing the manifest: `winia build --features winia/vulkan`
-  (cargo features are additive).
-- Pin a single backend: edit the desktop dependency's `features` list in `Cargo.toml`. A rebuild
-  follows, because the backend is compiled in.
-- At runtime `WINIA_RENDER_BACKEND=vulkan|gl|cpu` selects among the compiled backends; the auto
-  order is vulkan → gl → cpu. A backend that was not compiled in cannot be selected.
-- Skia itself is fixed: on Windows the prebuilt archive is compiled with d3d/gl/vulkan, on Android
-  with vulkan, so `skiwin` is the only layer a project can choose.
+- The generated desktop dependency declares no renderer feature.
+- The generated Android dependency enables only `android-game-activity`, which selects winit's
+  Android integration rather than a renderer.
+- `skia-safe` 0.158.0 with `wgpu` has no published prebuilt archive. The first build downloads Skia
+  and Dawn's WebGPU headers and compiles them from source, requiring network access, `python3`,
+  Ninja, LLVM (`clang-cl`), and the platform C++ toolchain.
 
 ### 3.1 Basic commands
 

@@ -12,8 +12,7 @@ name = "__PACKAGE_NAME__"
 path = "src/main.rs"
 
 [target.'cfg(target_os = "android")'.dependencies]
-# Vulkan rather than GL: the only Android Skia prebuilt that includes `svg` is the
-# svg + vulkan + webp archive; a GL build would compile Skia from source.
+# Graphite/wgpu is the only renderer; Android only adds the GameActivity backend.
 winia = __WINIA_DEP_ANDROID__
 winit = { package = "winia-winit", version = "=0.31.0-beta.4", features = ["android-game-activity"] }
 

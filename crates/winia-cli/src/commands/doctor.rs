@@ -238,6 +238,7 @@ fn collect_checks(target: Option<Target>, android_required: bool) -> Vec<Check> 
             checks.push(android_sdk_check(android_required));
             checks.push(android_licenses_check(android_required));
             checks.push(android_ndk_check(android_required));
+            checks.push(python3_check(android_required));
             checks.push(adb_check(android_required));
             checks.push(java_check(android_required));
             if let Some(check) = android_permission_bridge_check() {
@@ -1258,6 +1259,21 @@ fn load_and_validate(path: &Path) -> Result<()> {
     Ok(())
 }
 
+fn python3_check(required: bool) -> Check {
+    python3_check_from(required, crate::platform::tools::python3_version())
+}
+
+fn python3_check_from(required: bool, result: std::result::Result<String, String>) -> Check {
+    match result {
+        Ok(detail) => Check::ok("python3", format!("{detail} (Skia source build)"), required),
+        Err(detail) => Check::missing(
+            "python3",
+            format!("{}: {detail}", crate::platform::tools::PYTHON3_REQUIREMENT),
+            required,
+        ),
+    }
+}
+
 fn command_check(name: &'static str, args: &[&str], required: bool) -> Check {
     match version_line(Path::new(name), args) {
         Ok(detail) => Check::ok(name, detail, required),
@@ -1507,6 +1523,20 @@ mod tests {
 
     fn write_cargo(root: &Path, body: &str) {
         std::fs::write(root.join("Cargo.toml"), body).unwrap();
+    }
+
+    #[test]
+    fn python3_check_explains_the_skia_source_build_requirement() {
+        let ok = python3_check_from(true, Ok("Python 3.14.10".to_owned()));
+        assert_eq!(ok.status, Status::Ok);
+        assert!(ok.detail.contains("Skia source build"));
+
+        let missing = python3_check_from(true, Err("command not found".to_owned()));
+        assert_eq!(missing.status, Status::Missing);
+        assert!(missing.detail.contains("python3 --version"));
+
+        let warning = python3_check_from(false, Err("command not found".to_owned()));
+        assert_eq!(warning.status, Status::Warning);
     }
 
     #[test]
